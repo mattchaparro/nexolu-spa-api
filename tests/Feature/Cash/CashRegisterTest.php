@@ -170,18 +170,40 @@ class CashRegisterTest extends TestCase
         $this->assertEqualsWithDelta($sinGastos - 10000, $conGastos->json('expected_cash'), 0.01);
     }
 
-    public function test_un_gasto_administrativo_no_toca_la_caja(): void
+    public function test_un_gasto_administrativo_no_es_gasto_del_dia_pero_si_sale_del_cajon(): void
     {
         $fecha = $this->laboral()->toDateString();
         $this->cobrar('10:00', $this->efectivo);
 
         $antes = $this->getJson("/api/v1/cash/closing/preview?date={$fecha}")->json('expected_cash');
 
-        // Pagar el arriendo es gasto, pero no descuadra el efectivo del
-        // mostrador.
         $this->postJson('/api/v1/expenses', [
             'date' => $fecha, 'description' => 'Arriendo', 'value' => 2000000,
             'scope' => Expense::SCOPE_ADMINISTRATIVE, 'payment_method_id' => $this->efectivo->id,
+        ])->assertCreated();
+
+        $despues = $this->getJson("/api/v1/cash/closing/preview?date={$fecha}");
+
+        // El arriendo es del mes, no de este martes: no entra al gasto del dia
+        // ni haria ver la jornada en perdida.
+        $this->assertEqualsWithDelta(0, $despues->json('total_expenses'), 0.01);
+
+        // Pero se pago con billetes de la caja, y esos billetes ya no estan.
+        // Excluirlo del cuadre por su clasificacion contable dejaba el cierre
+        // corto sin nada que lo explicara.
+        $this->assertEqualsWithDelta($antes - 2000000, $despues->json('expected_cash'), 0.01);
+    }
+
+    public function test_un_gasto_administrativo_por_transferencia_no_toca_la_caja(): void
+    {
+        $fecha = $this->laboral()->toDateString();
+        $this->cobrar('10:00', $this->efectivo);
+
+        $antes = $this->getJson("/api/v1/cash/closing/preview?date={$fecha}")->json('expected_cash');
+
+        $this->postJson('/api/v1/expenses', [
+            'date' => $fecha, 'description' => 'Arriendo', 'value' => 2000000,
+            'scope' => Expense::SCOPE_ADMINISTRATIVE, 'payment_method_id' => $this->transferencia->id,
         ])->assertCreated();
 
         $this->assertEqualsWithDelta(

@@ -67,9 +67,24 @@ class CashTotalsService
             ->with('paymentMethod')
             ->get();
 
+        /*
+         * Un gasto administrativo (arriendo, nomina, impuestos) no cuenta
+         * contra la caja del mostrador... salvo que se haya pagado EN
+         * EFECTIVO, porque entonces la plata si salio del cajon.
+         *
+         * Excluirlo por su clasificacion contable era el bug: pagarle a una
+         * profesional en efectivo dejaba el cierre del dia corto por ese monto
+         * sin nada que lo explicara. Lo que sale del cajon sale del cajon; el
+         * alcance sirve para los reportes, no para contar billetes.
+         */
         $expenses = Expense::withoutGlobalScope('business')
             ->where('business_id', $businessId)
-            ->where('scope', Expense::SCOPE_OPERATIONAL)
+            ->where(function ($q) {
+                $q->where('scope', Expense::SCOPE_OPERATIONAL)
+                    ->orWhereHas('paymentMethod', fn ($m) => $m->where('counts_as_cash', true))
+                    // Sin metodo se asume efectivo, igual que abajo.
+                    ->orWhereNull('payment_method_id');
+            })
             ->whereBetween('date', [$from->toDateString(), $to->toDateString()])
             ->with('paymentMethod')
             ->get();
@@ -119,6 +134,9 @@ class CashTotalsService
             // Sin metodo se asume efectivo: es lo mas comun en un gasto de
             // mostrador, y asumir lo contrario dejaria caja de mas.
             'counts_as_cash' => $expense->paymentMethod?->counts_as_cash ?? true,
+            // Solo lo operacional entra al "gasto del dia". Lo administrativo
+            // igual descuenta caja si se pago en efectivo.
+            'operational' => $expense->scope === Expense::SCOPE_OPERATIONAL,
         ])->values()->all();
 
         $commissions = (float) AppointmentItem::withoutGlobalScope('business')

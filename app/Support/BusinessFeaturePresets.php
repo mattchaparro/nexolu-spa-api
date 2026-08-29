@@ -40,6 +40,7 @@ class BusinessFeaturePresets
             'client_history',        // historial y fotos por cliente
             'multi_resource',        // servicios que ocupan mas de un recurso
             'commissions',
+            'payroll',               // liquidacion de pagos al equipo
             'cash_shift',            // turnos de caja
             'cash_closing',
             'managerial_accounting',
@@ -87,6 +88,7 @@ class BusinessFeaturePresets
             'online_booking' => true,
             'client_history' => true,
             'commissions' => true,
+            'payroll' => true,
             'expenses' => true,
             'product_sales' => true,
             'promotions' => true,

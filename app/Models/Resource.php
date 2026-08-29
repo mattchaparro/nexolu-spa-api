@@ -31,6 +31,7 @@ class Resource extends Model
     protected $fillable = [
         'business_id', 'type', 'user_id', 'name', 'color', 'photo_path',
         'is_bookable_online', 'is_active', 'sort_order',
+        'payroll_mode', 'base_amount', 'base_period', 'base_until', 'payroll_started_on',
     ];
 
     protected function casts(): array
@@ -38,7 +39,23 @@ class Resource extends Model
         return [
             'is_bookable_online' => 'boolean',
             'is_active' => 'boolean',
+            'base_amount' => 'decimal:2',
+            // Fechas y no texto: `base_until` se compara contra el periodo
+            // liquidado, y comparar cadenas de fecha es como se cuela un error
+            // de un dia.
+            'base_until' => 'date',
+            'payroll_started_on' => 'date',
         ];
+    }
+
+    public function settlements(): HasMany
+    {
+        return $this->hasMany(PayrollSettlement::class);
+    }
+
+    public function payrollAdjustments(): HasMany
+    {
+        return $this->hasMany(PayrollAdjustment::class);
     }
 
     public function user(): BelongsTo

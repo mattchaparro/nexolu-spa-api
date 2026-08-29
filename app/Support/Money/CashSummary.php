@@ -13,7 +13,7 @@ final class CashSummary
 {
     /**
      * @param  list<array{amount: float, method_id: int|null, method_label: string, counts_as_cash: bool}>  $charges
-     * @param  list<array{value: float, counts_as_cash: bool}>  $expenses  Solo los operacionales.
+     * @param  list<array{value: float, counts_as_cash: bool, operational?: bool}>  $expenses
      * @return array{
      *   total_charged: float, total_cash: float, total_other_methods: float,
      *   total_expenses: float, opening_cash: float, expected_cash: float,
@@ -52,10 +52,24 @@ final class CashSummary
 
         foreach ($expenses as $expense) {
             $value = (float) $expense['value'];
-            $totalExpenses += $value;
 
-            // Solo lo pagado en efectivo sale del cajon. Un gasto por
-            // transferencia es gasto del negocio pero no descuadra la caja.
+            /*
+             * Dos preguntas distintas sobre el mismo gasto, y por eso dos
+             * acumuladores:
+             *
+             * - "Que gasto el negocio operando hoy" -> solo lo OPERACIONAL. El
+             *   arriendo y la nomina son del mes, no del dia; meterlos aca
+             *   haria ver un martes cualquiera en perdida.
+             *
+             * - "Cuanta plata falta en el cajon" -> todo lo pagado en
+             *   EFECTIVO, sea operacional o no. Si le pagaste la quincena a
+             *   una profesional con billetes de la caja, esos billetes no
+             *   estan, y el cierre tiene que saberlo.
+             */
+            if ($expense['operational'] ?? true) {
+                $totalExpenses += $value;
+            }
+
             if ($expense['counts_as_cash']) {
                 $cashExpenses += $value;
             }

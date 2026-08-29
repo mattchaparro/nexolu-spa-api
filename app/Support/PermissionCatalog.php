@@ -80,6 +80,7 @@ class PermissionCatalog
             ['name' => 'gastos.gestionar', 'category' => 'finanzas', 'label' => 'Gestionar gastos', 'description' => 'Registrar y editar gastos.', 'feature' => 'expenses'],
             ['name' => 'comisiones.ver', 'category' => 'finanzas', 'label' => 'Ver comisiones', 'description' => 'Consultar comisiones del equipo.', 'feature' => 'commissions'],
             ['name' => 'contabilidad.ver', 'category' => 'finanzas', 'label' => 'Contabilidad gerencial', 'description' => 'Ver y cerrar periodos contables.', 'feature' => 'managerial_accounting'],
+            ['name' => 'nomina.gestionar', 'category' => 'finanzas', 'label' => 'Liquidar nómina', 'description' => 'Liquidar y pagar a las profesionales, y registrar anticipos.', 'feature' => 'payroll'],
 
             // Reportes
             ['name' => 'reportes.ver', 'category' => 'reportes', 'label' => 'Ver reportes', 'description' => 'Consultar reportes del negocio.', 'feature' => 'reports'],

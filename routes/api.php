@@ -14,6 +14,7 @@ use App\Http\Controllers\Api\V1\ClientController;
 use App\Http\Controllers\Api\V1\ClientProfileController;
 use App\Http\Controllers\Api\V1\ExpenseController;
 use App\Http\Controllers\Api\V1\MyWorkController;
+use App\Http\Controllers\Api\V1\PayrollController;
 use App\Http\Controllers\Api\V1\ResourceController;
 use App\Http\Controllers\Api\V1\ServiceController;
 use App\Http\Controllers\Api\V1\WalkInController;
@@ -145,6 +146,32 @@ Route::prefix('v1')->group(function () {
             Route::post('/', [ExpenseController::class, 'store'])->middleware('permission:gastos.gestionar');
             Route::post('/{expense}', [ExpenseController::class, 'update'])->middleware('permission:gastos.gestionar');
             Route::delete('/{expense}', [ExpenseController::class, 'destroy'])->middleware('permission:gastos.gestionar');
+        });
+
+        /*
+        |----------------------------------------------------------------------
+        | Nomina
+        |----------------------------------------------------------------------
+        | Lo que el negocio le paga a cada profesional. No es nomina legal
+        | (prestaciones, PILA): eso lo lleva el contador. Aca vive el control
+        | operativo que hoy se hace en una libreta.
+        */
+        Route::prefix('payroll')->middleware(['feature:payroll', 'permission:nomina.gestionar'])->group(function () {
+            Route::get('/pending', [PayrollController::class, 'pending']);
+            Route::get('/settlements', [PayrollController::class, 'index']);
+            Route::get('/settlements/{settlement}', [PayrollController::class, 'showSettlement']);
+            Route::delete('/settlements/{settlement}', [PayrollController::class, 'destroySettlement']);
+
+            Route::get('/resources/{resource}/preview', [PayrollController::class, 'preview']);
+            Route::post('/resources/{resource}/settle', [PayrollController::class, 'settle']);
+
+            Route::get('/adjustments', [PayrollController::class, 'adjustments']);
+            Route::post('/adjustments', [PayrollController::class, 'storeAdjustment']);
+            Route::delete('/adjustments/{adjustment}', [PayrollController::class, 'destroyAdjustment']);
+
+            // Como se le paga a cada una: modo, base y hasta cuando.
+            Route::get('/compensation', [PayrollController::class, 'compensation']);
+            Route::put('/compensation/{resource}', [PayrollController::class, 'updateCompensation']);
         });
 
         Route::prefix('clients')->middleware('feature:clients')->group(function () {
