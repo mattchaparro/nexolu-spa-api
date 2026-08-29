@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\Money\CommissionResolver;
 use App\Traits\BelongsToBusiness;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -79,25 +80,47 @@ class Service extends Model
     }
 
     /**
-     * Porcentaje de comision efectivo para un recurso.
+     * Porcentaje de comision efectivo, y de donde sale.
      *
-     * Una profesional puede tener su propio porcentaje en un servicio
-     * concreto -- tipicamente cuando es la unica que lo presta, o cuando
-     * requiere una habilidad que el resto no tiene. Ignorar el override
-     * liquida de menos y nadie lo nota hasta que alguien reclama.
+     * La cascada vive en CommissionResolver, sin base de datos, para poder
+     * comprobarla con casos escritos a mano. Aca solo se buscan los cuatro
+     * numeros que pueden aplicar.
+     *
+     * @return array{rate: float|null, source: string}
      */
-    public function commissionRateFor(?Resource $resource = null): ?float
+    public function resolveCommissionFor(?Resource $resource = null): array
     {
-        if ($resource === null) {
-            return $this->commission_rate === null ? null : (float) $this->commission_rate;
+        $agreement = null;
+
+        if ($resource !== null) {
+            $agreement = $this->resources()
+                ->where('resources.id', $resource->id)
+                ->first()?->pivot?->commission_rate_override;
         }
 
-        $override = $this->resources()
-            ->where('resources.id', $resource->id)
-            ->first()?->pivot?->commission_rate_override;
+        return CommissionResolver::resolve(
+            agreement: self::toRate($agreement),
+            person: self::toRate($resource?->commission_rate),
+            service: self::toRate($this->commission_rate),
+            category: self::toRate($this->category?->commission_rate),
+        );
+    }
 
-        $rate = $override ?? $this->commission_rate;
+    /** Solo el numero, para quien no necesita explicar de donde salio. */
+    public function commissionRateFor(?Resource $resource = null): ?float
+    {
+        return $this->resolveCommissionFor($resource)['rate'];
+    }
 
-        return $rate === null ? null : (float) $rate;
+    /**
+     * Un decimal de la base a float, conservando el null.
+     *
+     * `(float) null` da 0.0, y 0 significa "este no paga comision" -- muy
+     * distinto de "no configurado, pregunta mas abajo". Convertir a ciegas
+     * cortaba la cascada en el primer escalon vacio.
+     */
+    private static function toRate(mixed $value): ?float
+    {
+        return $value === null ? null : (float) $value;
     }
 }

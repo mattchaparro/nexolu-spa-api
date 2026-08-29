@@ -58,6 +58,9 @@ class ResourceAdminController
                 'is_bookable_online' => $data['is_bookable_online'] ?? true,
                 'is_active' => true,
                 'sort_order' => $data['sort_order'] ?? 0,
+                // Nulo = sin porcentaje propio; cada servicio decide. Distinto
+                // de 0, que es "esta persona no gana comision".
+                'commission_rate' => $data['commission_rate'] ?? null,
             ]);
 
             if ($request->hasFile('photo')) {
@@ -83,6 +86,10 @@ class ResourceAdminController
             'is_active' => ['nullable', 'boolean'],
             'sort_order' => ['nullable', 'integer', 'min:0'],
             'photo' => ImageStorage::rules(),
+            // `present` para poder BORRARLO: sin eso, `null` se veria igual
+            // que "no lo mandaste" y no habria forma de quitarle el porcentaje
+            // a alguien una vez puesto.
+            'commission_rate' => ['sometimes', 'present', 'nullable', 'numeric', 'min:0', 'max:1'],
         ]);
 
         $resource->update(collect($data)->except('photo')->all());
@@ -167,6 +174,10 @@ class ResourceAdminController
             'is_bookable_online' => ['nullable', 'boolean'],
             'sort_order' => ['nullable', 'integer', 'min:0'],
             'photo' => ImageStorage::rules(),
+
+            // Su porcentaje general. Manda sobre el del servicio: es parte de
+            // su acuerdo, y un servicio nuevo no puede cambiarselo en silencio.
+            'commission_rate' => ['nullable', 'numeric', 'min:0', 'max:1'],
 
             // Solo para recursos que son personas.
             'email' => ['nullable', 'email', 'max:255', Rule::unique('users', 'email')->whereNull('deleted_at')],

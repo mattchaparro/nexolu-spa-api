@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\V1\Admin\PermissionController;
 use App\Http\Controllers\Api\V1\Admin\PublicPageController;
 use App\Http\Controllers\Api\V1\Admin\ResourceAdminController;
 use App\Http\Controllers\Api\V1\Admin\ServiceAdminController;
+use App\Http\Controllers\Api\V1\Admin\ServiceCategoryController;
 use App\Http\Controllers\Api\V1\AgendaController;
 use App\Http\Controllers\Api\V1\AppointmentController;
 use App\Http\Controllers\Api\V1\AuthController;
@@ -19,6 +20,7 @@ use App\Http\Controllers\Api\V1\MyWorkController;
 use App\Http\Controllers\Api\V1\PayrollController;
 use App\Http\Controllers\Api\V1\PublicBookingController;
 use App\Http\Controllers\Api\V1\ResourceController;
+use App\Http\Controllers\Api\V1\SalesReportController;
 use App\Http\Controllers\Api\V1\ServiceController;
 use App\Http\Controllers\Api\V1\StageController;
 use App\Http\Controllers\Api\V1\WalkInController;
@@ -46,6 +48,25 @@ Route::prefix('v1')->group(function () {
         Route::get('/me', [AuthController::class, 'me']);
 
         // ---- Catalogo ----
+        /*
+         * Categorias de servicios. Existen sobre todo por la comision: son el
+         * ultimo escalon de la cascada, y permiten mover una familia entera
+         * -- los 20 de manicure -- sin entrar a cada ficha.
+         */
+        Route::prefix('service-categories')->group(function () {
+            Route::get('/', [ServiceCategoryController::class, 'index'])
+                ->middleware('permission:servicios.gestionar');
+
+            Route::middleware('permission:servicios.gestionar')->group(function () {
+                Route::post('/', [ServiceCategoryController::class, 'store']);
+                Route::put('/{category}', [ServiceCategoryController::class, 'update']);
+                Route::delete('/{category}', [ServiceCategoryController::class, 'destroy']);
+            });
+        });
+
+        Route::put('/services/bulk-commission', [ServiceCategoryController::class, 'bulkCommission'])
+            ->middleware('permission:servicios.gestionar');
+
         Route::prefix('services')->group(function () {
             Route::get('/', [ServiceController::class, 'index']);
 
@@ -180,6 +201,14 @@ Route::prefix('v1')->group(function () {
         // El resumen del dia: lo que el dueno mira al cerrar la jornada.
         Route::get('/daily-summary', [CashController::class, 'dailySummary'])
             ->middleware('permission:reportes.ver');
+
+        /*
+         * Reporte de ventas con filtros. Distinto del cierre, que responde
+         * "cuanto efectivo deberia haber ahora": esto responde "como nos fue"
+         * sobre un rango, y por persona o por medio de pago.
+         */
+        Route::get('/reports/sales', [SalesReportController::class, 'index'])
+            ->middleware(['feature:reports', 'permission:reportes.ver']);
 
         Route::prefix('expenses')->middleware('feature:expenses')->group(function () {
             Route::get('/types', [ExpenseController::class, 'types']);

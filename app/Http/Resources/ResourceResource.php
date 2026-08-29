@@ -22,6 +22,8 @@ class ResourceResource extends JsonResource
             'user_id' => $this->user_id,
             'is_bookable_online' => (bool) $this->is_bookable_online,
             'is_active' => (bool) $this->is_active,
+            // Su porcentaje general. Nulo = cada servicio decide.
+            'commission_rate' => $this->commission_rate === null ? null : (float) $this->commission_rate,
             'services' => $this->whenLoaded('services', fn () => $this->services->map(fn ($s) => [
                 'id' => $s->id,
                 'name' => $s->name,

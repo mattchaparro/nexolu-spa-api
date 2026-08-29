@@ -11,7 +11,12 @@ class ServiceCategory extends Model
 {
     use BelongsToBusiness, HasFactory;
 
-    protected $fillable = ['business_id', 'name', 'sort_order'];
+    protected $fillable = ['business_id', 'name', 'commission_rate', 'sort_order', 'is_active'];
+
+    protected function casts(): array
+    {
+        return ['commission_rate' => 'decimal:4', 'is_active' => 'boolean'];
+    }
 
     public function services(): HasMany
     {
