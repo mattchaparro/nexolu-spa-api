@@ -18,6 +18,22 @@ class AppointmentController
     public function __construct(private readonly BookingService $booking) {}
 
     /**
+     * Interpreta la hora que manda el cliente.
+     *
+     * Una hora sin desfase ("2026-08-29 11:00:00") significa "las 11 en la
+     * zona del negocio". Una con desfase se respeta tal cual.
+     *
+     * La distincion no es cosmetica: `parse($s)->setTimezone($tz)` lee el
+     * texto como UTC y despues lo CONVIERTE, asi que unas 11:00 enviadas por
+     * el calendario aterrizaban a las 06:00. Pasar la zona a parse() la usa
+     * solo cuando el texto no trae la suya, que es la semantica que se quiere.
+     */
+    private static function interpret(string $value, string $tz): CarbonImmutable
+    {
+        return CarbonImmutable::parse($value, $tz);
+    }
+
+    /**
      * Las citas de un dia, en la zona del negocio.
      */
     public function index(Request $request): AnonymousResourceCollection
@@ -75,7 +91,7 @@ class AppointmentController
                 [[
                     'service_id' => $data['service_id'],
                     'resource_id' => $data['resource_id'],
-                    'starts_at' => CarbonImmutable::parse($data['starts_at'])->setTimezone($tz),
+                    'starts_at' => self::interpret($data['starts_at'], $tz),
                 ]],
                 $client,
                 $data['client_name'] ?? null,
@@ -113,14 +129,23 @@ class AppointmentController
     {
         $data = $request->validate([
             'starts_at' => ['required', 'date'],
+            // Arrastrar a otra columna del calendario mueve la cita de
+            // profesional, no solo de hora.
+            'resource_id' => ['nullable', 'integer'],
         ]);
 
-        $tz = $request->user()->business->businessTimezone();
+        $business = $request->user()->business;
+        $tz = $business->businessTimezone();
+
+        $resource = isset($data['resource_id'])
+            ? \App\Models\Resource::where('business_id', $business->id)->findOrFail($data['resource_id'])
+            : null;
 
         try {
             $moved = $this->booking->reschedule(
                 $appointment,
-                CarbonImmutable::parse($data['starts_at'])->setTimezone($tz),
+                self::interpret($data['starts_at'], $tz),
+                $resource,
             );
         } catch (SlotUnavailableException $e) {
             return response()->json(['message' => $e->getMessage()], 409);

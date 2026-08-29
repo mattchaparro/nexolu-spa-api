@@ -95,6 +95,37 @@ class AvailabilityService
     }
 
     /**
+     * Ventanas en las que el recurso trabaja ese dia: su horario recurrente,
+     * mas las horas extra, menos los bloqueos. NO resta lo ya ocupado.
+     *
+     * Es lo que necesita la rejilla del calendario, que pinta la franja
+     * laboral como fondo y las citas encima. La disponibilidad para reservar
+     * es otra cosa -- ver freeWindowsFor.
+     *
+     * @return list<TimeWindow>
+     */
+    public function workingWindowsFor(
+        Business $business,
+        Resource $resource,
+        CarbonImmutable $date,
+        ?string $tz = null,
+    ): array {
+        $tz ??= $business->businessTimezone();
+        $date = $date->setTimezone($tz)->startOfDay();
+
+        [$working, $cuts] = $this->scheduleAndBlocks($business, $resource, $date, $tz);
+
+        if ($working === []) {
+            return [];
+        }
+
+        $windows = TimeWindow::subtractAll($working, $cuts);
+        usort($windows, fn ($a, $b) => $a->start <=> $b->start);
+
+        return $windows;
+    }
+
+    /**
      * Ventanas libres de un recurso en una fecha: su horario del dia, mas las
      * horas extra, menos los bloqueos, menos lo que ya esta ocupado.
      *
@@ -110,6 +141,34 @@ class AvailabilityService
         $date = $date->setTimezone($tz)->startOfDay();
         $dayEnd = $date->addDay();
 
+        [$working, $cuts] = $this->scheduleAndBlocks($business, $resource, $date, $tz);
+
+        if ($working === []) {
+            return [];
+        }
+
+        foreach ($this->occupiedWindows($resource, $date, $dayEnd, $tz) as $busy) {
+            $cuts[] = $busy;
+        }
+
+        $free = TimeWindow::subtractAll($working, $cuts);
+        usort($free, fn ($a, $b) => $a->start <=> $b->start);
+
+        return $free;
+    }
+
+    /**
+     * Horario del dia y bloqueos que lo recortan, sin tocar la ocupacion.
+     *
+     * @return array{0: list<TimeWindow>, 1: list<TimeWindow>}
+     */
+    private function scheduleAndBlocks(
+        Business $business,
+        Resource $resource,
+        CarbonImmutable $date,
+        string $tz,
+    ): array {
+        $dayEnd = $date->addDay();
         $working = $this->workingWindows($resource, $date, $tz);
 
         $exceptions = ScheduleException::query()
@@ -128,10 +187,6 @@ class AvailabilityService
             );
         }
 
-        if ($working === []) {
-            return [];
-        }
-
         $cuts = [];
 
         foreach ($exceptions as $exception) {
@@ -145,15 +200,7 @@ class AvailabilityService
             );
         }
 
-        foreach ($this->occupiedWindows($resource, $date, $dayEnd, $tz) as $busy) {
-            $cuts[] = $busy;
-        }
-
-        $free = TimeWindow::subtractAll($working, $cuts);
-
-        usort($free, fn ($a, $b) => $a->start <=> $b->start);
-
-        return $free;
+        return [$working, $cuts];
     }
 
     /**

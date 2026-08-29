@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\V1\Admin\ResourceAdminController;
 use App\Http\Controllers\Api\V1\Admin\ServiceAdminController;
+use App\Http\Controllers\Api\V1\AgendaController;
 use App\Http\Controllers\Api\V1\AppointmentController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\AvailabilityController;
@@ -59,7 +60,9 @@ Route::prefix('v1')->group(function () {
                 ->middleware('permission:horarios.gestionar');
         });
 
-        // ---- Agenda (fase 03) ----
+        // ---- Agenda ----
+        Route::get('/agenda', [AgendaController::class, 'index'])->middleware('permission:citas.ver');
+
         Route::prefix('availability')->group(function () {
             Route::get('/', [AvailabilityController::class, 'index'])->middleware('permission:citas.ver');
         });

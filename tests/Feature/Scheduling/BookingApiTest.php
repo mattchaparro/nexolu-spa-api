@@ -108,6 +108,28 @@ class BookingApiTest extends TestCase
         $this->assertLessThan(count($antes->json('slots')), count($despues->json('slots')));
     }
 
+    public function test_una_hora_sin_desfase_se_interpreta_en_la_zona_del_negocio(): void
+    {
+        $this->actAsAdmin();
+        $resource = $this->makeResource($this->business, start: '09:00:00', end: '18:00:00');
+        $service = $this->makeService($this->business, 60, [$resource]);
+        $fecha = $this->wednesday()->toDateString();
+
+        // Es lo que manda el calendario al tocar una celda: hora local pura.
+        // Bug real: parse() sin zona la leia como UTC y setTimezone la
+        // convertia, asi que unas 11:00 aterrizaban a las 06:00.
+        $this->postJson('/api/v1/appointments', [
+            'service_id' => $service->id,
+            'resource_id' => $resource->id,
+            'starts_at' => "{$fecha} 11:00:00",
+            'client_name' => 'Daniela',
+        ])->assertCreated()->assertJsonPath('label', '11:00');
+
+        $this->getJson("/api/v1/agenda?from={$fecha}")
+            ->assertOk()
+            ->assertJsonPath('days.0.resources.0.appointments.0.start', '11:00');
+    }
+
     public function test_agendar_sobre_un_hueco_tomado_responde_409(): void
     {
         $this->actAsAdmin();
