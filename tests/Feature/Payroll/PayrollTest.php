@@ -100,7 +100,7 @@ class PayrollTest extends TestCase
             'service_id' => $this->service->id,
             'resource_id' => $this->maria->id,
             'started_at' => $cuando->format('Y-m-d H:i:s'),
-            'client_name' => 'Clienta',
+            'client_name' => 'Cliente',
             'payment_method_id' => $this->efectivo->id,
         ])->assertCreated();
 

@@ -316,7 +316,7 @@ class PublicBookingController
      * Por que NO se le deja reservar, o null si si.
      *
      * Los mensajes mandan a llamar en vez de cerrar la puerta: el negocio
-     * quiere a esa clienta, lo que no quiere es la reserva desatendida.
+     * quiere a ese cliente, lo que no quiere es la reserva desatendida.
      */
     private function reasonToRefuse(Business $business, string $phone): ?string
     {

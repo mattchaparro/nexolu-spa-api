@@ -9,7 +9,7 @@ use PHPUnit\Framework\TestCase;
  * Normalizacion de telefonos.
  *
  * Importa mas de lo que parece: el telefono es lo unico que distingue a dos
- * clientas que se llaman igual, y lo que evita duplicar a la misma persona.
+ * clientes que se llaman igual, y lo que evita duplicar a la misma persona.
  * Blue Souls concatenaba "57" a mano en ocho sitios distintos.
  */
 class ChannelPhoneTest extends TestCase

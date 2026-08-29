@@ -52,7 +52,7 @@ class AppointmentStateMachineTest extends TestCase
             SM::allowedFrom(Appointment::STATUS_COMPLETED),
         );
 
-        // Volver a "sin confirmar" perdería que la clienta sí vino.
+        // Volver a "sin confirmar" perdería que el cliente sí vino.
         $this->assertFalse(SM::canTransition(Appointment::STATUS_COMPLETED, Appointment::STATUS_PENDING));
         // Y cancelar algo ya cobrado dejaría un cobro sin cita.
         $this->assertFalse(SM::canTransition(Appointment::STATUS_COMPLETED, Appointment::STATUS_CANCELLED));

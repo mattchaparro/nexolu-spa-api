@@ -186,7 +186,7 @@ class WalkInAndMethodsTest extends TestCase
             'service_id' => $this->service->id,
             // Sin resource_id: se asume ella misma. Elegirse en un
             // desplegable seria absurdo.
-            'client_name' => 'Señora que llegó',
+            'client_name' => 'Alguien sin cita',
             'payment_method_id' => $efectivo->id,
         ])->assertCreated();
 
@@ -208,7 +208,7 @@ class WalkInAndMethodsTest extends TestCase
 
         $this->postJson('/api/v1/walk-in', [
             'service_id' => $this->service->id,
-            'client_name' => 'Señora que llegó',
+            'client_name' => 'Alguien sin cita',
             'client_phone' => '3007776655',
             'payment_method_id' => $efectivo->id,
         ])->assertCreated();
@@ -221,8 +221,8 @@ class WalkInAndMethodsTest extends TestCase
             ->where('phone', '573007776655')->first();
 
         $this->assertNotNull($client);
-        $this->assertSame('Señora', $client->name);
-        $this->assertSame('que llegó', $client->last_name);
+        $this->assertSame('Alguien', $client->name);
+        $this->assertSame('sin cita', $client->last_name);
 
         Sanctum::actingAs($this->admin);
         $this->assertCount(1, $this->getJson("/api/v1/clients/{$client->id}")->json('history'));

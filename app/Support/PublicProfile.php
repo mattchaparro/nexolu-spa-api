@@ -41,7 +41,7 @@ final class PublicProfile
      *
      * Un negocio que no escribio nada igual tiene una pagina que se lee: el
      * titular cae a su nombre y el WhatsApp al telefono que ya tiene cargado.
-     * Una pagina publica a medio llenar es peor que ninguna -- la clienta la
+     * Una pagina publica a medio llenar es peor que ninguna -- el cliente la
      * abre, ve huecos, y decide que el local no existe.
      *
      * @return array<string, string|null>
@@ -95,7 +95,7 @@ final class PublicProfile
      * Acepta `@nombre`, `nombre` o la URL completa, y devuelve siempre la URL.
      *
      * Quien llena esto escribe lo primero; pegar `@luxurynails` en un href
-     * produce un enlace roto que nadie prueba hasta que una clienta lo toca.
+     * produce un enlace roto que nadie prueba hasta que un cliente lo toca.
      */
     private static function instagramUrl(?string $value): ?string
     {

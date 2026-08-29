@@ -57,14 +57,14 @@ final class AppointmentStateMachine
             ],
 
             // Solo hacia atras, y solo a `confirmed`: es lo que hace deshacer
-            // un cobro. Volver a `pending` perderia que la clienta si vino.
+            // un cobro. Volver a `pending` perderia que el cliente si vino.
             Appointment::STATUS_COMPLETED => [
                 Appointment::STATUS_CONFIRMED,
             ],
 
             /*
              * Cancelar libera la ocupacion del recurso, y para cuando alguien
-             * quiera revertirlo el hueco puede estar tomado por otra clienta.
+             * quiera revertirlo el hueco puede estar tomado por otro cliente.
              * Reactivar en silencio pondria dos citas encima. Es terminal a
              * proposito: si se cancelo por error, se vuelve a agendar.
              */
@@ -116,7 +116,7 @@ final class AppointmentStateMachine
         }
 
         if ($from === Appointment::STATUS_CANCELLED) {
-            return 'Esta cita está cancelada y su horario quedó libre. Si la clienta vuelve, agéndala de nuevo.';
+            return 'Esta cita está cancelada y su horario quedó libre. Si el cliente vuelve, agéndala de nuevo.';
         }
 
         if ($from === Appointment::STATUS_COMPLETED) {

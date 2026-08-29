@@ -6,7 +6,7 @@ use App\Models\ClientPenalty;
 use App\Support\Scheduling\StageActionCatalog;
 
 /**
- * Anota la inasistencia en la ficha de la clienta.
+ * Anota la inasistencia en la ficha del cliente.
  *
  * Sin monto: aca no se cobra nada. Lo que queda es el registro, para que quien
  * agenda sepa que esta es la tercera vez. Cobrar por no venir es una decision
@@ -25,9 +25,9 @@ class ApplyNoShowPenaltyAction implements StageAction
         $appointment = $context->appointment;
 
         if (! $appointment->client_id) {
-            // Sin ficha no hay donde anotarlo. Crear una clienta a partir de
+            // Sin ficha no hay donde anotarlo. Crear un cliente a partir de
             // una inasistencia llenaria la base de fantasmas.
-            return StageActionResult::skipped('La cita no está asociada a una ficha de clienta.');
+            return StageActionResult::skipped('La cita no está asociada a una ficha de cliente.');
         }
 
         $yaExiste = ClientPenalty::withoutGlobalScope('business')

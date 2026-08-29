@@ -117,7 +117,7 @@ class PublicBookingTest extends TestCase
 
         $this->assertSame('Uñas que hablan por ti', $pagina->json('profile.headline'));
         // El arroba se convierte en URL: pegarlo crudo en un href produce un
-        // enlace roto que nadie prueba hasta que una clienta lo toca.
+        // enlace roto que nadie prueba hasta que un cliente lo toca.
         $this->assertSame('https://instagram.com/luxurynails', $pagina->json('profile.instagram'));
     }
 

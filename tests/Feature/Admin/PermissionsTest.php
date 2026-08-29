@@ -215,7 +215,7 @@ class PermissionsTest extends TestCase
 
         $this->postJson('/api/v1/walk-in', [
             'service_id' => $this->service->id,
-            'client_name' => 'Señora que llegó',
+            'client_name' => 'Alguien sin cita',
         ])->assertCreated();
     }
 
@@ -227,7 +227,7 @@ class PermissionsTest extends TestCase
 
         $this->postJson('/api/v1/walk-in', [
             'service_id' => $this->service->id,
-            'client_name' => 'Señora que llegó',
+            'client_name' => 'Alguien sin cita',
         ])->assertForbidden();
     }
 

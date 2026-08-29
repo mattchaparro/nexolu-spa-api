@@ -47,7 +47,7 @@ final class DefaultWorkflow
                 'actions' => [[
                     'type' => StageActionCatalog::NOTIFY_CLIENT,
                     'config' => [
-                        'template' => 'Hola {clienta}, te confirmamos tu cita en {negocio}: {servicio} el {fecha} a las {hora} con {profesional}. ¡Te esperamos!',
+                        'template' => 'Hola {cliente}, te confirmamos tu cita en {negocio}: {servicio} el {fecha} a las {hora} con {profesional}. ¡Te esperamos!',
                     ],
                 ]],
             ],
@@ -79,7 +79,7 @@ final class DefaultWorkflow
                 'actions' => [[
                     'type' => StageActionCatalog::NOTIFY_CLIENT,
                     'config' => [
-                        'template' => 'Hola {clienta}, tu cita del {fecha} a las {hora} en {negocio} quedó cancelada. Escríbenos y la reagendamos.',
+                        'template' => 'Hola {cliente}, tu cita del {fecha} a las {hora} en {negocio} quedó cancelada. Escríbenos y la reagendamos.',
                     ],
                 ]],
             ],

@@ -106,7 +106,7 @@ class WalkInController
                     Appointment::SOURCE_ADMIN,
                     $data['notes'] ?? null,
                     // Sin validar la jornada: esto NO agenda, deja constancia
-                    // de algo que ya pasó. Si una clienta llegó a la una y
+                    // de algo que ya pasó. Si un cliente llegó a la una y
                     // Maria la atendió en su hora de almuerzo, el sistema no
                     // puede negarse a registrarlo -- el servicio se prestó y
                     // hay que cobrarlo y comisionarlo igual. La regla protege

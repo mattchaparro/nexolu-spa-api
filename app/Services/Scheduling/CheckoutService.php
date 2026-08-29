@@ -148,7 +148,7 @@ class CheckoutService
             ]);
 
             // Vuelve a "confirmada", no a "sin confirmar": deshacer un cobro
-            // corrige la plata, no borra que la clienta vino.
+            // corrige la plata, no borra que el cliente vino.
             $this->transitions->moveToStatus($appointment, Appointment::STATUS_CONFIRMED, $by);
 
             return $appointment->fresh(['items.service', 'items.resource']);

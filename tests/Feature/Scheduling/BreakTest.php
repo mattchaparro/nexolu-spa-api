@@ -258,7 +258,7 @@ class BreakTest extends TestCase
     {
         $this->almuerzo();
 
-        // No agenda: deja constancia de algo que ya pasó. Si una clienta llegó
+        // No agenda: deja constancia de algo que ya pasó. Si un cliente llegó
         // a la una y Maria la atendió, negarse a registrarlo le quitaria su
         // comision y descuadraria el cierre.
         $this->postJson('/api/v1/walk-in', [

@@ -9,7 +9,7 @@ use Carbon\CarbonImmutable;
 /**
  * Arma el texto de un aviso a partir de la plantilla que escribio el negocio.
  *
- * Sustitucion simple con marcadores `{clienta}`, `{fecha}`, `{hora}`,
+ * Sustitucion simple con marcadores `{cliente}`, `{fecha}`, `{hora}`,
  * `{servicio}`, `{profesional}`, `{negocio}`. No es un motor de plantillas a
  * proposito: quien lo escribe es el dueño de un spa desde un textarea, y un
  * lenguaje con condicionales y bucles ahi solo produce mensajes rotos que
@@ -50,10 +50,16 @@ final class StageMessage
 
         $item = $appointment->items->first();
 
+        // Solo el primer nombre: "Hola Maria Fernanda Restrepo" no lo escribe
+        // nadie por WhatsApp.
+        $nombre = trim(explode(' ', (string) $appointment->client_name)[0] ?? '');
+
         return [
-            // Solo el primer nombre: "Hola Maria Fernanda Restrepo" no lo
-            // escribe nadie por WhatsApp.
-            'clienta' => trim(explode(' ', (string) $appointment->client_name)[0] ?? ''),
+            'cliente' => $nombre,
+            // Alias del nombre anterior del marcador. Una plantilla escrita
+            // con `{clienta}` sigue funcionando en vez de mandar el marcador
+            // crudo por WhatsApp, que es lo que veria el cliente.
+            'clienta' => $nombre,
             'fecha' => $start?->translatedFormat('l j \d\e F') ?? '',
             'hora' => $start?->format('g:i a') ?? '',
             'servicio' => $item?->service?->name ?? '',
@@ -62,25 +68,32 @@ final class StageMessage
         ];
     }
 
-    /** @return list<string> */
+    /**
+     * Los que se le ofrecen a quien escribe la plantilla.
+     *
+     * `clienta` funciona pero no se ofrece: es el nombre viejo del marcador y
+     * no hay razon para que alguien lo escriba a partir de ahora.
+     *
+     * @return list<string>
+     */
     public static function placeholders(): array
     {
-        return ['clienta', 'fecha', 'hora', 'servicio', 'profesional', 'negocio'];
+        return ['cliente', 'fecha', 'hora', 'servicio', 'profesional', 'negocio'];
     }
 
     /**
      * Que decir cuando el negocio no escribio nada.
      *
      * Un mensaje generico y correcto es mejor que no mandar: el negocio marco
-     * la casilla porque quiere que le avisen a la clienta.
+     * la casilla porque quiere que le avisen al cliente.
      */
     private static function fallback(?AppointmentWorkflowStage $stage): string
     {
         return match ($stage?->maps_to_status) {
-            Appointment::STATUS_CONFIRMED => 'Hola {clienta}, tu cita en {negocio} quedó confirmada para el {fecha} a las {hora}. ¡Te esperamos!',
-            Appointment::STATUS_CANCELLED => 'Hola {clienta}, tu cita del {fecha} a las {hora} en {negocio} quedó cancelada.',
-            Appointment::STATUS_COMPLETED => 'Gracias por venir, {clienta}. ¡Te esperamos pronto en {negocio}!',
-            default => 'Hola {clienta}, tu cita en {negocio} del {fecha} a las {hora} se actualizó.',
+            Appointment::STATUS_CONFIRMED => 'Hola {cliente}, tu cita en {negocio} quedó confirmada para el {fecha} a las {hora}. ¡Te esperamos!',
+            Appointment::STATUS_CANCELLED => 'Hola {cliente}, tu cita del {fecha} a las {hora} en {negocio} quedó cancelada.',
+            Appointment::STATUS_COMPLETED => 'Gracias por venir, {cliente}. ¡Te esperamos pronto en {negocio}!',
+            default => 'Hola {cliente}, tu cita en {negocio} del {fecha} a las {hora} se actualizó.',
         };
     }
 }

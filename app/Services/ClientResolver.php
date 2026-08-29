@@ -30,7 +30,7 @@ class ClientResolver
             return null;
         }
 
-        // El telefono primero: es lo unico que distingue a dos clientas que se
+        // El telefono primero: es lo unico que distingue a dos clientes que se
         // llaman igual, y evita duplicar a la misma persona cada vez que
         // alguien escribe su nombre con otra tilde.
         if ($phone !== null) {

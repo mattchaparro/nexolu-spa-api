@@ -198,7 +198,7 @@ class StageWorkflowTest extends TestCase
         $this->postJson("/api/v1/appointments/{$cita->id}/stage", [
             'stage_id' => $this->stage('confirmada')->id,
         ])->assertStatus(422)->assertJsonFragment([
-            'message' => 'Esta cita está cancelada y su horario quedó libre. Si la clienta vuelve, agéndala de nuevo.',
+            'message' => 'Esta cita está cancelada y su horario quedó libre. Si el cliente vuelve, agéndala de nuevo.',
         ]);
 
         $this->assertSame(Appointment::STATUS_CANCELLED, $cita->fresh()->status);
@@ -243,7 +243,7 @@ class StageWorkflowTest extends TestCase
     |--------------------------------------------------------------------------
     */
 
-    public function test_confirmar_le_manda_el_mensaje_a_la_clienta(): void
+    public function test_confirmar_le_manda_el_mensaje_al_cliente(): void
     {
         $canal = $this->canalQueFunciona();
 
@@ -263,12 +263,34 @@ class StageWorkflowTest extends TestCase
         $this->assertSame('ok', $respuesta->json('actions.0.status'));
     }
 
+    public function test_una_plantilla_con_el_marcador_viejo_sigue_funcionando(): void
+    {
+        $canal = $this->canalQueFunciona();
+
+        // `{clienta}` fue el nombre del marcador antes de que el producto
+        // pasara a hablar de clientes en general. Una plantilla escrita así
+        // tiene que seguir rellenándose: si no, el negocio le manda a su
+        // cliente un WhatsApp que dice literalmente "Hola {clienta}".
+        $this->stage('confirmada')->update(['actions' => [[
+            'type' => StageActionCatalog::NOTIFY_CLIENT,
+            'config' => ['template' => 'Hola {clienta}, te esperamos.'],
+        ]]]);
+
+        $cita = $this->agendar();
+
+        $this->postJson("/api/v1/appointments/{$cita->id}/stage", [
+            'stage_id' => $this->stage('confirmada')->id,
+        ])->assertOk();
+
+        $this->assertSame('Hola Carolina, te esperamos.', $canal->sent[0]['body']);
+    }
+
     public function test_sin_telefono_se_omite_el_mensaje_pero_la_cita_avanza(): void
     {
         $this->canalQueFunciona();
 
         $cita = $this->agendar();
-        // El teléfono también en la ficha: agendar por nombre crea la clienta,
+        // El teléfono también en la ficha: agendar por nombre crea el cliente,
         // y la acción cae de vuelta a su número si la cita no lo trae.
         $cita->update(['client_phone' => null]);
         $cita->client?->update(['phone' => null]);
@@ -481,7 +503,7 @@ class StageWorkflowTest extends TestCase
         $this->assertSame('Confirmada', $ultimo['to']);
         $this->assertSame('Sin confirmar', $ultimo['from']);
         $this->assertSame('Ana', $ultimo['by']);
-        $this->assertSame('Avisarle a la clienta', $ultimo['actions'][0]['label']);
+        $this->assertSame('Avisarle al cliente', $ultimo['actions'][0]['label']);
         $this->assertSame('ok', $ultimo['actions'][0]['status']);
     }
 
@@ -534,7 +556,7 @@ class StageWorkflowTest extends TestCase
         $cita = $this->agendar();
         $itemIds = $cita->items()->pluck('id');
 
-        $this->postJson("/api/v1/appointments/{$cita->id}/cancel", ['reason' => 'La clienta avisó'])
+        $this->postJson("/api/v1/appointments/{$cita->id}/cancel", ['reason' => 'El cliente avisó'])
             ->assertOk();
 
         $cita->refresh();

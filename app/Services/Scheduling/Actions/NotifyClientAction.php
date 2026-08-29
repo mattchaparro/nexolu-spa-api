@@ -9,7 +9,7 @@ use App\Support\Scheduling\StageActionCatalog;
 use App\Support\Scheduling\StageMessage;
 
 /**
- * Le avisa a la clienta que su cita cambio.
+ * Le avisa al cliente que su cita cambio.
  *
  * NO es critica: si el mensaje no sale, la cita igual queda marcada. Negarse a
  * confirmar una cita porque WhatsApp esta caido dejaria el mostrador atascado
@@ -36,9 +36,9 @@ class NotifyClientAction implements StageAction
         $phone = $appointment->client_phone ?? $appointment->client?->phone;
 
         if (! $phone) {
-            // Pasa todo el tiempo: la clienta se agendo por telefono y nadie
+            // Pasa todo el tiempo: el cliente se agendo por telefono y nadie
             // anoto el numero. No es una falla.
-            return StageActionResult::skipped('La clienta no tiene teléfono registrado.');
+            return StageActionResult::skipped('El cliente no tiene teléfono registrado.');
         }
 
         $body = StageMessage::render(

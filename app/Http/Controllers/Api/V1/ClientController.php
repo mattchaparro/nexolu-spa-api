@@ -54,7 +54,7 @@ class ClientController
                 'phone' => $c->phone,
                 'email' => $c->email,
                 // Lo que el desplegable muestra: el telefono es lo que
-                // distingue a dos clientas que se llaman igual.
+                // distingue a dos clientes que se llaman igual.
                 'label' => trim($c->fullName().($c->phone ? " · {$c->phone}" : '')),
             ])
         );

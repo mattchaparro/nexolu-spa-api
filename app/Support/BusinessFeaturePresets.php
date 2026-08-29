@@ -70,7 +70,7 @@ class BusinessFeaturePresets
     {
         return [
             'scheduling' => ['group' => 'Agenda', 'label' => 'Agenda y citas', 'help' => 'El calendario y el motor de disponibilidad. Sin esto no hay producto.'],
-            'online_booking' => ['group' => 'Agenda', 'label' => 'Reserva en línea', 'help' => 'Página pública donde la clienta se agenda sola.'],
+            'online_booking' => ['group' => 'Agenda', 'label' => 'Reserva en línea', 'help' => 'Página pública donde el cliente se agenda solo.'],
             'whatsapp_agent' => ['group' => 'Agenda', 'label' => 'Agente de WhatsApp', 'help' => 'Asistente de IA que agenda por chat.'],
             'reminders' => ['group' => 'Agenda', 'label' => 'Recordatorios', 'help' => 'Avisos automáticos de cita y de retoque.'],
             'multi_resource' => ['group' => 'Agenda', 'label' => 'Servicios con varios recursos', 'help' => 'Un servicio que ocupa a la vez a una profesional y una cabina.'],

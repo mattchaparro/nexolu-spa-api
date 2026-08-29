@@ -26,7 +26,7 @@ final class StageActionCatalog
     /** Cobrar lo que quede pendiente al entrar a la etapa. */
     public const MARK_PAID = 'mark_paid';
 
-    /** Liberar el horario para que otra clienta lo pueda tomar. */
+    /** Liberar el horario para que otro cliente lo pueda tomar. */
     public const RELEASE_SLOT = 'release_slot';
 
     /** Anotar la inasistencia en la ficha del cliente. */
@@ -45,7 +45,7 @@ final class StageActionCatalog
      */
     private const ACTIONS = [
         self::NOTIFY_CLIENT => [
-            'label' => 'Avisarle a la clienta',
+            'label' => 'Avisarle al cliente',
             'help' => 'Le llega un mensaje cuando la cita entra a esta etapa.',
             'critical' => false,
             'feature' => 'reminders',
@@ -67,14 +67,14 @@ final class StageActionCatalog
         ],
         self::RELEASE_SLOT => [
             'label' => 'Liberar el horario',
-            'help' => 'Devuelve el espacio a la agenda para que otra clienta lo pueda tomar.',
+            'help' => 'Devuelve el espacio a la agenda para que otro cliente lo pueda tomar.',
             'critical' => true,
             'feature' => null,
             'config' => [],
         ],
         self::APPLY_NO_SHOW_PENALTY => [
             'label' => 'Anotar la inasistencia',
-            'help' => 'Queda en la ficha de la clienta. A las N veces, el negocio decide si le sigue agendando.',
+            'help' => 'Queda en la ficha del cliente. A las N veces, el negocio decide si le sigue agendando.',
             'critical' => false,
             'feature' => 'no_show_penalties',
             'config' => [],
