@@ -29,7 +29,7 @@ class Resource extends Model
     public const TYPE_EQUIPMENT = 'equipment';
 
     protected $fillable = [
-        'business_id', 'type', 'user_id', 'name', 'color',
+        'business_id', 'type', 'user_id', 'name', 'color', 'photo_path',
         'is_bookable_online', 'is_active', 'sort_order',
     ];
 

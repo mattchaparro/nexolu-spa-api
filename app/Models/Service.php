@@ -15,7 +15,7 @@ class Service extends Model
     use BelongsToBusiness, HasFactory, SoftDeletes;
 
     protected $fillable = [
-        'business_id', 'name', 'slug', 'description', 'service_category_id',
+        'business_id', 'name', 'slug', 'description', 'image_path', 'service_category_id',
         'duration_min', 'buffer_before_min', 'buffer_after_min',
         'price', 'commission_rate', 'is_bookable_online', 'is_active', 'sort_order',
     ];

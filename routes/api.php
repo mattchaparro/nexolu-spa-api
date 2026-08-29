@@ -1,5 +1,7 @@
 <?php
 
+use App\Http\Controllers\Api\V1\Admin\ResourceAdminController;
+use App\Http\Controllers\Api\V1\Admin\ServiceAdminController;
 use App\Http\Controllers\Api\V1\AppointmentController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\AvailabilityController;
@@ -30,16 +32,31 @@ Route::prefix('v1')->group(function () {
         Route::post('/logout', [AuthController::class, 'logout']);
         Route::get('/me', [AuthController::class, 'me']);
 
-        // ---- Catalogo (fase 02) ----
+        // ---- Catalogo ----
         Route::prefix('services')->group(function () {
             Route::get('/', [ServiceController::class, 'index']);
-            Route::post('/', fn () => abort(501, 'Pendiente: fase 02'))->middleware('permission:servicios.gestionar');
+
+            Route::middleware('permission:servicios.gestionar')->group(function () {
+                Route::post('/', [ServiceAdminController::class, 'store']);
+                // POST y no PUT: el formulario manda multipart por la imagen,
+                // y PHP no puebla $_FILES en un PUT.
+                Route::post('/{service}', [ServiceAdminController::class, 'update']);
+                Route::delete('/{service}', [ServiceAdminController::class, 'destroy']);
+            });
         });
 
         Route::prefix('resources')->group(function () {
             Route::get('/', [ResourceController::class, 'index']);
-            Route::post('/', fn () => abort(501, 'Pendiente: fase 02'))->middleware('permission:recursos.gestionar');
-            Route::get('/{resource}/schedules', fn () => abort(501, 'Pendiente: fase 02'));
+            Route::get('/{resource}/schedules', [ResourceAdminController::class, 'schedules'])
+                ->middleware('permission:citas.ver');
+
+            Route::middleware('permission:recursos.gestionar')->group(function () {
+                Route::post('/', [ResourceAdminController::class, 'store']);
+                Route::post('/{resource}', [ResourceAdminController::class, 'update']);
+            });
+
+            Route::put('/{resource}/schedules', [ResourceAdminController::class, 'saveSchedules'])
+                ->middleware('permission:horarios.gestionar');
         });
 
         // ---- Agenda (fase 03) ----

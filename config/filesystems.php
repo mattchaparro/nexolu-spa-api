@@ -47,6 +47,37 @@ return [
             'report' => false,
         ],
 
+        /*
+        |----------------------------------------------------------------------
+        | DigitalOcean Spaces
+        |----------------------------------------------------------------------
+        | Compatible con S3, asi que usa el mismo driver cambiando el endpoint.
+        |
+        | Las imagenes de servicios y de trabajos NO van al disco del droplet:
+        | ese servidor es de 2023, su imagen base ya no existe en DigitalOcean,
+        | y no hay backups automatizados en ningun droplet del ecosistema. Una
+        | recreacion se llevaria por delante todas las fotos.
+        |
+        | En local cae a `public` (disco del proyecto) si SPACES_KEY esta vacio,
+        | para no exigir credenciales de nube solo para desarrollar.
+        */
+        'spaces' => [
+            'driver' => 's3',
+            'key' => env('SPACES_KEY'),
+            'secret' => env('SPACES_SECRET'),
+            'region' => env('SPACES_REGION', 'nyc3'),
+            'bucket' => env('SPACES_BUCKET'),
+            'endpoint' => env('SPACES_ENDPOINT'),
+            // La URL publica va por el CDN de Spaces, no por el endpoint de
+            // la API: sirve las imagenes desde el borde y no consume ancho de
+            // banda del droplet.
+            'url' => env('SPACES_CDN_URL'),
+            'use_path_style_endpoint' => false,
+            'visibility' => 'public',
+            'throw' => false,
+            'report' => false,
+        ],
+
         's3' => [
             'driver' => 's3',
             'key' => env('AWS_ACCESS_KEY_ID'),

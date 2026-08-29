@@ -14,7 +14,7 @@ class Business extends Model
 
     protected $fillable = [
         'name', 'slug', 'vertical', 'timezone', 'country_code', 'currency',
-        'phone', 'email', 'address', 'logo_path',
+        'phone', 'email', 'address', 'logo_path', 'cover_path',
         'feature_flags', 'subscription_plan', 'scheduling_settings', 'is_active',
     ];
 

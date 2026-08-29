@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources;
 
+use App\Support\ImageStorage;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -17,6 +18,9 @@ class ServiceResource extends JsonResource
             'name' => $this->name,
             'slug' => $this->slug,
             'description' => $this->description,
+            // URL armada al serializar, no guardada. Si cambia el CDN o el
+            // bucket se cambia en un solo lugar, sin reescribir la base.
+            'image_url' => ImageStorage::url($this->image_path),
             'duration_min' => (int) $this->duration_min,
             'buffer_before_min' => (int) $this->buffer_before_min,
             'buffer_after_min' => (int) $this->buffer_after_min,
