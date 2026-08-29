@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\V1\Admin\BusinessPaymentMethodController;
+use App\Http\Controllers\Api\V1\Admin\PermissionController;
 use App\Http\Controllers\Api\V1\Admin\ResourceAdminController;
 use App\Http\Controllers\Api\V1\Admin\ServiceAdminController;
 use App\Http\Controllers\Api\V1\AgendaController;
@@ -90,13 +91,21 @@ Route::prefix('v1')->group(function () {
         Route::put('/payment-methods/catalog', [BusinessPaymentMethodController::class, 'sync'])
             ->middleware('permission:negocio.configurar');
 
+        // Quien puede hacer que, persona por persona.
+        Route::get('/permissions', [PermissionController::class, 'index'])
+            ->middleware(['feature:permissions_management', 'permission:permisos.gestionar']);
+        Route::put('/permissions/{user}', [PermissionController::class, 'update'])
+            ->middleware(['feature:permissions_management', 'permission:permisos.gestionar']);
+
         // Lo que ve una profesional de si misma: su agenda del dia, lo que
         // lleva ganado y lo que le falta cobrar.
         Route::get('/my-work', [MyWorkController::class, 'summary']);
 
         // Alguien que llega sin cita: registrar y cobrar en un paso.
+        // Permiso propio, no el de agendar: registrar lo que YA se hizo no es
+        // tocar la agenda. Quien puede agendar tambien puede registrar.
         Route::post('/walk-in', [WalkInController::class, 'store'])
-            ->middleware('permission:citas.crear');
+            ->middleware('permission:servicios.registrar,citas.crear');
 
         /*
         |----------------------------------------------------------------------

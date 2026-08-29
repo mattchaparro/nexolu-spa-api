@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Models\User;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 use Spatie\Permission\PermissionRegistrar;
@@ -53,6 +54,11 @@ class PermissionCatalog
             ['name' => 'citas.cancelar', 'category' => 'agenda', 'label' => 'Cancelar citas', 'description' => 'Cancelar y marcar inasistencias.'],
             ['name' => 'horarios.gestionar', 'category' => 'agenda', 'label' => 'Gestionar horarios', 'description' => 'Definir turnos, vacaciones y bloqueos.'],
 
+            // Separado de citas.crear a proposito: registrar lo que YA se
+            // hizo no es tocar la agenda. Un negocio puede querer que su
+            // equipo registre sus servicios sin poder agendar a futuro.
+            ['name' => 'servicios.registrar', 'category' => 'agenda', 'label' => 'Registrar servicio sin cita', 'description' => 'Dejar constancia de alguien que llegó sin agendar. No permite agendar a futuro.'],
+
             // Clientes
             ['name' => 'clientes.ver', 'category' => 'clientes', 'label' => 'Ver clientes', 'description' => 'Consultar la base de clientes.'],
             ['name' => 'clientes.gestionar', 'category' => 'clientes', 'label' => 'Gestionar clientes', 'description' => 'Crear y editar clientes.'],
@@ -63,7 +69,10 @@ class PermissionCatalog
             ['name' => 'recursos.gestionar', 'category' => 'catalogo', 'label' => 'Gestionar equipo y recursos', 'description' => 'Administrar profesionales, sillas y cabinas.'],
 
             // Caja
-            ['name' => 'caja.cobrar', 'category' => 'caja', 'label' => 'Cobrar', 'description' => 'Cerrar y cobrar un servicio prestado.', 'feature' => 'cash_shift'],
+            // Sin bandera: cobrar lo que se atendio es la operacion basica de
+            // cualquier negocio. Estaba atado a `cash_shift` -- que viene
+            // apagado -- y eso lo escondia de la pantalla de permisos.
+            ['name' => 'caja.cobrar', 'category' => 'caja', 'label' => 'Cobrar', 'description' => 'Cerrar y cobrar un servicio prestado.'],
             ['name' => 'caja.turno', 'category' => 'caja', 'label' => 'Abrir y cerrar turno', 'description' => 'Manejar el turno de caja propio.', 'feature' => 'cash_shift'],
             ['name' => 'caja.cierre', 'category' => 'caja', 'label' => 'Cerrar caja del dia', 'description' => 'Hacer el cierre diario del negocio.', 'feature' => 'cash_closing'],
 
@@ -107,18 +116,32 @@ class PermissionCatalog
         return match ($role) {
             self::ROLE_ADMIN => self::names(),
 
-            // El profesional ve y atiende lo suyo; no ve la agenda completa ni
-            // el dinero del negocio.
+            /*
+             * El profesional arranca con lo MINIMO para trabajar: ver su
+             * agenda, registrar lo que atendio y cobrarlo.
+             *
+             * Deliberadamente NO trae acceso a clientes. La base de clientes
+             * con telefonos es el activo del negocio, y darla por defecto a
+             * todo el equipo permite llevarsela y atender por fuera. Quien
+             * quiera darla la da explicitamente, cliente por cliente de su
+             * equipo, desde la pantalla de permisos.
+             *
+             * Tampoco trae `citas.crear`: agendar a futuro es distinto de
+             * registrar lo que ya se hizo.
+             */
             self::ROLE_STAFF => [
-                'citas.ver', 'citas.crear', 'citas.editar',
-                'clientes.ver', 'clientes.historial',
-                'caja.cobrar', 'caja.turno',
+                'citas.ver',
+                'servicios.registrar',
+                'caja.cobrar',
                 'ia.usar',
             ],
 
-            // Recepcion agenda para todos y cobra, pero no toca finanzas.
+            // Recepcion agenda para todos y cobra, pero no toca finanzas. Si
+            // necesita los datos de contacto: su trabajo es llamar para
+            // confirmar y reagendar.
             self::ROLE_RECEPTION => [
                 'citas.ver', 'citas.ver_todas', 'citas.crear', 'citas.editar', 'citas.cancelar',
+                'servicios.registrar',
                 'clientes.ver', 'clientes.gestionar', 'clientes.historial',
                 'caja.cobrar', 'caja.turno',
                 'ia.usar',
@@ -137,6 +160,17 @@ class PermissionCatalog
     /**
      * Crea permisos y roles faltantes. Idempotente: correrlo dos veces no
      * duplica nada ni revoca lo que un negocio haya ajustado a mano.
+     *
+     * SOLO el rol admin lleva permisos colgados. Es a proposito: cuando se
+     * agrega una funcion nueva, el administrador del negocio la recibe sin
+     * que nadie tenga que ir a marcarla.
+     *
+     * Los roles de equipo (profesional, recepcion) quedan VACIOS y funcionan
+     * como etiqueta. Sus permisos se copian al usuario como permisos directos
+     * al asignarle el rol (`applyRole`). Sin eso la pantalla de permisos
+     * mentiria: desmarcar algo que concede el rol no lo revocaria -- spatie
+     * no sabe quitarle a UNA persona un permiso que hereda de su rol -- y el
+     * administrador creeria haber cerrado un acceso que sigue abierto.
      */
     public static function sync(): void
     {
@@ -146,9 +180,31 @@ class PermissionCatalog
 
         foreach (self::roles() as $roleName) {
             $role = Role::findOrCreate($roleName, 'web');
-            $role->givePermissionTo(self::defaultsForRole($roleName));
+
+            if ($roleName === self::ROLE_ADMIN) {
+                $role->givePermissionTo(self::defaultsForRole($roleName));
+            }
         }
 
         app(PermissionRegistrar::class)->forgetCachedPermissions();
+    }
+
+    /**
+     * Asigna el rol y deja al usuario con los permisos con los que ese rol
+     * arranca. De ahi en adelante se ajusta persona por persona.
+     */
+    public static function applyRole(User $user, string $role): void
+    {
+        $user->syncRoles([$role]);
+
+        if ($role === self::ROLE_ADMIN) {
+            // Los tiene por el rol; darselos ademas como directos solo
+            // dejaria copias que habria que mantener sincronizadas.
+            $user->syncPermissions([]);
+
+            return;
+        }
+
+        $user->syncPermissions(self::defaultsForRole($role));
     }
 }

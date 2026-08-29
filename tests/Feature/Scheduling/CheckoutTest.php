@@ -46,7 +46,7 @@ class CheckoutTest extends TestCase
             'password' => Hash::make('password123'),
             'is_active' => true,
         ]);
-        $this->admin->assignRole(PermissionCatalog::ROLE_ADMIN);
+        PermissionCatalog::applyRole($this->admin, PermissionCatalog::ROLE_ADMIN);
 
         $this->efectivo = PaymentMethod::create([
             'business_id' => $this->business->id,

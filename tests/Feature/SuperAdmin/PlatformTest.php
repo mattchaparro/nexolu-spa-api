@@ -154,7 +154,7 @@ class PlatformTest extends TestCase
             'business_id' => $business->id, 'name' => 'Admin', 'email' => 'admin@t.test',
             'password' => Hash::make('password123'), 'is_active' => true,
         ]);
-        $admin->assignRole(PermissionCatalog::ROLE_ADMIN);
+        PermissionCatalog::applyRole($admin, PermissionCatalog::ROLE_ADMIN);
 
         $fecha = $this->wednesday()->toDateString();
 
@@ -213,7 +213,7 @@ class PlatformTest extends TestCase
             'business_id' => $business->id, 'name' => 'Admin', 'email' => 'admin@t.test',
             'password' => Hash::make('password123'), 'is_active' => true,
         ]);
-        $admin->assignRole(PermissionCatalog::ROLE_ADMIN);
+        PermissionCatalog::applyRole($admin, PermissionCatalog::ROLE_ADMIN);
 
         Sanctum::actingAs($admin);
 

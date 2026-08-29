@@ -50,7 +50,7 @@ class ClientProfileTest extends TestCase
             'password' => Hash::make('password123'),
             'is_active' => true,
         ]);
-        $this->admin->assignRole(PermissionCatalog::ROLE_ADMIN);
+        PermissionCatalog::applyRole($this->admin, PermissionCatalog::ROLE_ADMIN);
 
         $this->maria = $this->makeResource($this->business, 'Maria', '09:00:00', '18:00:00');
         $this->service = $this->makeService($this->business, 60, [$this->maria], name: 'Manicure');

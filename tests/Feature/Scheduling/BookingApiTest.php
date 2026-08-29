@@ -41,7 +41,7 @@ class BookingApiTest extends TestCase
             'password' => Hash::make('password123'),
             'is_active' => true,
         ]);
-        $this->admin->assignRole(PermissionCatalog::ROLE_ADMIN);
+        PermissionCatalog::applyRole($this->admin, PermissionCatalog::ROLE_ADMIN);
     }
 
     private function actAsAdmin(): void
@@ -265,7 +265,7 @@ class BookingApiTest extends TestCase
             'password' => Hash::make('password123'),
             'is_active' => true,
         ]);
-        $staff->assignRole(PermissionCatalog::ROLE_STAFF);
+        PermissionCatalog::applyRole($staff, PermissionCatalog::ROLE_STAFF);
 
         $resource = $this->makeResource($this->business, start: '09:00:00', end: '12:00:00');
         $service = $this->makeService($this->business, 60, [$resource]);

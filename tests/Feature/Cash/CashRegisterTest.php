@@ -60,7 +60,7 @@ class CashRegisterTest extends TestCase
             'password' => Hash::make('password123'),
             'is_active' => true,
         ]);
-        $this->admin->assignRole(PermissionCatalog::ROLE_ADMIN);
+        PermissionCatalog::applyRole($this->admin, PermissionCatalog::ROLE_ADMIN);
 
         $this->efectivo = PaymentMethod::create([
             'business_id' => $this->business->id, 'name' => 'Efectivo', 'counts_as_cash' => true,
@@ -317,8 +317,14 @@ class CashRegisterTest extends TestCase
             'business_id' => $this->business->id, 'name' => 'Maria',
             'email' => 'maria@prueba.test', 'password' => Hash::make('password123'), 'is_active' => true,
         ]);
-        $staff->assignRole(PermissionCatalog::ROLE_STAFF);
-        Sanctum::actingAs($staff);
+        PermissionCatalog::applyRole($staff, PermissionCatalog::ROLE_STAFF);
+
+        // El turno NO viene con el rol: en un spa nadie abre y cierra caja
+        // por turnos. Se da a mano en el negocio que si tenga cajera, que es
+        // el caso que esta prueba representa.
+        $staff->givePermissionTo('caja.turno');
+
+        Sanctum::actingAs($staff->fresh());
 
         // Puede manejar SU turno, no el cierre del negocio.
         $this->postJson('/api/v1/cash/shift/open', ['opening_cash' => 0])->assertCreated();

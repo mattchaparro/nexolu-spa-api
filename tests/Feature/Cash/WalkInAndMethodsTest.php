@@ -48,13 +48,13 @@ class WalkInAndMethodsTest extends TestCase
             'business_id' => $this->business->id, 'name' => 'Admin',
             'email' => 'admin@prueba.test', 'password' => Hash::make('password123'), 'is_active' => true,
         ]);
-        $this->admin->assignRole(PermissionCatalog::ROLE_ADMIN);
+        PermissionCatalog::applyRole($this->admin, PermissionCatalog::ROLE_ADMIN);
 
         $this->manicurista = User::create([
             'business_id' => $this->business->id, 'name' => 'Maria',
             'email' => 'maria@prueba.test', 'password' => Hash::make('password123'), 'is_active' => true,
         ]);
-        $this->manicurista->assignRole(PermissionCatalog::ROLE_STAFF);
+        PermissionCatalog::applyRole($this->manicurista, PermissionCatalog::ROLE_STAFF);
 
         $this->maria = Resource::create([
             'business_id' => $this->business->id,
@@ -291,7 +291,7 @@ class WalkInAndMethodsTest extends TestCase
             'business_id' => $this->business->id, 'name' => 'Recepcion',
             'email' => 'recepcion@prueba.test', 'password' => Hash::make('password123'), 'is_active' => true,
         ]);
-        $reception->assignRole(PermissionCatalog::ROLE_RECEPTION);
+        PermissionCatalog::applyRole($reception, PermissionCatalog::ROLE_RECEPTION);
         Sanctum::actingAs($reception);
 
         // Recepcion no es una profesional: no se puede adivinar quien atendio.

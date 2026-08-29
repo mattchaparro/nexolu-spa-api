@@ -42,7 +42,7 @@ class CatalogAdminTest extends TestCase
             'password' => Hash::make('password123'),
             'is_active' => true,
         ]);
-        $this->admin->assignRole(PermissionCatalog::ROLE_ADMIN);
+        PermissionCatalog::applyRole($this->admin, PermissionCatalog::ROLE_ADMIN);
 
         Sanctum::actingAs($this->admin);
     }
@@ -280,7 +280,7 @@ class CatalogAdminTest extends TestCase
             'password' => Hash::make('password123'),
             'is_active' => true,
         ]);
-        $staff->assignRole(PermissionCatalog::ROLE_STAFF);
+        PermissionCatalog::applyRole($staff, PermissionCatalog::ROLE_STAFF);
         Sanctum::actingAs($staff);
 
         $this->postJson('/api/v1/services', ['name' => 'X', 'duration_min' => 30, 'price' => 1000])

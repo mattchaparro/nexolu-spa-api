@@ -25,7 +25,17 @@ class AppointmentResource extends JsonResource
             'source' => $this->source,
             'client_id' => $this->client_id,
             'client_name' => $this->client_name,
-            'client_phone' => $this->client_phone,
+
+            // El telefono solo viaja con permiso de clientes.
+            //
+            // No es celo administrativo: la base de clientes con telefonos es
+            // el activo del negocio. Una profesional necesita saber A QUIEN
+            // atiende, no como contactarla por fuera. El nombre alcanza para
+            // trabajar; el telefono es lo que permite llevarse la clientela.
+            'client_phone' => $this->when(
+                $request->user()?->hasBusinessPermission('clientes.ver') ?? false,
+                fn () => $this->client_phone,
+            ),
             'notes' => $this->notes,
 
             // Totales congelados al cobrar. Nulos mientras la cita no se haya

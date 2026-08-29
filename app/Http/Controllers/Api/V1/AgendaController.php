@@ -6,6 +6,7 @@ use App\Models\Appointment;
 use App\Models\Resource;
 use App\Services\Scheduling\AvailabilityService;
 use App\Services\Scheduling\TimeWindow;
+use App\Support\AgendaScope;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -43,8 +44,13 @@ class AgendaController
             return response()->json(['message' => 'El rango no puede superar 14 dias.'], 422);
         }
 
+        // Sin `citas.ver_todas` la rejilla trae una sola columna: la suya.
+        $scope = AgendaScope::for($request->user());
+
         $resources = Resource::where('type', Resource::TYPE_STAFF)
             ->where('is_active', true)
+            ->when($scope->resourceId !== null, fn ($q) => $q->whereKey($scope->resourceId))
+            ->when($scope->seesNothing(), fn ($q) => $q->whereRaw('1 = 0'))
             ->orderBy('sort_order')
             ->orderBy('name')
             ->get();

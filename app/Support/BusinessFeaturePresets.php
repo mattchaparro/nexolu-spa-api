@@ -72,6 +72,11 @@ class BusinessFeaturePresets
             'reminders' => true,
             'cash_closing' => true,
             'reports' => true,
+
+            // Desde el plan mas basico: decidir quien ve la base de clientes
+            // no es una funcion avanzada, es la unica forma que tiene el
+            // dueno de proteger lo suyo.
+            'permissions_management' => true,
         ]);
     }
 

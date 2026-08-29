@@ -45,7 +45,7 @@ class ResourceAdminController
                     'password' => Hash::make($data['password']),
                     'is_active' => true,
                 ]);
-                $user->assignRole($data['role'] ?? PermissionCatalog::ROLE_STAFF);
+                PermissionCatalog::applyRole($user, $data['role'] ?? PermissionCatalog::ROLE_STAFF);
                 $userId = $user->id;
             }
 

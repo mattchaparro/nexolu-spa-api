@@ -7,6 +7,7 @@ use App\Models\Appointment;
 use App\Services\ClientResolver;
 use App\Services\Scheduling\BookingService;
 use App\Services\Scheduling\Exceptions\SlotUnavailableException;
+use App\Support\AgendaScope;
 use App\Support\ChannelPhone;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
@@ -55,6 +56,15 @@ class AppointmentController
         $from = CarbonImmutable::parse($data['date'], $tz)->startOfDay()->utc();
         $to = $from->addDay();
 
+        // Sin `citas.ver_todas` solo se ve la agenda propia. Ver la del
+        // negocio entero es la version suave de la misma fuga: revela toda la
+        // clientela, no solo la que uno atiende.
+        $scope = AgendaScope::for($request->user());
+
+        if ($scope->seesNothing()) {
+            return AppointmentResource::collection(collect());
+        }
+
         $appointments = Appointment::query()
             ->with(['items.service', 'items.resource', 'client'])
             ->where('starts_at', '>=', $from)
@@ -62,6 +72,10 @@ class AppointmentController
             ->when(
                 isset($data['resource_id']),
                 fn ($q) => $q->whereHas('items', fn ($i) => $i->where('resource_id', $data['resource_id'])),
+            )
+            ->when(
+                $scope->resourceId !== null,
+                fn ($q) => $q->whereHas('items', fn ($i) => $i->where('resource_id', $scope->resourceId)),
             )
             ->orderBy('starts_at')
             ->get();

@@ -107,7 +107,7 @@ class BusinessesController
                 'password' => Hash::make($data['owner_password']),
                 'is_active' => true,
             ]);
-            $owner->assignRole(PermissionCatalog::ROLE_ADMIN);
+            PermissionCatalog::applyRole($owner, PermissionCatalog::ROLE_ADMIN);
 
             // Efectivo siempre: sin al menos un metodo de pago no se puede
             // cobrar, y ningun negocio arranca sin cobrar en efectivo.

@@ -93,7 +93,7 @@ class DevelopmentSeeder extends Seeder
                 'password' => Hash::make('password123'),
                 'is_active' => true,
             ]);
-            $user->assignRole(PermissionCatalog::ROLE_STAFF);
+            PermissionCatalog::applyRole($user, PermissionCatalog::ROLE_STAFF);
 
             $resource = Resource::create([
                 'business_id' => $business->id,
