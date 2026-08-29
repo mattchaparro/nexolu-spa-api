@@ -3,7 +3,9 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Models\Appointment;
+use App\Models\Business;
 use App\Models\Resource;
+use App\Models\ResourceBreak;
 use App\Services\Scheduling\AvailabilityService;
 use App\Services\Scheduling\TimeWindow;
 use App\Support\AgendaScope;
@@ -75,6 +77,10 @@ class AgendaController
                         ],
                         $this->availability->workingWindowsFor($business, $resource, $date, $tz),
                     ),
+                    // Los descansos viajan aparte de las ventanas para que la
+                    // rejilla pueda decir "Almuerzo" en vez de dejar un hueco
+                    // gris que se lee igual que "ya salio".
+                    'breaks' => $this->breaksFor($business, $resource, $date),
                     'appointments' => $this->appointmentsFor($appointments, $resource->id, $date, $tz),
                 ])->values(),
             ];
@@ -89,6 +95,28 @@ class AgendaController
             'day_end' => $this->edge($days, 'end', '18:00', fn ($a, $b) => $a > $b),
             'days' => $days,
         ]);
+    }
+
+    /**
+     * Los almuerzos y descansos de un recurso ese dia, ya recortados a lo que
+     * de verdad se ve en la rejilla.
+     *
+     * @return list<array{start:string, end:string, label:string}>
+     */
+    private function breaksFor(Business $business, Resource $resource, CarbonImmutable $date): array
+    {
+        return ResourceBreak::query()
+            ->where('business_id', $business->id)
+            ->applyingTo($resource->id, $date->toDateString(), (int) $date->isoWeekday())
+            ->orderBy('start_time')
+            ->get()
+            ->map(fn (ResourceBreak $b) => [
+                'start' => substr((string) $b->start_time, 0, 5),
+                'end' => substr((string) $b->end_time, 0, 5),
+                'label' => $b->label,
+            ])
+            ->values()
+            ->all();
     }
 
     /** @return Collection<int, Appointment> */

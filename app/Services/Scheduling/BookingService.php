@@ -9,6 +9,7 @@ use App\Models\Client;
 use App\Models\Resource;
 use App\Models\ResourceOccupancy;
 use App\Models\Service;
+use App\Services\Scheduling\Exceptions\OutsideWorkingHoursException;
 use App\Services\Scheduling\Exceptions\SlotUnavailableException;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\QueryException;
@@ -42,6 +43,7 @@ class BookingService
         ?string $clientPhone = null,
         string $source = Appointment::SOURCE_ADMIN,
         ?string $notes = null,
+        bool $enforceSchedule = true,
     ): Appointment {
         if ($items === []) {
             throw new \InvalidArgumentException('Una cita necesita al menos un servicio.');
@@ -50,8 +52,8 @@ class BookingService
         $tz = $business->businessTimezone();
         $granularity = (int) $business->schedulingSetting('slot_granularity_min');
 
-        return DB::transaction(function () use ($business, $items, $client, $clientName, $clientPhone, $source, $notes, $tz, $granularity) {
-            $resolved = $this->resolveItems($business, $items, $tz);
+        return DB::transaction(function () use ($business, $items, $client, $clientName, $clientPhone, $source, $notes, $tz, $granularity, $enforceSchedule) {
+            $resolved = $this->resolveItems($business, $items, $tz, $enforceSchedule);
 
             $appointment = Appointment::create([
                 'business_id' => $business->id,
@@ -118,6 +120,10 @@ class BookingService
 
             $start = $newStart->setTimezone($tz);
             $window = $this->windowFor($service, $resource, $start);
+
+            // Arrastrar en el calendario entra por aca. Sin este chequeo, una
+            // cita se puede soltar encima del almuerzo con el raton.
+            $this->assertWorkable($business, $resource, $window, $tz);
 
             $item->update([
                 'resource_id' => $resource->id,
@@ -194,7 +200,7 @@ class BookingService
      * @param  list<array{service_id:int, resource_id:int, starts_at:string|CarbonImmutable}>  $items
      * @return list<array{service:Service, resource:Resource, starts_at:CarbonImmutable, ends_at:CarbonImmutable, service_starts_at:CarbonImmutable, service_ends_at:CarbonImmutable}>
      */
-    private function resolveItems(Business $business, array $items, string $tz): array
+    private function resolveItems(Business $business, array $items, string $tz, bool $enforceSchedule = true): array
     {
         $resolved = [];
 
@@ -210,13 +216,47 @@ class BookingService
                 ? $raw['starts_at']->setTimezone($tz)
                 : CarbonImmutable::parse($raw['starts_at'], $tz);
 
-            $resolved[] = array_merge(
-                ['service' => $service, 'resource' => $resource],
-                $this->windowFor($service, $resource, $start),
-            );
+            $window = $this->windowFor($service, $resource, $start);
+
+            if ($enforceSchedule) {
+                $this->assertWorkable($business, $resource, $window, $tz);
+            }
+
+            $resolved[] = array_merge(['service' => $service, 'resource' => $resource], $window);
         }
 
         return $resolved;
+    }
+
+    /**
+     * Rechaza agendar fuera de la jornada: antes de abrir, despues de cerrar,
+     * en un dia que no trabaja, o encima de un almuerzo.
+     *
+     * La lista de huecos ya lo oculta, pero ocultar no es impedir: el
+     * calendario manda una hora arbitraria al arrastrar, la reserva publica y
+     * el agente de WhatsApp mandan la que les pidan, y hasta aca llegaba
+     * cualquiera de las tres. Un almuerzo que se puede pisar mandando la hora a
+     * mano no es un almuerzo.
+     *
+     * @param  array{starts_at:CarbonImmutable, ends_at:CarbonImmutable, service_starts_at:CarbonImmutable, service_ends_at:CarbonImmutable}  $window
+     */
+    private function assertWorkable(Business $business, Resource $resource, array $window, string $tz): void
+    {
+        // Se valida la ventana OCUPADA, buffers incluidos: si el servicio
+        // termina a la una y su buffer de limpieza se mete en el almuerzo, la
+        // profesional igual esta trabajando en su hora de comer.
+        $occupied = new TimeWindow(
+            $window['starts_at']->setTimezone($tz),
+            $window['ends_at']->setTimezone($tz),
+        );
+
+        if ($this->availability->windowIsWorkable($business, $resource, $occupied, $tz)) {
+            return;
+        }
+
+        throw new OutsideWorkingHoursException(
+            "{$resource->name} no atiende en ese horario. Revisa su jornada y sus descansos."
+        );
     }
 
     /**

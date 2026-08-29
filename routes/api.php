@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\V1\Admin\BreakController;
 use App\Http\Controllers\Api\V1\Admin\BusinessPaymentMethodController;
 use App\Http\Controllers\Api\V1\Admin\PermissionController;
 use App\Http\Controllers\Api\V1\Admin\ResourceAdminController;
@@ -66,6 +67,18 @@ Route::prefix('v1')->group(function () {
 
             Route::put('/{resource}/schedules', [ResourceAdminController::class, 'saveSchedules'])
                 ->middleware('permission:horarios.gestionar');
+        });
+
+        // Almuerzos y descansos. Mismo permiso que los horarios: es la misma
+        // decision -- cuando se atiende y cuando no.
+        Route::prefix('breaks')->group(function () {
+            Route::get('/', [BreakController::class, 'index'])->middleware('permission:citas.ver');
+
+            Route::middleware('permission:horarios.gestionar')->group(function () {
+                Route::post('/', [BreakController::class, 'store']);
+                Route::put('/{break}', [BreakController::class, 'update']);
+                Route::delete('/{break}', [BreakController::class, 'destroy']);
+            });
         });
 
         // ---- Agenda ----

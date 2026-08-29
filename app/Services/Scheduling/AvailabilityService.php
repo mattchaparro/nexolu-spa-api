@@ -4,6 +4,7 @@ namespace App\Services\Scheduling;
 
 use App\Models\Business;
 use App\Models\Resource;
+use App\Models\ResourceBreak;
 use App\Models\ResourceOccupancy;
 use App\Models\ResourceSchedule;
 use App\Models\ScheduleException;
@@ -200,7 +201,73 @@ class AvailabilityService
             );
         }
 
+        /*
+         * Los descansos entran como cortes, igual que un bloqueo, y por eso
+         * ninguna hora extra los puede reabrir: la resta corre DESPUES de que
+         * las horas extra se sumaron al horario. Es la propiedad que se quiere
+         * -- el almuerzo no se negocia con una excepcion puntual.
+         */
+        foreach ($this->breakWindows($business, $resource, $date, $tz) as $rest) {
+            $cuts[] = $rest;
+        }
+
         return [$working, $cuts];
+    }
+
+    /**
+     * Los almuerzos y descansos que aplican a este recurso ese dia.
+     *
+     * @return list<TimeWindow>
+     */
+    private function breakWindows(
+        Business $business,
+        Resource $resource,
+        CarbonImmutable $date,
+        string $tz,
+    ): array {
+        return ResourceBreak::query()
+            ->where('business_id', $business->id)
+            ->applyingTo($resource->id, $date->toDateString(), (int) $date->isoWeekday())
+            ->get()
+            ->map(fn (ResourceBreak $rest) => new TimeWindow(
+                $this->atTime($date, (string) $rest->start_time, $tz),
+                $this->atTime($date, (string) $rest->end_time, $tz),
+            ))
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Si el intervalo pedido cabe entero dentro de la jornada del recurso.
+     *
+     * Lo usa BookingService antes de escribir. Sin este chequeo, la lista de
+     * huecos oculta el almuerzo pero la API acepta cualquier `starts_at`, y
+     * arrastrar una cita en el calendario o mandar la hora a mano la mete
+     * igual. Que la pantalla no ofrezca algo no es lo mismo que el sistema no
+     * lo permita.
+     */
+    public function windowIsWorkable(
+        Business $business,
+        Resource $resource,
+        TimeWindow $window,
+        ?string $tz = null,
+    ): bool {
+        $tz ??= $business->businessTimezone();
+        $start = $window->start->setTimezone($tz);
+
+        [$working, $cuts] = $this->scheduleAndBlocks($business, $resource, $start->startOfDay(), $tz);
+
+        if ($working === []) {
+            return false;
+        }
+
+        foreach (TimeWindow::subtractAll($working, $cuts) as $open) {
+            if ($open->contains($window)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

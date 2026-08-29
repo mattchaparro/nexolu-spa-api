@@ -128,6 +128,11 @@ class AppointmentController
             // desenlace normal, no una falla del sistema. El front lo trata
             // recargando la disponibilidad.
             return response()->json(['message' => $e->getMessage()], 409);
+        } catch (\DomainException $e) {
+            // Fuera de jornada o encima de un almuerzo. 422 y no 409: no es
+            // que el hueco este tomado, es que no existe, y recargar la
+            // disponibilidad no lo va a hacer aparecer.
+            return response()->json(['message' => $e->getMessage()], 422);
         }
 
         return response()->json(
