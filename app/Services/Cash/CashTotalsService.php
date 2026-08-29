@@ -6,6 +6,7 @@ use App\Models\Appointment;
 use App\Models\AppointmentItem;
 use App\Models\Expense;
 use App\Models\PaymentMethod;
+use App\Support\Money\CashSummary;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 
@@ -95,67 +96,38 @@ class CashTotalsService
             ->get()
             ->keyBy('id');
 
-        $breakdown = [];
-        $totalCharged = 0.0;
-        $totalCash = 0.0;
-
-        foreach ($appointments as $appointment) {
-            $total = (float) ($appointment->total ?? 0);
-            $totalCharged += $total;
-
+        // Este servicio solo traduce filas de la base a la forma que espera el
+        // calculo. La aritmetica del cuadre vive en CashSummary, sin base de
+        // datos, para poder probarla con casos escritos a mano.
+        $charges = $appointments->map(function (Appointment $appointment) use ($methods) {
             $method = $appointment->payment_method_id !== null
                 ? $methods->get($appointment->payment_method_id)
                 : null;
 
-            $key = $method?->id ?? 0;
-
-            $breakdown[$key] ??= [
-                'id' => $method?->id,
+            return [
+                'amount' => (float) ($appointment->total ?? 0),
+                'method_id' => $method?->id,
                 // Una cita cobrada sin metodo no deberia existir, pero si
                 // aparece se muestra en vez de desaparecer del cuadre.
-                'label' => $method?->name ?? 'Sin método',
+                'method_label' => $method?->name ?? 'Sin método',
                 'counts_as_cash' => (bool) ($method?->counts_as_cash ?? false),
-                'total' => 0.0,
             ];
-            $breakdown[$key]['total'] += $total;
+        })->values()->all();
 
-            if ($method?->counts_as_cash) {
-                $totalCash += $total;
-            }
-        }
-
-        // Solo los gastos pagados en efectivo salen del cajon. Uno pagado por
-        // transferencia es gasto del negocio pero no toca la caja fisica.
-        $totalExpenses = 0.0;
-        $cashExpenses = 0.0;
-
-        foreach ($expenses as $expense) {
-            $value = (float) $expense->value;
-            $totalExpenses += $value;
-
-            if ($expense->paymentMethod?->counts_as_cash ?? true) {
-                $cashExpenses += $value;
-            }
-        }
+        $expenseRows = $expenses->map(fn (Expense $expense) => [
+            'value' => (float) $expense->value,
+            // Sin metodo se asume efectivo: es lo mas comun en un gasto de
+            // mostrador, y asumir lo contrario dejaria caja de mas.
+            'counts_as_cash' => $expense->paymentMethod?->counts_as_cash ?? true,
+        ])->values()->all();
 
         $commissions = (float) AppointmentItem::withoutGlobalScope('business')
             ->whereIn('appointment_id', $appointments->pluck('id'))
             ->sum('commission_amount');
 
-        usort($breakdown, fn ($a, $b) => $b['total'] <=> $a['total']);
-
-        return [
-            'total_charged' => round($totalCharged, 2),
-            'total_cash' => round($totalCash, 2),
-            'total_other_methods' => round($totalCharged - $totalCash, 2),
-            'total_expenses' => round($totalExpenses, 2),
+        return CashSummary::build($charges, $expenseRows, $openingCash) + [
             'total_commissions' => round($commissions, 2),
-            'opening_cash' => round($openingCash, 2),
-            // Lo que deberia haber fisicamente: la base, mas lo cobrado en
-            // efectivo, menos lo que salio del cajon.
-            'expected_cash' => round($openingCash + $totalCash - $cashExpenses, 2),
             'appointments' => $appointments->count(),
-            'payment_breakdown' => array_values($breakdown),
         ];
     }
 }

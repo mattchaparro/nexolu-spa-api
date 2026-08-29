@@ -3,8 +3,10 @@
 namespace App\Services\Scheduling;
 
 use App\Models\Appointment;
+use App\Models\AppointmentItem;
 use App\Models\PaymentMethod;
 use App\Models\User;
+use App\Support\Money\DiscountAllocator;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -58,29 +60,26 @@ class CheckoutService
                 throw new \DomainException('El descuento no puede superar el total.');
             }
 
+            // El reparto proporcional y el redondeo viven en DiscountAllocator,
+            // sin base de datos: es la aritmetica mas facil de romper de todo
+            // el modulo y hay que poder probarla con casos escritos a mano.
+            $charged = DiscountAllocator::allocate(
+                $items->map(fn (AppointmentItem $item) => (float) $item->final_price)->all(),
+                $discountAmount,
+            );
+
+            $commissionAmounts = DiscountAllocator::commissions(
+                $charged,
+                $items->map(fn (AppointmentItem $item) => $item->commission_rate === null
+                    ? null
+                    : (float) $item->commission_rate)->all(),
+            );
+
             $commissionTotal = 0.0;
-            $repartido = 0.0;
-            $ultimo = $items->count() - 1;
 
             foreach ($items as $i => $item) {
-                // El descuento se reparte proporcional al peso de cada linea:
-                // la comision debe calcularse sobre lo que de verdad entro por
-                // ese servicio, no sobre el precio de lista.
-                if ($i === $ultimo) {
-                    // La ultima linea absorbe el redondeo, para que la suma de
-                    // las partes sea exactamente el total. Sin esto se pierden
-                    // pesos y el cierre de caja no cuadra por centavos.
-                    $porcion = round($discountAmount - $repartido, 2);
-                } else {
-                    $porcion = $subtotal > 0
-                        ? round($discountAmount * ($item->final_price / $subtotal), 2)
-                        : 0.0;
-                    $repartido += $porcion;
-                }
-
-                $cobrado = round($item->final_price - $porcion, 2);
-                $item->commission_amount = round($cobrado * (float) ($item->commission_rate ?? 0), 2);
-                $commissionTotal += $item->commission_amount;
+                $item->commission_amount = $commissionAmounts[$i];
+                $commissionTotal += $commissionAmounts[$i];
                 $item->save();
             }
 
