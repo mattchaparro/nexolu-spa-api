@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\V1\SuperAdmin\BusinessesController;
 use App\Http\Controllers\Api\V1\SuperAdmin\DashboardController;
+use App\Http\Controllers\Api\V1\SuperAdmin\ImpersonateController;
 use App\Http\Controllers\Api\V1\SuperAdmin\PaymentMethodCatalogController;
 use App\Http\Controllers\Api\V1\SuperAdmin\WorkflowController;
 use Illuminate\Support\Facades\Route;
@@ -42,3 +43,10 @@ Route::get('/workflows', [WorkflowController::class, 'index'])->name('workflows.
 Route::post('/workflows', [WorkflowController::class, 'store'])->name('workflows.store');
 Route::patch('/workflows/{workflow}', [WorkflowController::class, 'update'])->name('workflows.update');
 Route::put('/workflows/{workflow}/stages', [WorkflowController::class, 'saveStages'])->name('workflows.stages');
+
+/*
+| "Entrar como" un usuario de un negocio, para soporte. No hay endpoint para
+| volver: el front guarda el token del superadmin aparte y salir es un
+| POST /logout normal con el token de impersonacion, que lo revoca.
+*/
+Route::post('/impersonate/{user}', [ImpersonateController::class, 'start'])->name('impersonate.start');

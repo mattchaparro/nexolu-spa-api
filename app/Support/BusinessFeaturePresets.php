@@ -56,6 +56,84 @@ class BusinessFeaturePresets
     }
 
     /**
+     * Como se llama cada modulo en pantalla, y en que grupo va.
+     *
+     * Las llaves del catalogo son identificadores -- `no_show_penalties`,
+     * `managerial_accounting` -- y son las correctas para el codigo. Pero el
+     * panel las estaba mostrando crudas, asi que quien configura un negocio
+     * tenia que adivinar que enciende. Un interruptor que dice
+     * `whatsapp_agent` no se puede prender con confianza.
+     *
+     * @return array<string, array{label: string, group: string, help: string}>
+     */
+    public static function labels(): array
+    {
+        return [
+            'scheduling' => ['group' => 'Agenda', 'label' => 'Agenda y citas', 'help' => 'El calendario y el motor de disponibilidad. Sin esto no hay producto.'],
+            'online_booking' => ['group' => 'Agenda', 'label' => 'Reserva en línea', 'help' => 'Página pública donde la clienta se agenda sola.'],
+            'whatsapp_agent' => ['group' => 'Agenda', 'label' => 'Agente de WhatsApp', 'help' => 'Asistente de IA que agenda por chat.'],
+            'reminders' => ['group' => 'Agenda', 'label' => 'Recordatorios', 'help' => 'Avisos automáticos de cita y de retoque.'],
+            'multi_resource' => ['group' => 'Agenda', 'label' => 'Servicios con varios recursos', 'help' => 'Un servicio que ocupa a la vez a una profesional y una cabina.'],
+            'no_show_penalties' => ['group' => 'Agenda', 'label' => 'Registro de inasistencias', 'help' => 'Anota en la ficha cuando alguien no llega.'],
+
+            'clients' => ['group' => 'Clientes', 'label' => 'Base de clientes', 'help' => 'Fichas con nombre y teléfono.'],
+            'client_history' => ['group' => 'Clientes', 'label' => 'Historial y fotos', 'help' => 'Qué se le hizo, cuánto gastó y fotos del trabajo.'],
+            'loyalty' => ['group' => 'Clientes', 'label' => 'Fidelización', 'help' => 'Tarjetas de sellos y recompensas.'],
+            'promotions' => ['group' => 'Clientes', 'label' => 'Promociones', 'help' => 'Descuentos y cupones.'],
+
+            'cash_closing' => ['group' => 'Dinero', 'label' => 'Cierre del día', 'help' => 'Cuadrar lo que hay en caja contra lo que se cobró.'],
+            'cash_shift' => ['group' => 'Dinero', 'label' => 'Turnos de caja', 'help' => 'Abrir y cerrar caja por persona. En un spa casi nunca se usa: viene apagado.'],
+            'expenses' => ['group' => 'Dinero', 'label' => 'Gastos', 'help' => 'Lo que sale, por fecha contable.'],
+            'commissions' => ['group' => 'Dinero', 'label' => 'Comisiones', 'help' => 'Porcentaje por profesional y por servicio.'],
+            'payroll' => ['group' => 'Dinero', 'label' => 'Nómina', 'help' => 'Liquidar y pagarle al equipo, con anticipos y descuentos.'],
+            'product_sales' => ['group' => 'Dinero', 'label' => 'Venta de producto', 'help' => 'Vender esmaltes y demás sin agendar una cita.'],
+            'managerial_accounting' => ['group' => 'Dinero', 'label' => 'Contabilidad gerencial', 'help' => 'Cerrar periodos contables.'],
+
+            'reports' => ['group' => 'Administración', 'label' => 'Reportes', 'help' => 'Resumen del día y del periodo.'],
+            'permissions_management' => ['group' => 'Administración', 'label' => 'Permisos del equipo', 'help' => 'Decidir quién ve qué. Encendido desde el plan básico.'],
+            'audit_logs' => ['group' => 'Administración', 'label' => 'Auditoría', 'help' => 'Registro de quién hizo qué.'],
+        ];
+    }
+
+    /** @return list<string> */
+    public static function groups(): array
+    {
+        return ['Agenda', 'Clientes', 'Dinero', 'Administración'];
+    }
+
+    /**
+     * El catalogo con su etiqueta, agrupado y en el orden en que se muestra.
+     *
+     * @return list<array{key: string, label: string, group: string, help: string}>
+     */
+    public static function describedCatalog(): array
+    {
+        $labels = self::labels();
+        $result = [];
+
+        foreach (self::groups() as $group) {
+            foreach (self::catalog() as $key) {
+                if (($labels[$key]['group'] ?? null) !== $group) {
+                    continue;
+                }
+
+                $result[] = ['key' => $key] + $labels[$key];
+            }
+        }
+
+        // Una bandera nueva sin etiqueta igual aparece, con su llave cruda y
+        // al final. Es feo a proposito: se nota y se corrige, en vez de
+        // desaparecer del panel sin que nadie lo note.
+        foreach (self::catalog() as $key) {
+            if (! isset($labels[$key])) {
+                $result[] = ['key' => $key, 'label' => $key, 'group' => 'Sin clasificar', 'help' => ''];
+            }
+        }
+
+        return $result;
+    }
+
+    /**
      * @return array<string, bool>
      *
      * `cash_shift` queda APAGADO por defecto. En un spa nadie abre y cierra

@@ -189,6 +189,10 @@ class BusinessesController
     {
         return response()->json([
             'flags' => BusinessFeaturePresets::catalog(),
+            // Con nombre y grupo: el panel mostraba las llaves crudas y quien
+            // configura un negocio tenia que adivinar que enciende.
+            'catalog' => BusinessFeaturePresets::describedCatalog(),
+            'groups' => BusinessFeaturePresets::groups(),
             'plans' => [
                 BusinessFeaturePresets::PLAN_BASICO => BusinessFeaturePresets::basico(),
                 BusinessFeaturePresets::PLAN_PRO => BusinessFeaturePresets::pro(),
@@ -225,15 +229,25 @@ class BusinessesController
             'feature_flags' => $business->feature_flags ?? [],
             'resolved_features' => $business->resolvedFeatureFlags(),
             'scheduling_settings' => $business->scheduling_settings ?? config('spa.defaults'),
-            'owners' => User::withoutGlobalScope('business')
+            /*
+             * TODO el equipo, no solo los dueños. Soporte casi nunca entra
+             * como el dueño: el problema que reportan es "a mi recepcionista
+             * no le aparece el boton", y para verlo hay que entrar como ella.
+             */
+            'users' => User::withoutGlobalScope('business')
                 ->where('business_id', $business->id)
+                ->with('resource')
+                ->orderByDesc('is_active')
+                ->orderBy('name')
                 ->get()
-                ->filter(fn (User $u) => $u->hasRole(PermissionCatalog::ROLE_ADMIN))
                 ->map(fn (User $u) => [
                     'id' => $u->id,
                     'name' => $u->fullName(),
                     'email' => $u->email,
                     'is_active' => (bool) $u->is_active,
+                    'is_admin' => $u->hasRole(PermissionCatalog::ROLE_ADMIN),
+                    'role' => $u->getRoleNames()->first(),
+                    'resource_name' => $u->resource?->name,
                 ])->values(),
         ];
     }

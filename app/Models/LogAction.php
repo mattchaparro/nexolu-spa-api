@@ -2,18 +2,22 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-#[Fillable(['action', 'url', 'method', 'ip', 'agent', 'user_id', 'business_id', 'details'])]
+/**
+ * Una accion administrativa registrada. Lo escribe AuditLogger.
+ */
 class LogAction extends Model
 {
+    protected $fillable = [
+        'business_id', 'user_id', 'action',
+        'subject_type', 'subject_id', 'payload', 'ip_address',
+    ];
+
     protected function casts(): array
     {
-        return [
-            'details' => 'array',
-        ];
+        return ['payload' => 'array'];
     }
 
     public function user(): BelongsTo

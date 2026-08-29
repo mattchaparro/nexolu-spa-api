@@ -21,7 +21,7 @@ class AuditLogQuery
             // no es del dueño ni de su equipo - no debe aparecer en SU
             // auditoria (si sigue interesando verla, esta en forSuperadmin()
             // sin este filtro). Ver el marcador que deja AuditLogger::log().
-            ->whereNull('details->impersonated_by_superadmin_id');
+            ->whereNull('payload->impersonated_by_superadmin_id');
 
         self::applySearch($query, $request);
 
