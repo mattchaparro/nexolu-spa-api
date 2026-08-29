@@ -1,7 +1,9 @@
 <?php
 
+use App\Http\Controllers\Api\V1\AppointmentController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\AvailabilityController;
+use App\Http\Controllers\Api\V1\ClientController;
 use App\Http\Controllers\Api\V1\ResourceController;
 use App\Http\Controllers\Api\V1\ServiceController;
 use Illuminate\Support\Facades\Route;
@@ -45,14 +47,15 @@ Route::prefix('v1')->group(function () {
         });
 
         Route::prefix('appointments')->middleware('feature:scheduling')->group(function () {
-            Route::get('/', fn () => abort(501, 'Pendiente: fase 03'))->middleware('permission:citas.ver');
-            Route::post('/', fn () => abort(501, 'Pendiente: fase 03'))->middleware('permission:citas.crear');
-            Route::patch('/{appointment}/reschedule', fn () => abort(501, 'Pendiente: fase 03'))->middleware('permission:citas.editar');
-            Route::post('/{appointment}/cancel', fn () => abort(501, 'Pendiente: fase 03'))->middleware('permission:citas.cancelar');
+            Route::get('/', [AppointmentController::class, 'index'])->middleware('permission:citas.ver');
+            Route::post('/', [AppointmentController::class, 'store'])->middleware('permission:citas.crear');
+            Route::patch('/{appointment}/reschedule', [AppointmentController::class, 'reschedule'])->middleware('permission:citas.editar');
+            Route::post('/{appointment}/cancel', [AppointmentController::class, 'cancel'])->middleware('permission:citas.cancelar');
         });
 
         Route::prefix('clients')->middleware('feature:clients')->group(function () {
-            Route::get('/', fn () => abort(501, 'Pendiente: fase 03'))->middleware('permission:clientes.ver');
+            Route::get('/', [ClientController::class, 'index'])->middleware('permission:clientes.ver');
+            Route::post('/', [ClientController::class, 'store'])->middleware('permission:clientes.gestionar');
         });
     });
 
