@@ -21,6 +21,9 @@ class UserResource extends JsonResource
             'phone' => $this->phone,
             'is_active' => (bool) $this->is_active,
             'business_id' => $this->business_id,
+            // Propiedad del usuario, no rol del negocio: el front decide con
+            // esto a que panel mandarlo, y el backend lo hace cumplir aparte.
+            'is_super_admin' => (bool) $this->is_super_admin,
             'business' => new BusinessResource($this->whenLoaded('business')),
             'resource_id' => $this->resource?->id,
             'roles' => $this->getRoleNames(),

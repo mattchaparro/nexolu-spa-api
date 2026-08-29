@@ -82,6 +82,19 @@ Route::prefix('v1')->group(function () {
             Route::get('/', [ClientController::class, 'index'])->middleware('permission:clientes.ver');
             Route::post('/', [ClientController::class, 'store'])->middleware('permission:clientes.gestionar');
         });
+
+        /*
+        |----------------------------------------------------------------------
+        | Plataforma
+        |----------------------------------------------------------------------
+        | Cruzan todos los negocios a proposito. Viven detras de su propio
+        | middleware y en su propio archivo para que esa excepcion al
+        | aislamiento sea visible, no algo que haya que descubrir leyendo.
+        */
+        Route::prefix('superadmin')
+            ->middleware('superadmin')
+            ->name('superadmin.')
+            ->group(base_path('routes/superadmin.php'));
     });
 
     /*
