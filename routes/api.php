@@ -1,5 +1,9 @@
 <?php
 
+use App\Http\Controllers\Api\V1\AuthController;
+use App\Http\Controllers\Api\V1\AvailabilityController;
+use App\Http\Controllers\Api\V1\ResourceController;
+use App\Http\Controllers\Api\V1\ServiceController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -17,27 +21,27 @@ use Illuminate\Support\Facades\Route;
 Route::prefix('v1')->group(function () {
 
     // ---- Sesion ----
-    Route::post('/login', fn () => abort(501, 'Pendiente: fase 01'))->name('login');
+    Route::post('/login', [AuthController::class, 'login'])->name('login')->middleware('throttle:10,1');
 
     Route::middleware(['auth:sanctum', 'sentry.context'])->group(function () {
-        Route::post('/logout', fn () => abort(501, 'Pendiente: fase 01'));
-        Route::get('/me', fn () => abort(501, 'Pendiente: fase 01'));
+        Route::post('/logout', [AuthController::class, 'logout']);
+        Route::get('/me', [AuthController::class, 'me']);
 
         // ---- Catalogo (fase 02) ----
         Route::prefix('services')->group(function () {
-            Route::get('/', fn () => abort(501, 'Pendiente: fase 02'));
+            Route::get('/', [ServiceController::class, 'index']);
             Route::post('/', fn () => abort(501, 'Pendiente: fase 02'))->middleware('permission:servicios.gestionar');
         });
 
         Route::prefix('resources')->group(function () {
-            Route::get('/', fn () => abort(501, 'Pendiente: fase 02'));
+            Route::get('/', [ResourceController::class, 'index']);
             Route::post('/', fn () => abort(501, 'Pendiente: fase 02'))->middleware('permission:recursos.gestionar');
             Route::get('/{resource}/schedules', fn () => abort(501, 'Pendiente: fase 02'));
         });
 
         // ---- Agenda (fase 03) ----
         Route::prefix('availability')->group(function () {
-            Route::get('/', fn () => abort(501, 'Pendiente: fase 03'));
+            Route::get('/', [AvailabilityController::class, 'index'])->middleware('permission:citas.ver');
         });
 
         Route::prefix('appointments')->middleware('feature:scheduling')->group(function () {

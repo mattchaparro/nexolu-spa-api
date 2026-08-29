@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\PermissionCatalog;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasOne;
@@ -49,5 +50,21 @@ class User extends Authenticatable
     public function fullName(): string
     {
         return trim($this->name.' '.$this->last_name);
+    }
+
+    /**
+     * Permiso granular del catalogo (ver App\Support\PermissionCatalog).
+     *
+     * Es el unico camino: lo usa el middleware `permission:`, y el mismo
+     * conjunto viaja al front en UserResource para armar el menu y los guards
+     * del router. Una segunda implementacion en cualquiera de los dos lados
+     * es como se termina ofreciendo una opcion que despues rebota con 403.
+     */
+    public function hasBusinessPermission(string $permission): bool
+    {
+        // El admin hereda todo por rol; un miembro del equipo necesita el
+        // permiso asignado.
+        return $this->hasRole(PermissionCatalog::ROLE_ADMIN)
+            || $this->hasPermissionTo($permission, 'web');
     }
 }
