@@ -670,4 +670,66 @@ class PublicBookingTest extends TestCase
             'client_phone' => '3001234567',
         ])->assertNotFound();
     }
+
+    public function test_se_reservan_varios_servicios_sueltos_sin_combo(): void
+    {
+        // Sin combo de por medio: quien va a hacerse dos cosas el mismo dia y
+        // el negocio no las vende juntas. Se cobran a precio de lista.
+        $pedicure = $this->pedicure();
+
+        $slot = $this->getJson($this->url('/availability/chain').'?'.http_build_query([
+            'service_ids' => [$this->service->id, $pedicure->id],
+            'date' => $this->wednesday()->format('Y-m-d'),
+        ]))->assertOk()->json('slots.0');
+
+        $this->assertCount(2, $slot['legs']);
+        $this->assertNull($slot['preferred_honored']);
+
+        $respuesta = $this->postJson($this->url('/appointments'), [
+            'items' => array_map(fn (array $leg) => [
+                'service_id' => $leg['service_id'],
+                'resource_id' => $leg['resource_id'],
+                'starts_at' => $leg['starts_at'],
+            ], $slot['legs']),
+            'client_name' => 'Carolina Restrepo',
+            'client_phone' => '3001234567',
+        ])->assertCreated();
+
+        $this->assertNull($respuesta->json('package'));
+        $this->assertCount(2, $respuesta->json('items'));
+
+        $cita = Appointment::withoutGlobalScope('business')->latest('id')->first();
+        $this->assertNull($cita->service_package_id);
+        $this->assertCount(2, $cita->items);
+        // Precio de lista: sin combo no hay descuento que aplicar.
+        $this->assertEqualsWithDelta(100000, $cita->items->sum('price'), 0.01);
+    }
+
+    public function test_pedir_una_persona_para_toda_la_visita_publica(): void
+    {
+        $pedicure = $this->pedicure();
+        $otra = $this->makeResource($this->business, 'Sara', '09:00:00', '17:00:00', [3]);
+        $otra->update(['is_bookable_online' => true]);
+        $pedicure->resources()->syncWithoutDetaching([$otra->id]);
+
+        $slot = $this->getJson($this->url('/availability/chain').'?'.http_build_query([
+            'service_ids' => [$this->service->id, $pedicure->id],
+            'date' => $this->wednesday()->format('Y-m-d'),
+            'resource_id' => $this->maria->id,
+        ]))->assertOk()->json('slots.0');
+
+        $this->assertTrue($slot['preferred_honored']);
+        $this->assertSame('Maria', $slot['legs'][0]['resource_name']);
+        $this->assertSame('Maria', $slot['legs'][1]['resource_name']);
+    }
+
+    public function test_la_cadena_publica_no_acepta_una_lista_interminable(): void
+    {
+        // Diez es el tope. Sin el, una peticion con cien servicios pone al
+        // motor a calcular la agenda entera de un dia por cada hueco.
+        $this->getJson($this->url('/availability/chain').'?'.http_build_query([
+            'service_ids' => array_fill(0, 11, $this->service->id),
+            'date' => $this->wednesday()->format('Y-m-d'),
+        ]))->assertStatus(422);
+    }
 }
