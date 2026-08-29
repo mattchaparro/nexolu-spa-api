@@ -58,7 +58,7 @@ class Resource extends Model
 
     public function services(): BelongsToMany
     {
-        return $this->belongsToMany(Service::class)
+        return $this->belongsToMany(Service::class, 'service_resource')
             ->withPivot(['duration_override_min', 'commission_rate_override']);
     }
 

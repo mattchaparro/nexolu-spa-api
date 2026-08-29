@@ -41,45 +41,13 @@ return new class extends Migration
             $table->timestamps();
         });
 
-        Schema::create('cache', function (Blueprint $table) {
-            $table->string('key')->primary();
-            $table->mediumText('value');
-            $table->integer('expiration');
-        });
-
-        Schema::create('cache_locks', function (Blueprint $table) {
-            $table->string('key')->primary();
-            $table->string('owner');
-            $table->integer('expiration');
-        });
-
-        Schema::create('jobs', function (Blueprint $table) {
-            $table->id();
-            $table->string('queue')->index();
-            $table->longText('payload');
-            $table->unsignedTinyInteger('attempts');
-            $table->unsignedInteger('reserved_at')->nullable();
-            $table->unsignedInteger('available_at');
-            $table->unsignedInteger('created_at');
-        });
-
-        Schema::create('failed_jobs', function (Blueprint $table) {
-            $table->id();
-            $table->string('uuid')->unique();
-            $table->text('connection');
-            $table->text('queue');
-            $table->longText('payload');
-            $table->longText('exception');
-            $table->timestamp('failed_at')->useCurrent();
-        });
+        // cache, cache_locks, jobs y failed_jobs viven en 000050: no tienen
+        // claves foraneas y la migracion de spatie/laravel-permission necesita
+        // que `cache` ya exista cuando corre.
     }
 
     public function down(): void
     {
-        Schema::dropIfExists('failed_jobs');
-        Schema::dropIfExists('jobs');
-        Schema::dropIfExists('cache_locks');
-        Schema::dropIfExists('cache');
         Schema::dropIfExists('system_configs');
         Schema::dropIfExists('log_actions');
         Schema::dropIfExists('personal_access_tokens');

@@ -216,16 +216,28 @@ class BookingService
     }
 
     /**
+     * Ventanas de un item, SIEMPRE en UTC.
+     *
+     * Laravel formatea un Carbon al bindearlo usando la zona que el propio
+     * objeto lleva, sin convertirla. Si un negocio persistiera en su hora
+     * local y otro en UTC, las comparaciones entre ambos serian silenciosamente
+     * incorrectas -- y el sintoma (huecos ocupados que aparecen libres) no
+     * apunta a la causa en absoluto. La regla es una sola: se persiste en UTC,
+     * y la zona del negocio se usa solo para interpretar la entrada y para
+     * presentar la salida.
+     *
      * @return array{starts_at:CarbonImmutable, ends_at:CarbonImmutable, service_starts_at:CarbonImmutable, service_ends_at:CarbonImmutable}
      */
     private function windowFor(Service $service, Resource $resource, CarbonImmutable $serviceStart): array
     {
+        $duration = $service->durationFor($resource);
+
         return [
             // La ventana ocupada incluye los buffers; la del servicio, no.
-            'starts_at' => $serviceStart->subMinutes($service->buffer_before_min),
-            'ends_at' => $serviceStart->addMinutes($service->durationFor($resource) + $service->buffer_after_min),
-            'service_starts_at' => $serviceStart,
-            'service_ends_at' => $serviceStart->addMinutes($service->durationFor($resource)),
+            'starts_at' => $serviceStart->subMinutes($service->buffer_before_min)->utc(),
+            'ends_at' => $serviceStart->addMinutes($duration + $service->buffer_after_min)->utc(),
+            'service_starts_at' => $serviceStart->utc(),
+            'service_ends_at' => $serviceStart->addMinutes($duration)->utc(),
         ];
     }
 

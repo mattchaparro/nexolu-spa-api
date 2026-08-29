@@ -27,3 +27,6 @@ _ide_helper.php
 Homestead.json
 Homestead.yaml
 Thumbs.db
+
+# MySQL local del entorno de desarrollo (ver README)
+/.local-mysql

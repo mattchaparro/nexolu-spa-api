@@ -115,8 +115,8 @@ class AvailabilityService
         $exceptions = ScheduleException::query()
             ->where('business_id', $business->id)
             ->where(fn ($q) => $q->where('resource_id', $resource->id)->orWhereNull('resource_id'))
-            ->where('starts_at', '<', $dayEnd)
-            ->where('ends_at', '>', $date)
+            ->where('starts_at', '<', $dayEnd->utc())
+            ->where('ends_at', '>', $date->utc())
             ->get();
 
         // Las horas extra suman antes de que los bloqueos resten: un turno
@@ -182,6 +182,11 @@ class AvailabilityService
      * unico, asi que lo que se muestra como libre y lo que la base acepta
      * escribir no pueden divergir.
      *
+     * Los limites van convertidos a UTC porque asi se persisten (ver
+     * BookingService::windowFor). Bindear un Carbon en hora local aca
+     * desplazaria la comparacion las horas de diferencia de la zona, y el
+     * sintoma serian huecos ocupados apareciendo como libres.
+     *
      * @return list<TimeWindow>
      */
     private function occupiedWindows(Resource $resource, CarbonImmutable $dayStart, CarbonImmutable $dayEnd, string $tz): array
@@ -190,8 +195,8 @@ class AvailabilityService
             ->select('appointment_items.starts_at', 'appointment_items.ends_at')
             ->join('appointment_items', 'appointment_items.id', '=', 'resource_occupancy.appointment_item_id')
             ->where('resource_occupancy.resource_id', $resource->id)
-            ->where('resource_occupancy.slot_start', '>=', $dayStart)
-            ->where('resource_occupancy.slot_start', '<', $dayEnd)
+            ->where('resource_occupancy.slot_start', '>=', $dayStart->utc())
+            ->where('resource_occupancy.slot_start', '<', $dayEnd->utc())
             ->distinct()
             ->get()
             ->map(fn ($row) => new TimeWindow(

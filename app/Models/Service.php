@@ -38,9 +38,15 @@ class Service extends Model
         return $this->belongsTo(ServiceCategory::class, 'service_category_id');
     }
 
+    /**
+     * La pivote se nombra explicitamente: Laravel la inferiria como
+     * `resource_service` (orden alfabetico), pero `service_resource` se lee
+     * mejor en el sentido en que realmente se consulta -- que recursos presta
+     * este servicio.
+     */
     public function resources(): BelongsToMany
     {
-        return $this->belongsToMany(Resource::class)
+        return $this->belongsToMany(Resource::class, 'service_resource')
             ->withPivot(['duration_override_min', 'commission_rate_override']);
     }
 
