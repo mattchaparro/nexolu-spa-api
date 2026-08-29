@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\V1\Admin\PublicPageController;
 use App\Http\Controllers\Api\V1\Admin\ResourceAdminController;
 use App\Http\Controllers\Api\V1\Admin\ServiceAdminController;
 use App\Http\Controllers\Api\V1\Admin\ServiceCategoryController;
+use App\Http\Controllers\Api\V1\Admin\ServicePackageController;
 use App\Http\Controllers\Api\V1\AgendaController;
 use App\Http\Controllers\Api\V1\AppointmentController;
 use App\Http\Controllers\Api\V1\AuthController;
@@ -67,6 +68,26 @@ Route::prefix('v1')->group(function () {
         Route::put('/services/bulk-commission', [ServiceCategoryController::class, 'bulkCommission'])
             ->middleware('permission:servicios.gestionar');
 
+        /*
+         * Combos. Tabla propia y no un servicio con bandera: un combo no tiene
+         * duracion ni precio propios -- salen de sus partes -- y meterlo entre
+         * los servicios obligaria a que cada consulta del catalogo se acuerde
+         * de filtrarlo.
+         */
+        Route::prefix('service-packages')->group(function () {
+            // Lo lee quien agenda, no solo quien administra el catalogo.
+            Route::get('/', [ServicePackageController::class, 'index'])
+                ->middleware('permission:citas.ver');
+
+            Route::middleware('permission:servicios.gestionar')->group(function () {
+                // POST y no PUT tambien al editar: el formulario manda
+                // multipart por la imagen y PHP no puebla $_FILES en un PUT.
+                Route::post('/', [ServicePackageController::class, 'store']);
+                Route::post('/{package}', [ServicePackageController::class, 'update']);
+                Route::delete('/{package}', [ServicePackageController::class, 'destroy']);
+            });
+        });
+
         Route::prefix('services')->group(function () {
             Route::get('/', [ServiceController::class, 'index']);
 
@@ -110,6 +131,10 @@ Route::prefix('v1')->group(function () {
 
         Route::prefix('availability')->group(function () {
             Route::get('/', [AvailabilityController::class, 'index'])->middleware('permission:citas.ver');
+            
+            // Donde cabe una visita de varios servicios, uno detras de otro.
+            Route::get('/chain', [AvailabilityController::class, 'chain'])
+                ->middleware('permission:citas.ver');
         });
 
         Route::prefix('appointments')->middleware('feature:scheduling')->group(function () {

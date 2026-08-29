@@ -9,6 +9,7 @@ use App\Models\Client;
 use App\Models\Resource;
 use App\Models\ResourceOccupancy;
 use App\Models\Service;
+use App\Models\ServicePackage;
 use App\Models\User;
 use App\Services\Scheduling\Exceptions\OutsideWorkingHoursException;
 use App\Services\Scheduling\Exceptions\SlotUnavailableException;
@@ -45,6 +46,7 @@ class BookingService
         string $source = Appointment::SOURCE_ADMIN,
         ?string $notes = null,
         bool $enforceSchedule = true,
+        ?ServicePackage $package = null,
     ): Appointment {
         if ($items === []) {
             throw new \InvalidArgumentException('Una cita necesita al menos un servicio.');
@@ -53,7 +55,7 @@ class BookingService
         $tz = $business->businessTimezone();
         $granularity = (int) $business->schedulingSetting('slot_granularity_min');
 
-        return DB::transaction(function () use ($business, $items, $client, $clientName, $clientPhone, $source, $notes, $tz, $granularity, $enforceSchedule) {
+        return DB::transaction(function () use ($business, $items, $client, $clientName, $clientPhone, $source, $notes, $tz, $granularity, $enforceSchedule, $package) {
             $resolved = $this->resolveItems($business, $items, $tz, $enforceSchedule);
 
             $appointment = Appointment::create([
@@ -68,6 +70,11 @@ class BookingService
                 // cita nace con el nombre que el negocio le da, no con el
                 // interno: en el mostrador dice "Agendada", no "pending".
                 'stage_id' => $business->appointmentWorkflow?->initialStage()?->id,
+                // De que combo sale. El combo se elige al AGENDAR y su
+                // descuento se aplica al COBRAR: sin recordarlo, quien cobra
+                // tres dias despues no sabe que esas lineas eran un combo y
+                // las cobra a precio de lista.
+                'service_package_id' => $package?->id,
                 'source' => $source,
                 'notes' => $notes,
             ]);
@@ -105,13 +112,27 @@ class BookingService
         $granularity = (int) $business->schedulingSetting('slot_granularity_min');
 
         return DB::transaction(function () use ($appointment, $newStart, $newResource, $business, $tz, $granularity) {
-            $items = $appointment->items()->with(['service', 'resource'])->get();
+            $items = $appointment->items()->with(['service', 'resource'])->orderBy('sort_order')->get();
 
-            if ($items->count() !== 1) {
-                // Reagendar una cita encadenada exige recalcular toda la
-                // secuencia. Se resuelve cancelando y volviendo a reservar,
-                // no moviendo piezas sueltas.
-                throw new \DomainException('Solo se puede reagendar directamente una cita de un solo servicio.');
+            if ($items->count() > 1) {
+                /*
+                 * Una cita de varios servicios se mueve ENTERA, conservando la
+                 * separacion entre sus partes. Mover una pieza suelta dejaria
+                 * al cliente con el pedicure media hora antes del manicure.
+                 *
+                 * Tampoco se le cambia de persona: en una cadena cada eslabon
+                 * puede ser de alguien distinto, y "muevela a Lucia" no dice a
+                 * cual de los tres se refiere. Para eso se cancela y se vuelve
+                 * a reservar.
+                 */
+                if ($newResource !== null) {
+                    throw new \DomainException(
+                        'Una cita de varios servicios se mueve de hora, no de persona. '
+                        .'Si hay que cambiar quién atiende, cancélala y vuelve a agendarla.'
+                    );
+                }
+
+                return $this->shiftChain($appointment, $items, $newStart->setTimezone($tz), $business, $tz, $granularity);
             }
 
             $item = $items->first();
@@ -147,6 +168,57 @@ class BookingService
 
             return $appointment->fresh('items');
         });
+    }
+
+    /**
+     * Mueve una cita de varios servicios conservando su forma.
+     *
+     * Se calcula el desfase entre la hora nueva y la vieja y se aplica a TODAS
+     * las lineas por igual. Asi la separacion entre los servicios se mantiene:
+     * si el pedicure empezaba 15 minutos despues del manicure, sigue haciendolo.
+     *
+     * @param  \Illuminate\Support\Collection<int, AppointmentItem>  $items
+     */
+    private function shiftChain(
+        Appointment $appointment,
+        $items,
+        CarbonImmutable $newStart,
+        Business $business,
+        string $tz,
+        int $granularity,
+    ): Appointment {
+        $oldStart = CarbonImmutable::parse($items->first()->service_starts_at)->setTimezone($tz);
+        $offset = $oldStart->diffInSeconds($newStart, false);
+
+        // Liberar TODA la cadena antes de reclamar: moverla una hora hace que
+        // el tercer servicio caiga donde estaba el primero, y el indice unico
+        // rechazaria filas que la propia cita ya posee.
+        ResourceOccupancy::whereIn('appointment_item_id', $items->pluck('id'))->delete();
+
+        foreach ($items as $item) {
+            $start = CarbonImmutable::parse($item->service_starts_at)->setTimezone($tz)->addSeconds($offset);
+            $window = $this->windowFor($item->service, $item->resource, $start);
+
+            $this->assertWorkable($business, $item->resource, $window, $tz);
+
+            $item->update([
+                'starts_at' => $window['starts_at'],
+                'ends_at' => $window['ends_at'],
+                'service_starts_at' => $window['service_starts_at'],
+                'service_ends_at' => $window['service_ends_at'],
+            ]);
+
+            $this->claimOccupancy($business, $item->fresh(), $granularity);
+        }
+
+        $fresh = $appointment->items()->get();
+
+        $appointment->update([
+            'starts_at' => $fresh->min('service_starts_at'),
+            'ends_at' => $fresh->max('service_ends_at'),
+        ]);
+
+        return $appointment->fresh('items');
     }
 
     public function cancel(Appointment $appointment, ?int $byUserId = null, ?string $reason = null): Appointment

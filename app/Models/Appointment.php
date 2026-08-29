@@ -34,7 +34,7 @@ class Appointment extends Model
     public const SOURCE_PHONE = 'phone';
 
     protected $fillable = [
-        'business_id', 'client_id', 'client_name', 'client_phone', 'stage_id',
+        'business_id', 'client_id', 'client_name', 'client_phone', 'stage_id', 'service_package_id',
         'starts_at', 'ends_at', 'status', 'source', 'notes',
         'confirmed_at', 'cancelled_at', 'cancelled_by_user_id', 'cancellation_reason',
         'payment_method_id', 'checked_out_at', 'checked_out_by_user_id',
@@ -64,6 +64,11 @@ class Appointment extends Model
     public function items(): HasMany
     {
         return $this->hasMany(AppointmentItem::class)->orderBy('sort_order');
+    }
+
+    public function servicePackage(): BelongsTo
+    {
+        return $this->belongsTo(ServicePackage::class, 'service_package_id');
     }
 
     public function paymentMethod(): BelongsTo

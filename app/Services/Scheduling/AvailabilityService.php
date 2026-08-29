@@ -96,6 +96,211 @@ class AvailabilityService
     }
 
     /**
+     * Donde cabe una SECUENCIA de servicios, uno detras de otro.
+     *
+     * Es lo que hace falta para agendar una visita de varias cosas -- manicure
+     * y despues pedicure -- y para vender un combo. `slotsForService` no sirve:
+     * responde por un servicio suelto, y encadenar sus respuestas a mano deja
+     * huecos que se ven libres para el primero y no lo estan para el tercero.
+     *
+     * Cada eslabon puede caer en una persona distinta: lo que se comprueba es
+     * que TODA la cadena entre, no que cada parte por separado tenga hueco.
+     *
+     * Los servicios corren pegados. Un descanso entre uno y otro seria tiempo
+     * que el negocio no puede vender y que el cliente pasa esperando; si hace
+     * falta separacion, se expresa con los buffers del servicio, que es donde
+     * el resto del sistema ya la busca.
+     *
+     * @param  list<Service>  $services  En el orden en que se prestan.
+     * @return list<array{
+     *     starts_at: CarbonImmutable,
+     *     ends_at: CarbonImmutable,
+     *     label: string,
+     *     legs: list<array{service_id:int, resource_id:int, resource_name:string, starts_at:CarbonImmutable}>
+     * }>
+     */
+    public function slotsForChain(
+        Business $business,
+        array $services,
+        CarbonImmutable $date,
+        ?CarbonImmutable $now = null,
+    ): array {
+        if ($services === []) {
+            return [];
+        }
+
+        $tz = $business->businessTimezone();
+        $now ??= CarbonImmutable::now($tz);
+        $date = $date->setTimezone($tz)->startOfDay();
+
+        $granularity = (int) $business->schedulingSetting('slot_granularity_min');
+        $notice = (int) $business->schedulingSetting('min_booking_notice_min');
+        $horizonDays = (int) $business->schedulingSetting('max_booking_horizon_days');
+
+        if ($date > $now->addDays($horizonDays)->startOfDay()) {
+            return [];
+        }
+
+        $earliest = $now->addMinutes($notice);
+
+        /*
+         * Las ventanas libres de cada recurso se calculan UNA vez y se van
+         * recortando en memoria a medida que la cadena las ocupa. Sin eso, un
+         * combo de tres servicios haria tres consultas de disponibilidad por
+         * cada hora candidata del dia.
+         */
+        $freeByResource = [];
+        // Quien puede prestar cada eslabon, resuelto una sola vez. Consultarlo
+        // dentro del bucle seria una consulta por servicio por cada hora
+        // candidata del dia: con granularidad de 15 minutos y un combo de
+        // tres, mas de doscientas.
+        $candidatesByService = [];
+
+        foreach ($services as $index => $service) {
+            $candidates = $this->candidateResources($business, $service, null);
+
+            if ($candidates->isEmpty()) {
+                // Un eslabon que nadie presta hace imposible la cadena entera.
+                return [];
+            }
+
+            $candidatesByService[$index] = $candidates->all();
+
+            foreach ($candidates as $resource) {
+                $freeByResource[$resource->id] ??= [
+                    'resource' => $resource,
+                    'windows' => $this->freeWindowsFor($business, $resource, $date, $tz),
+                ];
+            }
+        }
+
+        $dayStart = $date;
+        $dayEnd = $date->addDay();
+        $slots = [];
+
+        for ($cursor = $this->ceilToGrid($dayStart, $granularity); $cursor < $dayEnd; $cursor = $cursor->addMinutes($granularity)) {
+            if ($cursor < $earliest) {
+                continue;
+            }
+
+            $legs = $this->fitChain($services, $cursor, $freeByResource, $candidatesByService);
+
+            if ($legs === null) {
+                continue;
+            }
+
+            $last = $legs[array_key_last($legs)];
+
+            $slots[] = [
+                'starts_at' => $cursor,
+                'ends_at' => $last['ends_at'],
+                'label' => $cursor->format('g:i a'),
+                'legs' => array_map(fn (array $leg) => [
+                    'service_id' => $leg['service']->id,
+                    'service_name' => $leg['service']->name,
+                    'resource_id' => $leg['resource']->id,
+                    'resource_name' => $leg['resource']->name,
+                    'starts_at' => $leg['starts_at'],
+                ], $legs),
+            ];
+        }
+
+        return $slots;
+    }
+
+    /**
+     * Intenta acomodar la cadena a partir de una hora concreta.
+     *
+     * Devuelve null en cuanto un eslabon no entra: no tiene sentido seguir
+     * probando los siguientes si el segundo servicio ya no cabe.
+     *
+     * Estrategia por eslabon: la PRIMERA persona libre en el orden del
+     * negocio. No es optimizacion global -- podria haber un reparto mejor que
+     * dejara la agenda menos fragmentada -- pero es predecible, y una
+     * asignacion que cambia de persona segun un calculo que nadie ve es peor
+     * que una que a veces reparte de forma menos elegante.
+     *
+     * @param  list<Service>  $services
+     * @param  array<int, array{resource: Resource, windows: list<TimeWindow>}>  $freeByResource
+     * @return list<array{service: Service, resource: Resource, starts_at: CarbonImmutable, ends_at: CarbonImmutable}>|null
+     */
+    private function fitChain(
+        array $services,
+        CarbonImmutable $start,
+        array $freeByResource,
+        array $candidatesByService,
+    ): ?array {
+        $legs = [];
+        $cursor = $start;
+        // Copia local: lo que la cadena va ocupando no puede ensuciar el
+        // calculo de la siguiente hora candidata.
+        $taken = [];
+
+        foreach ($services as $index => $service) {
+            $placed = null;
+
+            foreach ($candidatesByService[$index] as $resource) {
+                $occupied = $service->occupiedMinutesFor($resource);
+                $window = new TimeWindow(
+                    $cursor->subMinutes($service->buffer_before_min),
+                    $cursor->addMinutes($occupied - $service->buffer_before_min),
+                );
+
+                if (! $this->windowFits($window, $freeByResource[$resource->id]['windows'], $taken[$resource->id] ?? [])) {
+                    continue;
+                }
+
+                $placed = [
+                    'service' => $service,
+                    'resource' => $resource,
+                    'starts_at' => $cursor,
+                    'ends_at' => $cursor->addMinutes($service->durationFor($resource)),
+                ];
+
+                $taken[$resource->id][] = $window;
+                // El siguiente arranca cuando este libera al recurso, buffer
+                // de limpieza incluido: si no, el segundo servicio empieza
+                // mientras todavia se esta desinfectando el puesto.
+                $cursor = $cursor->addMinutes($occupied - $service->buffer_before_min);
+
+                break;
+            }
+
+            if ($placed === null) {
+                return null;
+            }
+
+            $legs[] = $placed;
+        }
+
+        return $legs;
+    }
+
+    /**
+     * Si la ventana cabe entera en alguna franja libre y no pisa lo que la
+     * propia cadena ya ocupo.
+     *
+     * @param  list<TimeWindow>  $free
+     * @param  list<TimeWindow>  $taken
+     */
+    private function windowFits(TimeWindow $window, array $free, array $taken): bool
+    {
+        foreach ($taken as $busy) {
+            if ($window->overlaps($busy)) {
+                return false;
+            }
+        }
+
+        foreach ($free as $open) {
+            if ($open->contains($window)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Ventanas en las que el recurso trabaja ese dia: su horario recurrente,
      * mas las horas extra, menos los bloqueos. NO resta lo ya ocupado.
      *

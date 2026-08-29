@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Resources\AppointmentResource;
 use App\Models\Appointment;
+use App\Models\ServicePackage;
 use App\Services\ClientResolver;
 use App\Services\Scheduling\BookingService;
 use App\Services\Scheduling\Exceptions\SlotUnavailableException;
@@ -85,10 +86,31 @@ class AppointmentController
 
     public function store(Request $request): JsonResponse
     {
+        /*
+         * Dos formas de pedir lo mismo, porque son dos gestos distintos en la
+         * pantalla: un servicio suelto (lo mas comun, y lo que manda el
+         * calendario al tocar un hueco) o una visita de varios -- que puede
+         * venir de un combo.
+         *
+         * `items` lleva la hora de CADA eslabon y no una sola de arranque: la
+         * cadena la calculo el motor de disponibilidad, con los buffers y los
+         * cambios de persona ya resueltos. Recalcularla aca a partir de una
+         * hora suelta seria hacer dos veces la misma cuenta y arriesgarse a
+         * que den distinto.
+         */
         $data = $request->validate([
-            'service_id' => ['required', 'integer'],
-            'resource_id' => ['required', 'integer'],
-            'starts_at' => ['required', 'date'],
+            'service_id' => ['required_without:items', 'integer'],
+            'resource_id' => ['required_with:service_id', 'integer'],
+            'starts_at' => ['required_with:service_id', 'date'],
+
+            'items' => ['required_without:service_id', 'array', 'min:1'],
+            'items.*.service_id' => ['required', 'integer'],
+            'items.*.resource_id' => ['required', 'integer'],
+            'items.*.starts_at' => ['required', 'date'],
+
+            // De que combo sale, para que el cobro sepa que descuento aplicar.
+            'service_package_id' => ['nullable', 'integer'],
+
             'client_id' => ['nullable', 'integer'],
             'client_name' => ['required_without:client_id', 'nullable', 'string', 'max:255'],
             'client_phone' => ['nullable', 'string', 'max:32'],
@@ -97,6 +119,35 @@ class AppointmentController
 
         $business = $request->user()->business;
         $tz = $business->businessTimezone();
+
+        $package = isset($data['service_package_id'])
+            ? ServicePackage::with('services')->findOrFail($data['service_package_id'])
+            : null;
+
+        $items = isset($data['items'])
+            ? array_map(fn (array $item) => [
+                'service_id' => $item['service_id'],
+                'resource_id' => $item['resource_id'],
+                'starts_at' => self::interpret($item['starts_at'], $tz),
+            ], $data['items'])
+            : [[
+                'service_id' => $data['service_id'],
+                'resource_id' => $data['resource_id'],
+                'starts_at' => self::interpret($data['starts_at'], $tz),
+            ]];
+
+        if ($package !== null) {
+            $esperados = $package->services->pluck('id')->sort()->values()->all();
+            $recibidos = collect($items)->pluck('service_id')->sort()->values()->all();
+
+            // Sin esto se podria agendar UN servicio barato marcandolo como el
+            // combo y llevarse el descuento del combo entero.
+            if ($esperados !== $recibidos) {
+                return response()->json([
+                    'message' => 'Los servicios no corresponden al combo elegido.',
+                ], 422);
+            }
+        }
 
         $phone = isset($data['client_phone'])
             ? ChannelPhone::normalize($data['client_phone'], $business->country_code)
@@ -112,16 +163,13 @@ class AppointmentController
         try {
             $appointment = $this->booking->book(
                 $business,
-                [[
-                    'service_id' => $data['service_id'],
-                    'resource_id' => $data['resource_id'],
-                    'starts_at' => self::interpret($data['starts_at'], $tz),
-                ]],
+                $items,
                 $client,
                 $data['client_name'] ?? $client?->fullName(),
                 $phone ?? $client?->phone,
                 Appointment::SOURCE_ADMIN,
                 $data['notes'] ?? null,
+                package: $package,
             );
         } catch (SlotUnavailableException $e) {
             // 409 y no 500: que otra persona tomara el horario primero es un
