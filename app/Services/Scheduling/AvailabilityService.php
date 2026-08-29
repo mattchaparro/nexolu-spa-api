@@ -124,6 +124,7 @@ class AvailabilityService
         array $services,
         CarbonImmutable $date,
         ?CarbonImmutable $now = null,
+        ?int $preferredResourceId = null,
     ): array {
         if ($services === []) {
             return [];
@@ -183,24 +184,35 @@ class AvailabilityService
                 continue;
             }
 
-            $legs = $this->fitChain($services, $cursor, $freeByResource, $candidatesByService);
+            $legs = $this->fitChain($services, $cursor, $freeByResource, $candidatesByService, $preferredResourceId);
 
             if ($legs === null) {
                 continue;
             }
 
             $last = $legs[array_key_last($legs)];
+            // `array_values` porque `array_unique` conserva las claves, y la
+            // comparacion estricta de abajo fallaria por indices, no por
+            // personas.
+            $people = array_values(array_unique(array_map(fn (array $leg) => $leg['resource']->id, $legs)));
 
             $slots[] = [
                 'starts_at' => $cursor,
                 'ends_at' => $last['ends_at'],
                 'label' => $cursor->format('g:i a'),
+                // Lo que de verdad quiere saber quien reserva: si es todo con
+                // la misma persona o lo van a pasar de silla en silla.
+                'same_person' => count($people) === 1,
+                'preferred_honored' => $preferredResourceId === null
+                    ? null
+                    : $people === [$preferredResourceId],
                 'legs' => array_map(fn (array $leg) => [
                     'service_id' => $leg['service']->id,
                     'service_name' => $leg['service']->name,
                     'resource_id' => $leg['resource']->id,
                     'resource_name' => $leg['resource']->name,
                     'starts_at' => $leg['starts_at'],
+                    'changed_reason' => $leg['changed_reason'] ?? null,
                 ], $legs),
             ];
         }
@@ -229,22 +241,168 @@ class AvailabilityService
         CarbonImmutable $start,
         array $freeByResource,
         array $candidatesByService,
+        ?int $preferredResourceId = null,
+    ): ?array {
+        /*
+         * Se intenta en orden de lo que el cliente prefiere, no de lo que es
+         * facil de calcular:
+         *
+         *   1. TODO con la persona que se pidio.
+         *   2. TODO con una sola persona, la que sea.
+         *   3. Repartido, pero pegandose lo mas posible a la anterior.
+         *
+         * Sin este orden, "manos, pies y cejas" se repartia entre tres
+         * personas aunque una sola pudiera hacer las tres y estuviera libre.
+         * Nadie va al spa a que lo pasen de silla en silla.
+         */
+        if ($preferredResourceId !== null) {
+            $legs = $this->fitChainWith($services, $start, $freeByResource, $candidatesByService, $preferredResourceId);
+
+            if ($legs !== null) {
+                return $legs;
+            }
+        }
+
+        /*
+         * Ojo con el `if`: si se pidio una persona y no pudo con todo, NO se
+         * busca otra que si pueda. Cambiarle a la clienta la persona que pidio
+         * por una tercera, para que la visita quede "prolija", es exactamente
+         * lo que no quiere: prefiere quedarse con quien pidio en los servicios
+         * que si pueda y ceder solo el resto.
+         */
+        if ($preferredResourceId === null) {
+            foreach ($this->resourcesAbleToDoAll($candidatesByService, $services) as $resourceId) {
+                $legs = $this->fitChainWith($services, $start, $freeByResource, $candidatesByService, $resourceId);
+
+                if ($legs !== null) {
+                    return $legs;
+                }
+            }
+        }
+
+        return $this->fitChainGreedy($services, $start, $freeByResource, $candidatesByService, $preferredResourceId);
+    }
+
+    /**
+     * Intenta la cadena ENTERA con una sola persona.
+     *
+     * @param  list<Service>  $services
+     * @return list<array<string, mixed>>|null
+     */
+    private function fitChainWith(
+        array $services,
+        CarbonImmutable $start,
+        array $freeByResource,
+        array $candidatesByService,
+        int $resourceId,
+    ): ?array {
+        if (! isset($freeByResource[$resourceId])) {
+            return null;
+        }
+
+        $resource = $freeByResource[$resourceId]['resource'];
+        $legs = [];
+        $cursor = $start;
+        $taken = [];
+
+        foreach ($services as $index => $service) {
+            // No basta con que este libre: tiene que prestar ESE servicio.
+            if (! $this->canDo($candidatesByService[$index], $resourceId)) {
+                return null;
+            }
+
+            $before = (int) $service->buffer_before_min;
+            $occupied = $service->occupiedMinutesFor($resource);
+
+            /*
+             * El alistamiento del siguiente servicio NO puede solaparse con lo
+             * que esta misma persona todavia esta haciendo.
+             *
+             * La primera parte empieza a la hora del hueco y su alistamiento
+             * queda antes. De ahi en adelante la ventana arranca donde termino
+             * la anterior, y lo que se le dice al cliente es la hora en que de
+             * verdad lo sientan: `windowStart + alistamiento`.
+             *
+             * Sin esto, la ventana de un servicio con `buffer_before` pisaba la
+             * del anterior y la cadena completa con UNA sola persona era
+             * imposible siempre: se repartia entre dos aunque una estuviera
+             * libre todo el dia.
+             */
+            $windowStart = $index === 0 ? $cursor->subMinutes($before) : $cursor;
+            $visible = $windowStart->addMinutes($before);
+            $window = new TimeWindow($windowStart, $windowStart->addMinutes($occupied));
+
+            if (! $this->windowFits($window, $freeByResource[$resourceId]['windows'], $taken)) {
+                return null;
+            }
+
+            $taken[] = $window;
+
+            $legs[] = [
+                'service' => $service,
+                'resource' => $resource,
+                'starts_at' => $visible,
+                'ends_at' => $visible->addMinutes($service->durationFor($resource)),
+            ];
+
+            $cursor = $windowStart->addMinutes($occupied);
+        }
+
+        return $legs;
+    }
+
+    /**
+     * Reparte la cadena, quedandose con la misma persona mientras se pueda.
+     *
+     * Es el ultimo recurso, y el que resuelve el caso real: manos y pies con
+     * Aleja, y las cejas con quien este libre despues -- porque Aleja no las
+     * hace, o porque a esa hora ya tiene otra cita.
+     *
+     * @param  list<Service>  $services
+     * @return list<array<string, mixed>>|null
+     */
+    private function fitChainGreedy(
+        array $services,
+        CarbonImmutable $start,
+        array $freeByResource,
+        array $candidatesByService,
+        ?int $preferredResourceId,
     ): ?array {
         $legs = [];
         $cursor = $start;
         // Copia local: lo que la cadena va ocupando no puede ensuciar el
         // calculo de la siguiente hora candidata.
         $taken = [];
+        // Con quien viene el cliente del eslabon anterior.
+        $previousId = null;
 
         foreach ($services as $index => $service) {
             $placed = null;
+            /*
+             * A quien se le ofrece primero este eslabon.
+             *
+             * Si se pidio una persona, ella sigue siendo el ancla aunque un
+             * eslabon se haya tenido que ceder: pedir "todo con Aleja" y que
+             * ceder las cejas arrastre tambien el ultimo servicio a quien las
+             * hizo seria perder la preferencia por el camino. Sin persona
+             * pedida, el ancla es con quien viene el cliente sentado.
+             */
+            $anchorId = $preferredResourceId ?? $previousId;
 
-            foreach ($candidatesByService[$index] as $resource) {
+            foreach ($this->orderedCandidates($candidatesByService[$index], $anchorId) as $resource) {
+                $before = (int) $service->buffer_before_min;
                 $occupied = $service->occupiedMinutesFor($resource);
-                $window = new TimeWindow(
-                    $cursor->subMinutes($service->buffer_before_min),
-                    $cursor->addMinutes($occupied - $service->buffer_before_min),
-                );
+
+                /*
+                 * Si sigue la MISMA persona, su alistamiento va despues de que
+                 * termine con lo anterior: no puede estar alistando y
+                 * atendiendo a la vez. Si cambia de persona, la que entra puede
+                 * ir alistando su puesto mientras la otra termina.
+                 */
+                $mismaPersona = $index > 0 && $resource->id === $previousId;
+                $windowStart = $mismaPersona ? $cursor : $cursor->subMinutes($before);
+                $visible = $windowStart->addMinutes($before);
+                $window = new TimeWindow($windowStart, $windowStart->addMinutes($occupied));
 
                 if (! $this->windowFits($window, $freeByResource[$resource->id]['windows'], $taken[$resource->id] ?? [])) {
                     continue;
@@ -253,15 +411,22 @@ class AvailabilityService
                 $placed = [
                     'service' => $service,
                     'resource' => $resource,
-                    'starts_at' => $cursor,
-                    'ends_at' => $cursor->addMinutes($service->durationFor($resource)),
+                    'starts_at' => $visible,
+                    'ends_at' => $visible->addMinutes($service->durationFor($resource)),
+                    // Por que cambio de persona, para poder decirlo en
+                    // pantalla y por WhatsApp. "Aleja no hace cejas" y "Aleja
+                    // esta ocupada" llevan a respuestas distintas del cliente.
+                    'changed_reason' => $anchorId === null || $resource->id === $anchorId
+                        ? null
+                        : ($this->canDo($candidatesByService[$index], $anchorId) ? 'busy' : 'skill'),
                 ];
 
                 $taken[$resource->id][] = $window;
                 // El siguiente arranca cuando este libera al recurso, buffer
                 // de limpieza incluido: si no, el segundo servicio empieza
                 // mientras todavia se esta desinfectando el puesto.
-                $cursor = $cursor->addMinutes($occupied - $service->buffer_before_min);
+                $cursor = $windowStart->addMinutes($occupied);
+                $previousId = $resource->id;
 
                 break;
             }
@@ -274,6 +439,70 @@ class AvailabilityService
         }
 
         return $legs;
+    }
+
+    /**
+     * Quienes pueden prestar TODOS los servicios de la cadena, en orden del
+     * negocio.
+     *
+     * @param  list<Service>  $services
+     * @return list<int>
+     */
+    private function resourcesAbleToDoAll(array $candidatesByService, array $services): array
+    {
+        $ids = null;
+
+        foreach (array_keys($services) as $index) {
+            $delServicio = array_map(fn (Resource $r) => $r->id, $candidatesByService[$index]);
+
+            $ids = $ids === null
+                ? $delServicio
+                : array_values(array_intersect($ids, $delServicio));
+
+            if ($ids === []) {
+                return [];
+            }
+        }
+
+        return $ids ?? [];
+    }
+
+    /**
+     * Los candidatos con la persona anterior de primera.
+     *
+     * @param  list<Resource>  $candidates
+     * @return list<Resource>
+     */
+    private function orderedCandidates(array $candidates, ?int $previousId): array
+    {
+        if ($previousId === null) {
+            return $candidates;
+        }
+
+        $primero = [];
+        $resto = [];
+
+        foreach ($candidates as $resource) {
+            if ($resource->id === $previousId) {
+                $primero[] = $resource;
+            } else {
+                $resto[] = $resource;
+            }
+        }
+
+        return [...$primero, ...$resto];
+    }
+
+    /** @param list<Resource> $candidates */
+    private function canDo(array $candidates, int $resourceId): bool
+    {
+        foreach ($candidates as $resource) {
+            if ($resource->id === $resourceId) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

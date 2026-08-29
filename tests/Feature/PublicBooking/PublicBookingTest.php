@@ -9,10 +9,13 @@ use App\Models\ClientPenalty;
 use App\Models\Resource;
 use App\Models\ResourceBreak;
 use App\Models\Service;
+use App\Models\ServicePackage;
 use App\Models\User;
+use App\Support\Money\PackagePricing;
 use App\Support\PermissionCatalog;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Laravel\Sanctum\Sanctum;
 use Tests\Feature\Scheduling\SchedulingScenario;
@@ -471,5 +474,200 @@ class PublicBookingTest extends TestCase
 
         $this->getJson('/api/v1/public-page')->assertForbidden();
         $this->postJson('/api/v1/public-page', ['headline' => 'Mío'])->assertForbidden();
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Combos
+    |--------------------------------------------------------------------------
+    | Un combo es una regla de descuento sobre varios servicios seguidos. En la
+    | pagina publica el riesgo no es el precio sino el alcance: que sirva para
+    | reservar por internet algo que el negocio decidio no vender por internet.
+    */
+
+    private function pedicure(): Service
+    {
+        $pedicure = $this->makeService($this->business, 60, [$this->maria]);
+        $pedicure->update(['name' => 'Pedicure spa', 'price' => 55000, 'is_bookable_online' => true]);
+
+        return $pedicure;
+    }
+
+    private function combo(Service $segundo, bool $online = true): ServicePackage
+    {
+        $package = ServicePackage::create([
+            'business_id' => $this->business->id,
+            'name' => 'Manos y pies',
+            'slug' => 'manos-y-pies',
+            'discount_type' => PackagePricing::TYPE_FIXED,
+            'discount_value' => 20000,
+            'is_active' => true,
+            'is_bookable_online' => $online,
+        ]);
+
+        $package->services()->sync([
+            $this->service->id => ['sort_order' => 0],
+            $segundo->id => ['sort_order' => 1],
+        ]);
+
+        return $package->load('services');
+    }
+
+    public function test_la_pagina_muestra_los_combos_con_su_descuento(): void
+    {
+        $this->combo($this->pedicure());
+
+        $combo = $this->getJson($this->url())->assertOk()->json('packages.0');
+
+        $this->assertSame('Manos y pies', $combo['name']);
+        $this->assertEqualsWithDelta(100000, $combo['list_total'], 0.01);
+        $this->assertEqualsWithDelta(20000, $combo['discount'], 0.01);
+        $this->assertEqualsWithDelta(80000, $combo['total'], 0.01);
+        $this->assertCount(2, $combo['services']);
+    }
+
+    public function test_un_combo_con_un_servicio_que_no_se_vende_en_linea_no_aparece(): void
+    {
+        $pedicure = $this->pedicure();
+        $this->combo($pedicure);
+        $pedicure->update(['is_bookable_online' => false]);
+
+        $this->assertSame([], $this->getJson($this->url())->json('packages'));
+    }
+
+    public function test_un_combo_apagado_no_se_ofrece_en_la_pagina(): void
+    {
+        $this->combo($this->pedicure(), online: false);
+
+        $this->assertSame([], $this->getJson($this->url())->json('packages'));
+    }
+
+    public function test_la_cadena_publica_dice_donde_cabe_el_combo_completo(): void
+    {
+        $package = $this->combo($this->pedicure());
+
+        $respuesta = $this->getJson($this->url('/availability/chain').'?'.http_build_query([
+            'package_id' => $package->id,
+            'date' => $this->wednesday()->format('Y-m-d'),
+        ]))->assertOk();
+
+        $this->assertSame(120, $respuesta->json('total_minutes'));
+        $this->assertEqualsWithDelta(80000, $respuesta->json('package.total'), 0.01);
+
+        $slot = $respuesta->json('slots.0');
+        $this->assertCount(2, $slot['legs']);
+        // Con una sola persona en el equipo, la visita entera es de ella.
+        $this->assertTrue($slot['same_person']);
+        $this->assertSame('Maria', $slot['legs'][1]['resource_name']);
+    }
+
+    public function test_reservar_un_combo_por_internet_agenda_los_dos_servicios(): void
+    {
+        $package = $this->combo($this->pedicure());
+
+        $slot = $this->getJson($this->url('/availability/chain').'?'.http_build_query([
+            'package_id' => $package->id,
+            'date' => $this->wednesday()->format('Y-m-d'),
+        ]))->json('slots.0');
+
+        $respuesta = $this->postJson($this->url('/appointments'), [
+            'service_package_id' => $package->id,
+            'items' => array_map(fn (array $leg) => [
+                'service_id' => $leg['service_id'],
+                'resource_id' => $leg['resource_id'],
+                'starts_at' => $leg['starts_at'],
+            ], $slot['legs']),
+            'client_name' => 'Carolina Restrepo',
+            'client_phone' => '3001234567',
+        ])->assertCreated();
+
+        $this->assertSame('Manos y pies', $respuesta->json('package'));
+        $this->assertCount(2, $respuesta->json('items'));
+
+        $cita = Appointment::withoutGlobalScope('business')->latest('id')->first();
+        $this->assertSame($package->id, $cita->service_package_id);
+        $this->assertCount(2, $cita->items);
+        // Y sigue sin devolver la ficha del cliente.
+        $this->assertNull($respuesta->json('client_id'));
+    }
+
+    public function test_no_se_reserva_un_combo_con_menos_servicios_de_los_que_tiene(): void
+    {
+        $package = $this->combo($this->pedicure());
+
+        // Solo el manicure, marcado como el combo: seria llevarse el descuento
+        // de los dos pagando uno.
+        $this->postJson($this->url('/appointments'), [
+            'service_package_id' => $package->id,
+            'items' => [[
+                'service_id' => $this->service->id,
+                'resource_id' => $this->maria->id,
+                'starts_at' => $this->wednesday()->format('Y-m-d').' 10:00:00',
+            ]],
+            'client_name' => 'Carolina Restrepo',
+            'client_phone' => '3001234567',
+        ])->assertStatus(422);
+
+        $this->assertSame(0, Appointment::withoutGlobalScope('business')->count());
+    }
+
+    public function test_la_cadena_publica_no_acepta_un_servicio_que_no_se_vende_en_linea(): void
+    {
+        $interno = $this->makeService($this->business, 30, [$this->maria]);
+        $interno->update(['name' => 'Valoración', 'is_bookable_online' => false]);
+
+        $this->getJson($this->url('/availability/chain').'?'.http_build_query([
+            'service_ids' => [$this->service->id, $interno->id],
+            'date' => $this->wednesday()->format('Y-m-d'),
+        ]))->assertNotFound();
+
+        // Y tampoco reservarlo, aunque se mande la cadena a mano.
+        $this->postJson($this->url('/appointments'), [
+            'items' => [
+                [
+                    'service_id' => $this->service->id,
+                    'resource_id' => $this->maria->id,
+                    'starts_at' => $this->wednesday()->format('Y-m-d').' 10:00:00',
+                ],
+                [
+                    'service_id' => $interno->id,
+                    'resource_id' => $this->maria->id,
+                    'starts_at' => $this->wednesday()->format('Y-m-d').' 11:00:00',
+                ],
+            ],
+            'client_name' => 'Carolina Restrepo',
+            'client_phone' => '3001234567',
+        ])->assertNotFound();
+
+        $this->assertSame(0, Appointment::withoutGlobalScope('business')->count());
+    }
+
+    public function test_un_combo_de_otro_negocio_no_se_reserva_por_esta_pagina(): void
+    {
+        // Insertado a mano: con el scope de negocio activo, crear por el modelo
+        // reescribiria el business_id al del negocio en sesion.
+        $ajeno = DB::table('businesses')->insertGetId([
+            'name' => 'Otro Spa', 'slug' => 'otro-spa', 'timezone' => 'America/Bogota',
+            'currency' => 'COP', 'country_code' => 'CO', 'is_active' => true,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $package = DB::table('service_packages')->insertGetId([
+            'business_id' => $ajeno, 'name' => 'Ajeno', 'slug' => 'ajeno',
+            'discount_type' => PackagePricing::TYPE_FIXED, 'discount_value' => 50000,
+            'is_active' => true, 'is_bookable_online' => true, 'sort_order' => 0,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $this->postJson($this->url('/appointments'), [
+            'service_package_id' => $package,
+            'items' => [[
+                'service_id' => $this->service->id,
+                'resource_id' => $this->maria->id,
+                'starts_at' => $this->wednesday()->format('Y-m-d').' 10:00:00',
+            ]],
+            'client_name' => 'Carolina Restrepo',
+            'client_phone' => '3001234567',
+        ])->assertNotFound();
     }
 }

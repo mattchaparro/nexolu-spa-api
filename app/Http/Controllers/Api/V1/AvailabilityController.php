@@ -35,6 +35,10 @@ class AvailabilityController
             'service_ids.*' => ['integer'],
             'package_id' => ['nullable', 'integer'],
             'date' => ['required', 'date_format:Y-m-d'],
+            // "Quiero que todo sea con Aleja". Es preferencia, no filtro: si
+            // ella no presta uno de los servicios o no esta libre, la hora se
+            // ofrece igual diciendo quien toma ese tramo.
+            'resource_id' => ['nullable', 'integer'],
         ]);
 
         $business = $request->user()->business;
@@ -52,10 +56,15 @@ class AvailabilityController
             return response()->json(['message' => 'Elige al menos un servicio.'], 422);
         }
 
+        $preferred = isset($data['resource_id'])
+            ? Resource::where('business_id', $business->id)->findOrFail($data['resource_id'])
+            : null;
+
         $slots = $this->availability->slotsForChain(
             $business,
             $services,
             CarbonImmutable::parse($data['date'], $tz),
+            preferredResourceId: $preferred?->id,
         );
 
         $quote = $package?->quote();
@@ -79,10 +88,13 @@ class AvailabilityController
                 'id' => $package->id,
                 'name' => $package->name,
             ] + $quote : null,
+            'preferred_resource' => $preferred ? ['id' => $preferred->id, 'name' => $preferred->name] : null,
             'slots' => array_map(fn (array $slot) => [
                 'starts_at' => $slot['starts_at']->toIso8601String(),
                 'ends_at' => $slot['ends_at']->toIso8601String(),
                 'label' => $slot['label'],
+                'same_person' => $slot['same_person'],
+                'preferred_honored' => $slot['preferred_honored'],
                 'legs' => array_map(fn (array $leg) => [
                     'service_id' => $leg['service_id'],
                     'service_name' => $leg['service_name'],
@@ -90,6 +102,9 @@ class AvailabilityController
                     'resource_name' => $leg['resource_name'],
                     'starts_at' => $leg['starts_at']->toIso8601String(),
                     'label' => $leg['starts_at']->format('H:i'),
+                    // `skill` = no presta ese servicio; `busy` = no esta libre.
+                    // Son dos conversaciones distintas con el cliente.
+                    'changed_reason' => $leg['changed_reason'],
                 ], $slot['legs']),
             ], $slots),
         ]);

@@ -81,9 +81,50 @@ class PublicBookingController
             // de landings, sus bloques se suman aca sin tocar el resto.
             'profile' => PublicProfile::resolve($business),
             'services' => $this->services($business),
+            'packages' => $this->packages($business),
             'resources' => $this->resources($business),
             'hours' => $this->hours($business),
         ]);
+    }
+
+    /**
+     * Los combos que se pueden reservar por internet.
+     *
+     * Un combo solo sale si TODAS sus partes se ofrecen en linea. Si una no,
+     * el combo llevaria a reservar por la pagina un servicio que el negocio
+     * decidio no vender por ahi, y el descuento seria la puerta de atras.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function packages(Business $business): array
+    {
+        $bookables = collect($this->services($business))->pluck('id')->all();
+
+        return \App\Models\ServicePackage::withoutGlobalScope('business')
+            ->where('business_id', $business->id)
+            ->where('is_active', true)
+            ->where('is_bookable_online', true)
+            ->with('services')
+            ->orderBy('sort_order')
+            ->orderBy('name')
+            ->get()
+            ->filter(fn ($p) => $p->services->isNotEmpty()
+                && $p->services->every(fn (Service $s) => in_array($s->id, $bookables, true)))
+            ->map(fn ($p) => [
+                'id' => $p->id,
+                'name' => $p->name,
+                'description' => $p->description,
+                'image_url' => ImageStorage::url($p->image_path),
+                'total_minutes' => $p->totalMinutes(),
+                'services' => $p->services->map(fn (Service $s) => [
+                    'id' => $s->id,
+                    'name' => $s->name,
+                    'duration_min' => $s->duration_min,
+                    'price' => (float) $s->price,
+                ])->values()->all(),
+            ] + $p->quote())
+            ->values()
+            ->all();
     }
 
     /** Solo el catalogo, para quien ya esta en el paso de elegir. */
@@ -157,6 +198,75 @@ class PublicBookingController
     }
 
     /**
+     * Donde cabe una visita de varios servicios, o un combo.
+     *
+     * La pagina publica necesita esto por la misma razon que la agenda de
+     * adentro: encadenar `availability()` a mano da horas libres para el
+     * primer servicio y ocupadas para el tercero. Y aca importa mas todavia,
+     * porque no hay nadie del local mirando para corregirlo.
+     */
+    public function chain(Request $request, Business $business): JsonResponse
+    {
+        $this->assertOpenToPublic($business);
+
+        $data = $request->validate([
+            'service_ids' => ['required_without:package_id', 'array', 'min:1', 'max:10'],
+            'service_ids.*' => ['integer'],
+            'package_id' => ['nullable', 'integer'],
+            'date' => ['required', 'date_format:Y-m-d'],
+            // "Todo con la misma persona": preferencia, no filtro.
+            'resource_id' => ['nullable', 'integer'],
+        ]);
+
+        $package = isset($data['package_id']) ? $this->bookablePackage($business, $data['package_id']) : null;
+
+        // Aunque venga de un combo, cada servicio se revalida como reservable
+        // en linea: un combo mal configurado no puede ser el atajo.
+        $services = $package
+            ? $package->services->map(fn (Service $s) => $this->bookableService($business, $s->id))->all()
+            : array_values(array_filter(array_map(
+                fn (int $id) => $this->bookableService($business, $id),
+                $data['service_ids'],
+            )));
+
+        $resource = isset($data['resource_id'])
+            ? $this->bookableResource($business, $data['resource_id'])
+            : null;
+
+        $tz = $business->businessTimezone();
+
+        $slots = $this->availability->slotsForChain(
+            $business,
+            $services,
+            CarbonImmutable::parse($data['date'], $tz),
+            preferredResourceId: $resource?->id,
+        );
+
+        return response()->json([
+            'date' => $data['date'],
+            'timezone' => $tz,
+            'total_minutes' => array_sum(array_map(fn (Service $s) => $s->occupiedMinutesFor(), $services)),
+            'package' => $package ? ['id' => $package->id, 'name' => $package->name] + $package->quote() : null,
+            'preferred_resource' => $resource ? ['id' => $resource->id, 'name' => $resource->name] : null,
+            'slots' => array_map(fn (array $slot) => [
+                'starts_at' => $slot['starts_at']->toIso8601String(),
+                'label' => $slot['label'],
+                'same_person' => $slot['same_person'],
+                'preferred_honored' => $slot['preferred_honored'],
+                'legs' => array_map(fn (array $leg) => [
+                    'service_id' => $leg['service_id'],
+                    'service_name' => $leg['service_name'],
+                    'resource_id' => $leg['resource_id'],
+                    'resource_name' => $leg['resource_name'],
+                    'starts_at' => $leg['starts_at']->toIso8601String(),
+                    'label' => $leg['starts_at']->format('g:i a'),
+                    'changed_reason' => $leg['changed_reason'],
+                ], $slot['legs']),
+            ], $slots),
+        ]);
+    }
+
+    /**
      * Que dias tienen algo libre, para no hacer tocar dia por dia.
      *
      * Devuelve solo si hay o no hay, no los huecos: calcular las horas de 60
@@ -204,18 +314,62 @@ class PublicBookingController
         $this->assertOpenToPublic($business);
 
         $data = $request->validate([
-            'service_id' => ['required', 'integer'],
-            'resource_id' => ['required', 'integer'],
-            'starts_at' => ['required', 'date'],
+            // Un servicio suelto, o la cadena completa que devolvio `chain()`.
+            'service_id' => ['required_without:items', 'integer'],
+            'resource_id' => ['required_with:service_id', 'integer'],
+            'starts_at' => ['required_with:service_id', 'date'],
+
+            'items' => ['required_without:service_id', 'array', 'min:1', 'max:10'],
+            'items.*.service_id' => ['required', 'integer'],
+            'items.*.resource_id' => ['required', 'integer'],
+            'items.*.starts_at' => ['required', 'date'],
+            'service_package_id' => ['nullable', 'integer'],
+
             'client_name' => ['required', 'string', 'min:2', 'max:255'],
             'client_phone' => ['required', 'string', 'max:32'],
             'notes' => ['nullable', 'string', 'max:500'],
         ]);
 
-        $service = $this->bookableService($business, $data['service_id']);
-        $resource = $this->bookableResource($business, $data['resource_id']);
-
         $tz = $business->businessTimezone();
+
+        $crudos = $data['items'] ?? [[
+            'service_id' => $data['service_id'],
+            'resource_id' => $data['resource_id'],
+            'starts_at' => $data['starts_at'],
+        ]];
+
+        /*
+         * Cada linea se revalida contra el catalogo publico. La cadena la
+         * calculo el servidor, pero vuelve por la red: nada impide reenviarla
+         * con el id de un servicio que no se vende en linea.
+         */
+        $servicios = [];
+        $recursos = [];
+
+        foreach ($crudos as $crudo) {
+            $servicios[] = $this->bookableService($business, (int) $crudo['service_id']);
+            $recursos[] = $this->bookableResource($business, (int) $crudo['resource_id']);
+        }
+
+        $package = isset($data['service_package_id'])
+            ? $this->bookablePackage($business, (int) $data['service_package_id'])
+            : null;
+
+        if ($package !== null) {
+            $esperados = $package->services->pluck('id')->sort()->values()->all();
+            $recibidos = collect($servicios)->pluck('id')->sort()->values()->all();
+
+            // Sin esto se agenda el servicio mas barato marcado como el combo
+            // y el cobro le aplica el descuento del combo entero.
+            if ($esperados !== $recibidos) {
+                return response()->json([
+                    'message' => 'Los servicios no corresponden al combo elegido.',
+                ], 422);
+            }
+        }
+
+        $service = $servicios[0];
+        $resource = $recursos[0];
         $phone = ChannelPhone::normalize($data['client_phone'], $business->country_code);
 
         if ($phone === null) {
@@ -233,18 +387,19 @@ class PublicBookingController
         try {
             $appointment = $this->booking->book(
                 $business,
-                [[
-                    'service_id' => $service->id,
-                    'resource_id' => $resource->id,
+                array_map(fn (array $crudo, int $i) => [
+                    'service_id' => $servicios[$i]->id,
+                    'resource_id' => $recursos[$i]->id,
                     // Sin desfase se interpreta en la zona del negocio, que es
                     // lo que manda la pagina.
-                    'starts_at' => CarbonImmutable::parse($data['starts_at'], $tz),
-                ]],
+                    'starts_at' => CarbonImmutable::parse($crudo['starts_at'], $tz),
+                ], $crudos, array_keys($crudos)),
                 $client,
                 $data['client_name'],
                 $phone,
                 Appointment::SOURCE_ONLINE,
                 $data['notes'] ?? null,
+                package: $package,
             );
         } catch (SlotUnavailableException $e) {
             return response()->json([
@@ -269,6 +424,16 @@ class PublicBookingController
             'status' => $appointment->status,
             'service' => $service->name,
             'resource' => $resource->name,
+            'package' => $package?->name,
+            // La confirmacion tiene que decir la visita COMPLETA: quien atiende
+            // cada parte y a que hora. Es lo que la persona va a releer al
+            // llegar, y un cambio de persona a mitad de visita sin avisar antes
+            // es una discusion en el mostrador.
+            'items' => array_map(fn (array $crudo, int $i) => [
+                'service' => $servicios[$i]->name,
+                'resource' => $recursos[$i]->name,
+                'time_label' => CarbonImmutable::parse($crudo['starts_at'], $tz)->format('g:i a'),
+            ], $crudos, array_keys($crudos)),
             'starts_at' => $start->toIso8601String(),
             'date_label' => $start->translatedFormat('l j \d\e F'),
             'time_label' => $start->format('g:i a'),
@@ -301,6 +466,28 @@ class PublicBookingController
             ->where('is_active', true)
             ->where('is_bookable_online', true)
             ->findOrFail($id);
+    }
+
+    /**
+     * Un combo que de verdad se vende en linea.
+     *
+     * Se comprueba tambien que cada parte sea reservable: un combo activo con
+     * un servicio que se saco de la venta online no puede colarlo de vuelta.
+     */
+    private function bookablePackage(Business $business, int $id): \App\Models\ServicePackage
+    {
+        $package = \App\Models\ServicePackage::withoutGlobalScope('business')
+            ->where('business_id', $business->id)
+            ->where('is_active', true)
+            ->where('is_bookable_online', true)
+            ->with('services')
+            ->findOrFail($id);
+
+        foreach ($package->services as $service) {
+            $this->bookableService($business, $service->id);
+        }
+
+        return $package;
     }
 
     private function bookableResource(Business $business, int $id): Resource

@@ -153,10 +153,11 @@ class ServicePackageTest extends TestCase
         $this->assertContains('11:00 am', $horas);
     }
 
-    public function test_la_cadena_puede_repartirse_entre_dos_personas(): void
+    public function test_la_cadena_se_queda_con_una_sola_persona_si_puede(): void
     {
-        // Ana ocupada de 10:00 a 11:00: el pedicure lo toma Lucia y la cadena
-        // sigue cabiendo a las 09:00.
+        // Ana ocupada de 10:00 a 11:00. La cadena a las 09:00 podría partirse
+        // (manicure con Ana, pedicure con Lucia) pero no debe: nadie va al spa
+        // a que lo pasen de silla en silla si una sola puede hacer todo.
         $this->postJson('/api/v1/appointments', [
             'service_id' => $this->manicure->id,
             'resource_id' => $this->ana->id,
@@ -170,8 +171,114 @@ class ServicePackageTest extends TestCase
         ])->json('slots'))->firstWhere('label', '9:00 am');
 
         $this->assertNotNull($slot);
+        $this->assertTrue($slot['same_person']);
+        $this->assertSame('Lucia', $slot['legs'][0]['resource_name']);
+        $this->assertSame('Lucia', $slot['legs'][1]['resource_name']);
+    }
+
+    public function test_se_reparte_solo_cuando_no_hay_quien_haga_todo(): void
+    {
+        // Depilación sólo Ana, cejas sólo Lucia: nadie puede con la visita
+        // completa, así que repartir es la única opción. El caso real de
+        // "manos + pies + cejas" donde no todas prestan todo.
+        $depilacion = $this->makeService($this->business, 30, [$this->ana]);
+        $depilacion->update(['name' => 'Depilación', 'price' => 40000]);
+
+        $cejas = $this->makeService($this->business, 30, [$this->lucia]);
+        $cejas->update(['name' => 'Cejas', 'price' => 30000]);
+
+        $slot = $this->cadena([
+            'service_ids' => [$this->manicure->id, $depilacion->id, $cejas->id],
+            'date' => $this->wednesday()->format('Y-m-d'),
+        ])->json('slots.0');
+
+        $this->assertFalse($slot['same_person']);
+        // Los dos primeros con Ana, que puede con ambos; el tercero cambia
+        // porque Ana no lo presta.
+        $this->assertSame('Ana', $slot['legs'][0]['resource_name']);
+        $this->assertSame('Ana', $slot['legs'][1]['resource_name']);
+        $this->assertSame('Lucia', $slot['legs'][2]['resource_name']);
+        // Y se dice POR QUÉ cambió: "no lo hace" y "está ocupada" llevan a
+        // respuestas distintas del cliente.
+        $this->assertSame('skill', $slot['legs'][2]['changed_reason']);
+    }
+
+    public function test_el_alistamiento_del_segundo_no_parte_la_cadena(): void
+    {
+        /*
+         * Con `buffer_before` en el segundo servicio, su ventana empezaba
+         * ANTES de que terminara la primera y chocaba consigo misma: la cadena
+         * con una sola persona era imposible SIEMPRE y se repartia entre dos
+         * aunque las dos estuvieran libres el dia entero. La hora que se le
+         * dice al cliente es cuando lo sientan, no cuando empieza el
+         * alistamiento.
+         */
+        $this->pedicure->update(['buffer_before_min' => 10, 'buffer_after_min' => 5]);
+
+        $slot = $this->cadena([
+            'service_ids' => [$this->manicure->id, $this->pedicure->id],
+            'date' => $this->wednesday()->format('Y-m-d'),
+        ])->json('slots.0');
+
+        $this->assertTrue($slot['same_person']);
+        $this->assertSame($slot['legs'][0]['resource_name'], $slot['legs'][1]['resource_name']);
+        // Manicure 09:00-10:00 y el alistamiento del pedicure despues, no encima.
+        $this->assertSame('09:00', $slot['legs'][0]['label']);
+        $this->assertSame('10:10', $slot['legs'][1]['label']);
+    }
+
+    public function test_se_puede_pedir_que_todo_sea_con_una_persona(): void
+    {
+        $slot = collect($this->cadena([
+            'service_ids' => [$this->manicure->id, $this->pedicure->id],
+            'date' => $this->wednesday()->format('Y-m-d'),
+            'resource_id' => $this->lucia->id,
+        ])->json('slots'))->first();
+
+        $this->assertTrue($slot['preferred_honored']);
+        $this->assertSame('Lucia', $slot['legs'][0]['resource_name']);
+        $this->assertSame('Lucia', $slot['legs'][1]['resource_name']);
+    }
+
+    public function test_pedir_una_persona_no_esconde_las_horas_en_que_no_puede(): void
+    {
+        // Lucia no hace cejas. Se pidió "todo con Lucia", pero negarle la hora
+        // entera sería peor que ofrecerla diciendo que las cejas las hace otra.
+        $cejas = $this->makeService($this->business, 30, [$this->ana]);
+        $cejas->update(['name' => 'Cejas', 'price' => 30000]);
+
+        $slot = $this->cadena([
+            'service_ids' => [$this->manicure->id, $cejas->id],
+            'date' => $this->wednesday()->format('Y-m-d'),
+            'resource_id' => $this->lucia->id,
+        ])->json('slots.0');
+
+        $this->assertFalse($slot['preferred_honored']);
+        $this->assertSame('Lucia', $slot['legs'][0]['resource_name']);
+        $this->assertSame('Ana', $slot['legs'][1]['resource_name']);
+        $this->assertSame('skill', $slot['legs'][1]['changed_reason']);
+    }
+
+    public function test_si_la_persona_pedida_esta_ocupada_el_motivo_lo_dice(): void
+    {
+        // Ana hace las dos cosas pero está ocupada justo cuando tocaría el
+        // pedicure. El cliente tiene que poder distinguirlo de "no lo hace".
+        $this->postJson('/api/v1/appointments', [
+            'service_id' => $this->pedicure->id,
+            'resource_id' => $this->ana->id,
+            'starts_at' => $this->wednesday()->format('Y-m-d').' 10:00:00',
+            'client_name' => 'Ocupada',
+        ])->assertCreated();
+
+        $slot = collect($this->cadena([
+            'service_ids' => [$this->manicure->id, $this->pedicure->id],
+            'date' => $this->wednesday()->format('Y-m-d'),
+            'resource_id' => $this->ana->id,
+        ])->json('slots'))->firstWhere('label', '9:00 am');
+
         $this->assertSame('Ana', $slot['legs'][0]['resource_name']);
         $this->assertSame('Lucia', $slot['legs'][1]['resource_name']);
+        $this->assertSame('busy', $slot['legs'][1]['changed_reason']);
     }
 
     public function test_el_orden_pedido_es_el_orden_agendado(): void

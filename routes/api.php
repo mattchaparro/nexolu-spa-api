@@ -318,6 +318,8 @@ Route::prefix('v1')->group(function () {
             Route::get('/services', [PublicBookingController::class, 'services']);
             Route::get('/days', [PublicBookingController::class, 'days']);
             Route::get('/availability', [PublicBookingController::class, 'availability']);
+            // Varios servicios seguidos, o un combo.
+            Route::get('/availability/chain', [PublicBookingController::class, 'chain']);
 
             // Lo unico que escribe. Con su propio limite, mas apretado que el
             // de lectura: mirar la pagina es gratis, llenar la agenda no.
