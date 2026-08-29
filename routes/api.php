@@ -6,9 +6,11 @@ use App\Http\Controllers\Api\V1\AgendaController;
 use App\Http\Controllers\Api\V1\AppointmentController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\AvailabilityController;
+use App\Http\Controllers\Api\V1\CashController;
 use App\Http\Controllers\Api\V1\CheckoutController;
 use App\Http\Controllers\Api\V1\ClientController;
 use App\Http\Controllers\Api\V1\ClientProfileController;
+use App\Http\Controllers\Api\V1\ExpenseController;
 use App\Http\Controllers\Api\V1\ResourceController;
 use App\Http\Controllers\Api\V1\ServiceController;
 use Illuminate\Support\Facades\Route;
@@ -78,6 +80,41 @@ Route::prefix('v1')->group(function () {
         });
 
         Route::get('/payment-methods', [CheckoutController::class, 'paymentMethods']);
+
+        /*
+        |----------------------------------------------------------------------
+        | Caja y dinero
+        |----------------------------------------------------------------------
+        | El turno es de UNA persona; el cierre del dia es del negocio. Un dia
+        | puede tener varios turnos, por eso van separados y con permisos
+        | distintos.
+        */
+        Route::prefix('cash')->middleware('feature:cash_shift')->group(function () {
+            Route::get('/shift', [CashController::class, 'currentShift'])->middleware('permission:caja.turno');
+            Route::post('/shift/open', [CashController::class, 'openShift'])->middleware('permission:caja.turno');
+            Route::post('/shift/close', [CashController::class, 'closeShift'])->middleware('permission:caja.turno');
+
+            Route::middleware('permission:caja.cierre')->group(function () {
+                Route::get('/closing/preview', [CashController::class, 'closingPreview']);
+                Route::post('/closing', [CashController::class, 'closeDay']);
+                Route::get('/closings', [CashController::class, 'closings']);
+                Route::delete('/closings/{closing}', [CashController::class, 'undoClosing']);
+            });
+        });
+
+        // El resumen del dia: lo que el dueno mira al cerrar la jornada.
+        Route::get('/daily-summary', [CashController::class, 'dailySummary'])
+            ->middleware('permission:reportes.ver');
+
+        Route::prefix('expenses')->middleware('feature:expenses')->group(function () {
+            Route::get('/types', [ExpenseController::class, 'types']);
+            Route::post('/types', [ExpenseController::class, 'storeType'])->middleware('permission:gastos.gestionar');
+
+            Route::get('/', [ExpenseController::class, 'index'])->middleware('permission:gastos.gestionar');
+            Route::post('/', [ExpenseController::class, 'store'])->middleware('permission:gastos.gestionar');
+            Route::post('/{expense}', [ExpenseController::class, 'update'])->middleware('permission:gastos.gestionar');
+            Route::delete('/{expense}', [ExpenseController::class, 'destroy'])->middleware('permission:gastos.gestionar');
+        });
 
         Route::prefix('clients')->middleware('feature:clients')->group(function () {
             // Buscador del mostrador: minimo, para elegir en un desplegable.
