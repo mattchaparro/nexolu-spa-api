@@ -15,7 +15,7 @@ class Client extends Model
 
     protected $fillable = [
         'business_id', 'name', 'last_name', 'phone', 'email', 'birth_date',
-        'gender', 'notes', 'preferred_resource_id', 'accepts_marketing', 'is_active',
+        'gender', 'notes', 'care_notes', 'preferred_resource_id', 'accepts_marketing', 'is_active',
     ];
 
     protected function casts(): array
@@ -30,6 +30,11 @@ class Client extends Model
     public function appointments(): HasMany
     {
         return $this->hasMany(Appointment::class);
+    }
+
+    public function photos(): HasMany
+    {
+        return $this->hasMany(ClientPhoto::class)->orderByDesc('taken_at');
     }
 
     public function penalties(): HasMany

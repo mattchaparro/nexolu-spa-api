@@ -222,9 +222,9 @@ class BookingApiTest extends TestCase
         $this->actAsAdmin();
         Client::create(['business_id' => $this->business->id, 'name' => 'Laura', 'phone' => '573001112233']);
 
-        $this->getJson('/api/v1/clients?q=')->assertOk()->assertJsonCount(0);
-        $this->getJson('/api/v1/clients?q=a')->assertOk()->assertJsonCount(0);
-        $this->getJson('/api/v1/clients?q=lau')->assertOk()->assertJsonCount(1);
+        $this->getJson('/api/v1/clients/search?q=')->assertOk()->assertJsonCount(0);
+        $this->getJson('/api/v1/clients/search?q=a')->assertOk()->assertJsonCount(0);
+        $this->getJson('/api/v1/clients/search?q=lau')->assertOk()->assertJsonCount(1);
     }
 
     public function test_buscar_un_nombre_sin_digitos_no_devuelve_a_todo_el_mundo(): void
@@ -237,13 +237,13 @@ class BookingApiTest extends TestCase
         // quedaba una cadena vacia y la condicion de telefono se volvia
         // LIKE '%%', que matchea a todo cliente con telefono. Buscar
         // "Carolina" devolvia tambien a Laura.
-        $this->getJson('/api/v1/clients?q=Carolina')
+        $this->getJson('/api/v1/clients/search?q=Carolina')
             ->assertOk()
             ->assertJsonCount(1)
             ->assertJsonPath('0.name', 'Carolina');
 
         // Y buscar por telefono debe seguir funcionando.
-        $this->getJson('/api/v1/clients?q=4445566')
+        $this->getJson('/api/v1/clients/search?q=4445566')
             ->assertOk()
             ->assertJsonCount(1)
             ->assertJsonPath('0.name', 'Carolina');

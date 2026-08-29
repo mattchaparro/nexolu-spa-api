@@ -18,6 +18,42 @@ class AppointmentController
     public function __construct(private readonly BookingService $booking) {}
 
     /**
+     * Encuentra o crea el cliente de una cita agendada por nombre.
+     *
+     * Sin esto, agendar a alguien nuevo guardaba su nombre suelto en la cita
+     * y no creaba ficha: el listado de clientes quedaba vacio y el historial
+     * nunca se acumulaba, que es justo para lo que existe la ficha.
+     *
+     * Si viene telefono se busca por ahi primero: es lo unico que distingue a
+     * dos clientas que se llaman igual, y evita duplicar a la misma persona
+     * cada vez que alguien escribe su nombre con una tilde distinta.
+     */
+    private function resolveClient(int $businessId, ?string $name, ?string $phone): ?Client
+    {
+        if ($name === null || trim($name) === '') {
+            return null;
+        }
+
+        if ($phone !== null) {
+            $existing = Client::where('business_id', $businessId)->where('phone', $phone)->first();
+
+            if ($existing !== null) {
+                return $existing;
+            }
+        }
+
+        $parts = preg_split('/\s+/', trim($name), 2);
+
+        return Client::create([
+            'business_id' => $businessId,
+            'name' => $parts[0],
+            'last_name' => $parts[1] ?? null,
+            'phone' => $phone,
+            'is_active' => true,
+        ]);
+    }
+
+    /**
      * Interpreta la hora que manda el cliente.
      *
      * Una hora sin desfase ("2026-08-29 11:00:00") significa "las 11 en la
@@ -81,9 +117,13 @@ class AppointmentController
         $business = $request->user()->business;
         $tz = $business->businessTimezone();
 
+        $phone = isset($data['client_phone'])
+            ? ChannelPhone::normalize($data['client_phone'], $business->country_code)
+            : null;
+
         $client = isset($data['client_id'])
             ? Client::where('business_id', $business->id)->find($data['client_id'])
-            : null;
+            : $this->resolveClient($business->id, $data['client_name'] ?? null, $phone);
 
         try {
             $appointment = $this->booking->book(
@@ -94,10 +134,8 @@ class AppointmentController
                     'starts_at' => self::interpret($data['starts_at'], $tz),
                 ]],
                 $client,
-                $data['client_name'] ?? null,
-                isset($data['client_phone'])
-                    ? ChannelPhone::normalize($data['client_phone'], $business->country_code)
-                    : null,
+                $data['client_name'] ?? $client?->fullName(),
+                $phone ?? $client?->phone,
                 Appointment::SOURCE_ADMIN,
                 $data['notes'] ?? null,
             );

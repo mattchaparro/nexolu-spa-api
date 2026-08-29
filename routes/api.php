@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\AvailabilityController;
 use App\Http\Controllers\Api\V1\CheckoutController;
 use App\Http\Controllers\Api\V1\ClientController;
+use App\Http\Controllers\Api\V1\ClientProfileController;
 use App\Http\Controllers\Api\V1\ResourceController;
 use App\Http\Controllers\Api\V1\ServiceController;
 use Illuminate\Support\Facades\Route;
@@ -79,8 +80,21 @@ Route::prefix('v1')->group(function () {
         Route::get('/payment-methods', [CheckoutController::class, 'paymentMethods']);
 
         Route::prefix('clients')->middleware('feature:clients')->group(function () {
-            Route::get('/', [ClientController::class, 'index'])->middleware('permission:clientes.ver');
+            // Buscador del mostrador: minimo, para elegir en un desplegable.
+            Route::get('/search', [ClientController::class, 'index'])->middleware('permission:clientes.ver');
             Route::post('/', [ClientController::class, 'store'])->middleware('permission:clientes.gestionar');
+
+            // La ficha completa. Va detras de su propio permiso: ver el
+            // historial de alguien es mas que poder elegirlo en un buscador.
+            Route::get('/', [ClientProfileController::class, 'index'])->middleware('permission:clientes.ver');
+            Route::get('/{client}', [ClientProfileController::class, 'show'])
+                ->middleware('permission:clientes.historial');
+            Route::patch('/{client}', [ClientProfileController::class, 'update'])
+                ->middleware('permission:clientes.gestionar');
+            Route::post('/{client}/photos', [ClientProfileController::class, 'storePhoto'])
+                ->middleware('permission:clientes.gestionar');
+            Route::delete('/photos/{photo}', [ClientProfileController::class, 'destroyPhoto'])
+                ->middleware('permission:clientes.gestionar');
         });
 
         /*
