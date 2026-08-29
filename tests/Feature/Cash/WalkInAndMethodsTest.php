@@ -199,6 +199,35 @@ class WalkInAndMethodsTest extends TestCase
         $this->assertEqualsWithDelta(13500, $response->json('commission_total'), 0.01);
     }
 
+    public function test_un_servicio_sin_cita_le_crea_ficha_al_cliente(): void
+    {
+        Sanctum::actingAs($this->manicurista);
+
+        $efectivo = PaymentMethod::withoutGlobalScope('business')
+            ->where('business_id', $this->business->id)->where('name', 'Efectivo')->first();
+
+        $this->postJson('/api/v1/walk-in', [
+            'service_id' => $this->service->id,
+            'client_name' => 'Señora que llegó',
+            'client_phone' => '3007776655',
+            'payment_method_id' => $efectivo->id,
+        ])->assertCreated();
+
+        // Bug real: la logica de crear ficha vivia dentro del controlador de
+        // citas y el walk-in la esquivaba, asi que el cliente quedaba con el
+        // nombre suelto y sin aparecer en el listado. Ahora ambos caminos usan
+        // el mismo ClientResolver.
+        $client = \App\Models\Client::withoutGlobalScope('business')
+            ->where('phone', '573007776655')->first();
+
+        $this->assertNotNull($client);
+        $this->assertSame('Señora', $client->name);
+        $this->assertSame('que llegó', $client->last_name);
+
+        Sanctum::actingAs($this->admin);
+        $this->assertCount(1, $this->getJson("/api/v1/clients/{$client->id}")->json('history'));
+    }
+
     public function test_un_servicio_sin_cita_entra_al_cierre_del_dia(): void
     {
         Sanctum::actingAs($this->manicurista);

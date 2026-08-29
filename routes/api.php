@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\V1\CheckoutController;
 use App\Http\Controllers\Api\V1\ClientController;
 use App\Http\Controllers\Api\V1\ClientProfileController;
 use App\Http\Controllers\Api\V1\ExpenseController;
+use App\Http\Controllers\Api\V1\MyWorkController;
 use App\Http\Controllers\Api\V1\ResourceController;
 use App\Http\Controllers\Api\V1\ServiceController;
 use App\Http\Controllers\Api\V1\WalkInController;
@@ -88,6 +89,10 @@ Route::prefix('v1')->group(function () {
             ->middleware('permission:negocio.configurar');
         Route::put('/payment-methods/catalog', [BusinessPaymentMethodController::class, 'sync'])
             ->middleware('permission:negocio.configurar');
+
+        // Lo que ve una profesional de si misma: su agenda del dia, lo que
+        // lleva ganado y lo que le falta cobrar.
+        Route::get('/my-work', [MyWorkController::class, 'summary']);
 
         // Alguien que llega sin cita: registrar y cobrar en un paso.
         Route::post('/walk-in', [WalkInController::class, 'store'])

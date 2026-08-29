@@ -4,10 +4,10 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Resources\AppointmentResource;
 use App\Models\Appointment;
-use App\Models\Client;
 use App\Models\PaymentMethod;
 use App\Models\Resource;
 use App\Models\Service;
+use App\Services\ClientResolver;
 use App\Services\Scheduling\BookingService;
 use App\Services\Scheduling\CheckoutService;
 use App\Services\Scheduling\Exceptions\SlotUnavailableException;
@@ -33,6 +33,7 @@ class WalkInController
     public function __construct(
         private readonly BookingService $booking,
         private readonly CheckoutService $checkout,
+        private readonly ClientResolver $clients,
     ) {}
 
     public function store(Request $request): JsonResponse
@@ -69,9 +70,18 @@ class WalkInController
 
         $service = Service::where('business_id', $business->id)->findOrFail($data['service_id']);
 
-        $client = isset($data['client_id'])
-            ? Client::where('business_id', $business->id)->find($data['client_id'])
+        $phone = isset($data['client_phone'])
+            ? ChannelPhone::normalize($data['client_phone'], $business->country_code)
             : null;
+
+        // Un servicio sin cita crea ficha igual que uno agendado: si no, el
+        // cliente no aparece en el listado ni acumula historial.
+        $client = $this->clients->resolve(
+            $business->id,
+            $data['client_id'] ?? null,
+            $data['client_name'] ?? null,
+            $phone,
+        );
 
         // Hacia atras: el servicio ya se presto. Se redondea al minuto para
         // que la ocupacion caiga en la rejilla como cualquier otra cita.
@@ -91,10 +101,8 @@ class WalkInController
                         'starts_at' => $startedAt,
                     ]],
                     $client,
-                    $data['client_name'] ?? null,
-                    isset($data['client_phone'])
-                        ? ChannelPhone::normalize($data['client_phone'], $business->country_code)
-                        : null,
+                    $data['client_name'] ?? $client?->fullName(),
+                    $phone ?? $client?->phone,
                     Appointment::SOURCE_ADMIN,
                     $data['notes'] ?? null,
                 );
