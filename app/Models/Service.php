@@ -77,4 +77,27 @@ class Service extends Model
     {
         return $this->buffer_before_min + $this->durationFor($resource) + $this->buffer_after_min;
     }
+
+    /**
+     * Porcentaje de comision efectivo para un recurso.
+     *
+     * Una profesional puede tener su propio porcentaje en un servicio
+     * concreto -- tipicamente cuando es la unica que lo presta, o cuando
+     * requiere una habilidad que el resto no tiene. Ignorar el override
+     * liquida de menos y nadie lo nota hasta que alguien reclama.
+     */
+    public function commissionRateFor(?Resource $resource = null): ?float
+    {
+        if ($resource === null) {
+            return $this->commission_rate === null ? null : (float) $this->commission_rate;
+        }
+
+        $override = $this->resources()
+            ->where('resources.id', $resource->id)
+            ->first()?->pivot?->commission_rate_override;
+
+        $rate = $override ?? $this->commission_rate;
+
+        return $rate === null ? null : (float) $rate;
+    }
 }

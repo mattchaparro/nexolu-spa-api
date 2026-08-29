@@ -37,6 +37,8 @@ class Appointment extends Model
         'business_id', 'client_id', 'client_name', 'client_phone',
         'starts_at', 'ends_at', 'status', 'source', 'notes',
         'confirmed_at', 'cancelled_at', 'cancelled_by_user_id', 'cancellation_reason',
+        'payment_method_id', 'checked_out_at', 'checked_out_by_user_id',
+        'subtotal', 'discount_amount', 'discount_reason', 'total', 'commission_total',
     ];
 
     protected function casts(): array
@@ -46,6 +48,11 @@ class Appointment extends Model
             'ends_at' => 'datetime',
             'confirmed_at' => 'datetime',
             'cancelled_at' => 'datetime',
+            'checked_out_at' => 'datetime',
+            'subtotal' => 'decimal:2',
+            'discount_amount' => 'decimal:2',
+            'total' => 'decimal:2',
+            'commission_total' => 'decimal:2',
         ];
     }
 
@@ -57,6 +64,16 @@ class Appointment extends Model
     public function items(): HasMany
     {
         return $this->hasMany(AppointmentItem::class)->orderBy('sort_order');
+    }
+
+    public function paymentMethod(): BelongsTo
+    {
+        return $this->belongsTo(PaymentMethod::class);
+    }
+
+    public function isPaid(): bool
+    {
+        return $this->checked_out_at !== null;
     }
 
     /** Estados en los que la cita todavia ocupa al recurso. */

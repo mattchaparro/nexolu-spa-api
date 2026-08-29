@@ -76,7 +76,11 @@ class BookingService
                     'service_starts_at' => $row['service_starts_at'],
                     'service_ends_at' => $row['service_ends_at'],
                     'price' => $row['service']->price,
-                    'commission_rate' => $row['service']->commission_rate,
+                    // Se congela el porcentaje vigente al agendar, y el del
+                    // recurso concreto -- no el generico del servicio. Que
+                    // el negocio cambie sus porcentajes manana no debe
+                    // reescribir lo que ya se pacto en una cita existente.
+                    'commission_rate' => $row['service']->commissionRateFor($row['resource']),
                     'sort_order' => $index,
                 ]);
 

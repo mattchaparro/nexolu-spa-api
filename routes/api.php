@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\V1\AppointmentController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\AvailabilityController;
+use App\Http\Controllers\Api\V1\CheckoutController;
 use App\Http\Controllers\Api\V1\ClientController;
 use App\Http\Controllers\Api\V1\ResourceController;
 use App\Http\Controllers\Api\V1\ServiceController;
@@ -51,7 +52,11 @@ Route::prefix('v1')->group(function () {
             Route::post('/', [AppointmentController::class, 'store'])->middleware('permission:citas.crear');
             Route::patch('/{appointment}/reschedule', [AppointmentController::class, 'reschedule'])->middleware('permission:citas.editar');
             Route::post('/{appointment}/cancel', [AppointmentController::class, 'cancel'])->middleware('permission:citas.cancelar');
+            Route::post('/{appointment}/checkout', [CheckoutController::class, 'store'])->middleware('permission:caja.cobrar');
+            Route::delete('/{appointment}/checkout', [CheckoutController::class, 'destroy'])->middleware('permission:caja.cobrar');
         });
+
+        Route::get('/payment-methods', [CheckoutController::class, 'paymentMethods']);
 
         Route::prefix('clients')->middleware('feature:clients')->group(function () {
             Route::get('/', [ClientController::class, 'index'])->middleware('permission:clientes.ver');

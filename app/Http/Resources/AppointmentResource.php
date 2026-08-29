@@ -27,6 +27,15 @@ class AppointmentResource extends JsonResource
             'client_name' => $this->client_name,
             'client_phone' => $this->client_phone,
             'notes' => $this->notes,
+
+            // Totales congelados al cobrar. Nulos mientras la cita no se haya
+            // cobrado -- distinto de cero, que significaria "se cobro $0".
+            'is_paid' => $this->checked_out_at !== null,
+            'payment_method' => $this->whenLoaded('paymentMethod', fn () => $this->paymentMethod?->name),
+            'subtotal' => $this->subtotal === null ? null : (float) $this->subtotal,
+            'discount_amount' => (float) $this->discount_amount,
+            'total' => $this->total === null ? null : (float) $this->total,
+            'commission_total' => $this->commission_total === null ? null : (float) $this->commission_total,
             'starts_at' => $this->starts_at?->setTimezone($tz)->toIso8601String(),
             'ends_at' => $this->ends_at?->setTimezone($tz)->toIso8601String(),
             'label' => $this->starts_at?->setTimezone($tz)->format('H:i'),
@@ -39,6 +48,9 @@ class AppointmentResource extends JsonResource
                 'starts_at' => $item->service_starts_at?->setTimezone($tz)->toIso8601String(),
                 'ends_at' => $item->service_ends_at?->setTimezone($tz)->toIso8601String(),
                 'price' => (float) $item->price,
+                'final_price' => $item->final_price === null ? null : (float) $item->final_price,
+                'commission_rate' => $item->commission_rate === null ? null : (float) $item->commission_rate,
+                'commission_amount' => $item->commission_amount === null ? null : (float) $item->commission_amount,
             ])),
         ];
     }

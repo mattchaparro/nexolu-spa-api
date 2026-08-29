@@ -15,7 +15,7 @@ class AppointmentItem extends Model
     protected $fillable = [
         'business_id', 'appointment_id', 'service_id', 'resource_id',
         'starts_at', 'ends_at', 'service_starts_at', 'service_ends_at',
-        'price', 'commission_rate', 'sort_order',
+        'price', 'final_price', 'commission_rate', 'commission_amount', 'sort_order',
     ];
 
     protected function casts(): array
@@ -27,6 +27,8 @@ class AppointmentItem extends Model
             'service_ends_at' => 'datetime',
             'price' => 'decimal:2',
             'commission_rate' => 'decimal:4',
+            'final_price' => 'decimal:2',
+            'commission_amount' => 'decimal:2',
         ];
     }
 

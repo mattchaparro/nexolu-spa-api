@@ -3,6 +3,7 @@
 namespace Database\Seeders;
 
 use App\Models\Business;
+use App\Models\PaymentMethod;
 use App\Models\Resource;
 use App\Models\ResourceSchedule;
 use App\Models\Service;
@@ -53,6 +54,25 @@ class DevelopmentSeeder extends Seeder
             'is_active' => true,
         ]);
         $admin->assignRole(PermissionCatalog::ROLE_ADMIN);
+
+        // counts_as_cash distingue lo que entra al cajon de lo que no: una
+        // transferencia suma a la venta del dia pero no al efectivo que debe
+        // haber fisicamente. Sin esa distincion el cierre nunca cuadra.
+        foreach ([
+            ['Efectivo', true, 0],
+            ['Datafono', false, 0.0250],
+            ['Transferencia', false, 0],
+            ['Nequi', false, 0],
+        ] as $i => [$name, $cash, $fee]) {
+            PaymentMethod::create([
+                'business_id' => $business->id,
+                'name' => $name,
+                'counts_as_cash' => $cash,
+                'provider_fee_rate' => $fee,
+                'is_active' => true,
+                'sort_order' => $i,
+            ]);
+        }
 
         $category = ServiceCategory::create([
             'business_id' => $business->id,
@@ -111,14 +131,22 @@ class DevelopmentSeeder extends Seeder
             'sort_order' => 10,
         ]);
 
+        // [nombre, duracion, buffer antes, buffer despues, precio, quien lo presta]
+        //
+        // Las asignaciones NO son todas-a-todas a proposito: en un spa real
+        // cada profesional maneja lo suyo, y el modelo tiene que poder
+        // representarlo. Lucia no hace acrilicas; Ana tarda menos en
+        // semipermanente porque es en lo que mas trabaja.
         $services = [
-            ['Retoque de esmalte', 20, 0, 5, 25000],
-            ['Manicure clasico', 45, 0, 10, 45000],
-            ['Manicure semipermanente', 90, 5, 15, 85000],
-            ['Uñas acrilicas', 180, 10, 20, 180000],
+            ['Retoque de esmalte', 20, 0, 5, 25000, ['Maria', 'Ana', 'Lucia']],
+            ['Manicure clasico', 45, 0, 10, 45000, ['Maria', 'Ana', 'Lucia']],
+            ['Manicure semipermanente', 90, 5, 15, 85000, ['Maria', 'Ana']],
+            ['Uñas acrilicas', 180, 10, 20, 180000, ['Maria']],
         ];
 
-        foreach ($services as $i => [$name, $duration, $before, $after, $price]) {
+        $porNombre = $staff->keyBy('name');
+
+        foreach ($services as $i => [$name, $duration, $before, $after, $price, $quienes]) {
             $service = Service::create([
                 'business_id' => $business->id,
                 'name' => $name,
@@ -134,7 +162,16 @@ class DevelopmentSeeder extends Seeder
                 'sort_order' => $i,
             ]);
 
-            $service->resources()->attach($staff->pluck('id'));
+            foreach ($quienes as $quien) {
+                $resource = $porNombre[$quien];
+
+                $service->resources()->attach($resource->id, [
+                    // Ana hace el semipermanente en 75 en vez de 90.
+                    'duration_override_min' => ($name === 'Manicure semipermanente' && $quien === 'Ana') ? 75 : null,
+                    // Maria cobra 40% en acrilicas: es la unica que las hace.
+                    'commission_rate_override' => ($name === 'Uñas acrilicas') ? 0.40 : null,
+                ]);
+            }
         }
 
         $this->command?->info('Negocio "Luxury Nails Spa" creado. Login: demo@nexolu.test / password123');
