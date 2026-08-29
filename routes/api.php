@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\V1\Admin\BreakController;
 use App\Http\Controllers\Api\V1\Admin\BusinessPaymentMethodController;
 use App\Http\Controllers\Api\V1\Admin\PermissionController;
+use App\Http\Controllers\Api\V1\Admin\PublicPageController;
 use App\Http\Controllers\Api\V1\Admin\ResourceAdminController;
 use App\Http\Controllers\Api\V1\Admin\ServiceAdminController;
 use App\Http\Controllers\Api\V1\AgendaController;
@@ -16,6 +17,7 @@ use App\Http\Controllers\Api\V1\ClientProfileController;
 use App\Http\Controllers\Api\V1\ExpenseController;
 use App\Http\Controllers\Api\V1\MyWorkController;
 use App\Http\Controllers\Api\V1\PayrollController;
+use App\Http\Controllers\Api\V1\PublicBookingController;
 use App\Http\Controllers\Api\V1\ResourceController;
 use App\Http\Controllers\Api\V1\ServiceController;
 use App\Http\Controllers\Api\V1\StageController;
@@ -121,6 +123,17 @@ Route::prefix('v1')->group(function () {
             ->middleware('permission:negocio.configurar');
         Route::put('/payment-methods/catalog', [BusinessPaymentMethodController::class, 'sync'])
             ->middleware('permission:negocio.configurar');
+
+        // La pagina publica del negocio, desde adentro.
+        Route::prefix('public-page')
+            ->middleware(['feature:online_booking', 'permission:negocio.configurar'])
+            ->group(function () {
+                Route::get('/', [PublicPageController::class, 'show']);
+                // POST y no PUT: el formulario manda multipart por la portada,
+                // y PHP no puebla $_FILES en un PUT.
+                Route::post('/', [PublicPageController::class, 'update']);
+                Route::put('/services', [PublicPageController::class, 'syncServices']);
+            });
 
         // Quien puede hacer que, persona por persona.
         Route::get('/permissions', [PermissionController::class, 'index'])
@@ -245,11 +258,17 @@ Route::prefix('v1')->group(function () {
     | negocio. Nunca listar clientes, nunca cancelar, nunca cobrar.
     */
     Route::prefix('public/{business:slug}')
-        ->middleware('throttle:30,1')
+        ->middleware('throttle:pagina-publica')
         ->group(function () {
-            Route::get('/services', fn () => abort(501, 'Pendiente: fase 06'));
-            Route::get('/availability', fn () => abort(501, 'Pendiente: fase 06'));
-            Route::post('/appointments', fn () => abort(501, 'Pendiente: fase 06'));
+            Route::get('/', [PublicBookingController::class, 'show']);
+            Route::get('/services', [PublicBookingController::class, 'services']);
+            Route::get('/days', [PublicBookingController::class, 'days']);
+            Route::get('/availability', [PublicBookingController::class, 'availability']);
+
+            // Lo unico que escribe. Con su propio limite, mas apretado que el
+            // de lectura: mirar la pagina es gratis, llenar la agenda no.
+            Route::post('/appointments', [PublicBookingController::class, 'store'])
+                ->middleware('throttle:reserva-publica');
         });
 });
 

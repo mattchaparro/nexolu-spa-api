@@ -16,7 +16,7 @@ class Business extends Model
     protected $fillable = [
         'name', 'slug', 'vertical', 'timezone', 'country_code', 'currency',
         'phone', 'email', 'address', 'logo_path', 'cover_path',
-        'feature_flags', 'subscription_plan', 'scheduling_settings', 'is_active',
+        'public_profile', 'feature_flags', 'subscription_plan', 'scheduling_settings', 'is_active',
         'appointment_workflow_id',
     ];
 
@@ -24,6 +24,7 @@ class Business extends Model
     {
         return [
             'feature_flags' => 'array',
+            'public_profile' => 'array',
             'scheduling_settings' => 'array',
             'is_active' => 'boolean',
         ];
