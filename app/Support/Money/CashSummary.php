@@ -16,7 +16,7 @@ final class CashSummary
      * @param  list<array{value: float, counts_as_cash: bool, operational?: bool}>  $expenses
      * @return array{
      *   total_charged: float, total_cash: float, total_other_methods: float,
-     *   total_expenses: float, opening_cash: float, expected_cash: float,
+     *   total_expenses: float, cash_out: float, opening_cash: float, expected_cash: float,
      *   payment_breakdown: list<array{id:int|null, label:string, counts_as_cash:bool, total:float}>,
      * }
      */
@@ -83,6 +83,10 @@ final class CashSummary
             'total_cash' => round($totalCash, 2),
             'total_other_methods' => round($totalCharged - $totalCash, 2),
             'total_expenses' => round($totalExpenses, 2),
+            // Todo lo que salio del cajon, sea gasto del dia o no. Sin este
+            // numero el cierre muestra "gastos $0" y un esperado mas bajo, y
+            // quien cuenta los billetes no entiende de donde sale la resta.
+            'cash_out' => round($cashExpenses, 2),
             'opening_cash' => round($openingCash, 2),
             'expected_cash' => round($openingCash + $totalCash - $cashExpenses, 2),
             'payment_breakdown' => array_values($breakdown),

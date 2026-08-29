@@ -11,6 +11,7 @@ use App\Models\PayrollSettlement;
 use App\Models\PayrollSettlementItem;
 use App\Models\Resource;
 use App\Models\User;
+use App\Support\Payroll\AdjustmentCatalog;
 use App\Support\Payroll\PayrollCalculator;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
@@ -92,6 +93,10 @@ class PayrollService
                 'date' => $a->date->toDateString(),
                 'kind' => $a->kind,
                 'category' => $a->category,
+                // La etiqueta viaja resuelta: que el front la busque en otro
+                // endpoint lo deja mostrando el nombre tecnico mientras esa
+                // segunda peticion no llega.
+                'category_label' => AdjustmentCatalog::label($a->category),
                 'amount' => (float) $a->amount,
                 'description' => $a->description,
                 // Se marca el que quedo fuera de la ventana para que quien

@@ -43,6 +43,7 @@ class CashTotalsService
      *   total_cash: float,
      *   total_other_methods: float,
      *   total_expenses: float,
+     *   cash_out: float,
      *   total_commissions: float,
      *   opening_cash: float,
      *   expected_cash: float,

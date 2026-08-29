@@ -192,6 +192,10 @@ class CashRegisterTest extends TestCase
         // Excluirlo del cuadre por su clasificacion contable dejaba el cierre
         // corto sin nada que lo explicara.
         $this->assertEqualsWithDelta($antes - 2000000, $despues->json('expected_cash'), 0.01);
+
+        // Y la salida se reporta aparte, para que quien cuenta no vea
+        // "gastos $0" con un esperado dos millones mas bajo.
+        $this->assertEqualsWithDelta(2000000, $despues->json('cash_out'), 0.01);
     }
 
     public function test_un_gasto_administrativo_por_transferencia_no_toca_la_caja(): void
