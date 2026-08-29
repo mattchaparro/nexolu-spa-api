@@ -27,15 +27,45 @@ Base de datos propia. No comparte esquema con el POS ni con el monolito legacy.
 | `nexolu-comms-api` | WhatsApp y correo (único canal, sin driver alterno) |
 | `nexolu-payments-core` | Cobro de la suscripción |
 
-## Arrancar
+## Arrancar en local
+
+Necesitas PHP 8.3+ con `pdo_mysql`, `mbstring`, `openssl`, `curl`, `fileinfo` y
+`zip`; Composer; y MySQL 8.
 
 ```bash
 composer setup
-php artisan serve
+php artisan migrate:fresh --seed
+php artisan serve --port=8100
 ```
 
 `composer setup` instala dependencias, copia el `.env`, genera la llave, corre
-migraciones y sincroniza permisos.
+migraciones y sincroniza permisos. El seeder crea un negocio de ejemplo:
+`demo@nexolu.test` / `password123`.
+
+**Puertos.** El ecosistema Nexolú ya usa 8000–8003 (`pos-api`, `ia-core`,
+`comms-api`, `payments-core`), 8010/8020 en producción, y 5173/5174 para los
+otros frontends. Este producto usa **8100** para el API, **5273** para el front
+y **3307** para MySQL, fuera de todos esos rangos para poder correr en paralelo
+con el resto.
+
+```
+DB_PORT=3307
+APP_URL=http://localhost:8100
+FRONTEND_URL=http://localhost:5273
+```
+
+## Pruebas
+
+```bash
+php artisan test
+```
+
+Necesitan una base `nexolu_spa_testing` en el mismo MySQL (ver `phpunit.xml`).
+
+`ConcurrentBookingTest` es la prueba que justifica el diseño: abre dos
+conexiones y hace que peleen por el mismo hueco. Usa `DatabaseMigrations` y no
+`RefreshDatabase` a propósito — el envoltorio transaccional dejaría los datos
+sin commitear y la segunda conexión no los vería.
 
 ## Las dos decisiones de diseño que importan
 
@@ -94,8 +124,14 @@ sobrescribe las suyas en `businesses.scheduling_settings`, y se leen siempre por
 Ningún servicio debe llamar `config('spa.defaults.*')` directo: eso volvería a
 convertir una política de negocio en una constante de aplicación.
 
+## Despliegue
+
+Corre en el droplet legacy, junto a `pos-saas`. Ver [`deploy/README.md`](deploy/README.md)
+para el runbook y las tres decisiones que no son obvias (red de host, Docker en
+vez de PHP nativo, y por qué el frontend nunca se compila en el servidor).
+
 ## Estado
 
-Fase 00–02 del blueprint. Esquema, modelos y motor de disponibilidad en su
-sitio; los controladores HTTP responden `501` hasta la fase que les toca —
-ver `routes/api.php`.
+Fases 00–03 del blueprint. Esquema, modelos, motor de disponibilidad y reservas
+funcionando, con 28 pruebas que los cubren. Los controladores HTTP responden
+`501` hasta la fase que les toca — ver `routes/api.php`.
