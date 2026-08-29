@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\V1\SuperAdmin\BusinessesController;
 use App\Http\Controllers\Api\V1\SuperAdmin\DashboardController;
 use App\Http\Controllers\Api\V1\SuperAdmin\PaymentMethodCatalogController;
+use App\Http\Controllers\Api\V1\SuperAdmin\WorkflowController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -29,3 +30,15 @@ Route::patch('/businesses/{business}/toggle', [BusinessesController::class, 'tog
 Route::get('/payment-methods', [PaymentMethodCatalogController::class, 'index'])->name('payment-methods.index');
 Route::post('/payment-methods', [PaymentMethodCatalogController::class, 'store'])->name('payment-methods.store');
 Route::patch('/payment-methods/{method}', [PaymentMethodCatalogController::class, 'update'])->name('payment-methods.update');
+
+/*
+| Flujos de etapas de las citas. Mismo criterio que los medios de pago: el
+| catalogo lo mantiene la plataforma y cada negocio elige uno. Cada etapa
+| apunta a un estado nucleo del que dependen la agenda, la caja y la nomina,
+| asi que dejar que cada negocio los invente seria dejarlo descuadrar su
+| propia plata desde una pantalla de configuracion.
+*/
+Route::get('/workflows', [WorkflowController::class, 'index'])->name('workflows.index');
+Route::post('/workflows', [WorkflowController::class, 'store'])->name('workflows.store');
+Route::patch('/workflows/{workflow}', [WorkflowController::class, 'update'])->name('workflows.update');
+Route::put('/workflows/{workflow}/stages', [WorkflowController::class, 'saveStages'])->name('workflows.stages');

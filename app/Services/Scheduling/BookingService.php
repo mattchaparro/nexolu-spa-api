@@ -9,6 +9,7 @@ use App\Models\Client;
 use App\Models\Resource;
 use App\Models\ResourceOccupancy;
 use App\Models\Service;
+use App\Models\User;
 use App\Services\Scheduling\Exceptions\OutsideWorkingHoursException;
 use App\Services\Scheduling\Exceptions\SlotUnavailableException;
 use Carbon\CarbonImmutable;
@@ -63,6 +64,10 @@ class BookingService
                 'starts_at' => min(array_column($resolved, 'service_starts_at')),
                 'ends_at' => max(array_column($resolved, 'service_ends_at')),
                 'status' => Appointment::STATUS_PENDING,
+                // La etapa inicial del flujo del negocio, si tiene uno. La
+                // cita nace con el nombre que el negocio le da, no con el
+                // interno: en el mostrador dice "Agendada", no "pending".
+                'stage_id' => $business->appointmentWorkflow?->initialStage()?->id,
                 'source' => $source,
                 'notes' => $notes,
             ]);
@@ -147,16 +152,22 @@ class BookingService
     public function cancel(Appointment $appointment, ?int $byUserId = null, ?string $reason = null): Appointment
     {
         return DB::transaction(function () use ($appointment, $byUserId, $reason) {
+            // Liberar el horario es la garantia del nucleo, no una
+            // automatizacion opcional: una cita cancelada que sigue ocupando
+            // deja el hueco muerto. La accion `release_slot` existe aparte
+            // para el negocio que quiera liberar en OTRA etapa -- al marcar
+            // una inasistencia, por ejemplo.
             ResourceOccupancy::whereIn('appointment_item_id', $appointment->items()->pluck('id'))->delete();
 
-            $appointment->update([
-                'status' => Appointment::STATUS_CANCELLED,
-                'cancelled_at' => now(),
-                'cancelled_by_user_id' => $byUserId,
-                'cancellation_reason' => $reason,
-            ]);
+            $appointment->update(['cancellation_reason' => $reason]);
 
-            return $appointment;
+            app(StageTransitionService::class)->moveToStatus(
+                $appointment,
+                Appointment::STATUS_CANCELLED,
+                $byUserId ? User::find($byUserId) : null,
+            );
+
+            return $appointment->refresh();
         });
     }
 

@@ -18,6 +18,7 @@ use App\Http\Controllers\Api\V1\MyWorkController;
 use App\Http\Controllers\Api\V1\PayrollController;
 use App\Http\Controllers\Api\V1\ResourceController;
 use App\Http\Controllers\Api\V1\ServiceController;
+use App\Http\Controllers\Api\V1\StageController;
 use App\Http\Controllers\Api\V1\WalkInController;
 use Illuminate\Support\Facades\Route;
 
@@ -95,7 +96,23 @@ Route::prefix('v1')->group(function () {
             Route::post('/{appointment}/cancel', [AppointmentController::class, 'cancel'])->middleware('permission:citas.cancelar');
             Route::post('/{appointment}/checkout', [CheckoutController::class, 'store'])->middleware('permission:caja.cobrar');
             Route::delete('/{appointment}/checkout', [CheckoutController::class, 'destroy'])->middleware('permission:caja.cobrar');
+
+            /*
+             * Mover de etapa. Detras de `citas.editar` y no de un permiso
+             * propio: mover una cita a "confirmada" o "no asistio" es
+             * gestionar la agenda, y quien puede reagendar ya puede hacer
+             * cosas mas grandes que eso.
+             */
+            Route::get('/{appointment}/stages', [StageController::class, 'options'])
+                ->middleware('permission:citas.ver');
+            Route::post('/{appointment}/stage', [StageController::class, 'move'])
+                ->middleware('permission:citas.editar');
+            Route::get('/{appointment}/history', [StageController::class, 'history'])
+                ->middleware('permission:citas.ver');
         });
+
+        // El flujo del negocio, para pintar el selector.
+        Route::get('/workflow', [StageController::class, 'workflow'])->middleware('permission:citas.ver');
 
         Route::get('/payment-methods', [CheckoutController::class, 'paymentMethods']);
 

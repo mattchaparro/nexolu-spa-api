@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Support\BusinessFeaturePresets;
 use App\Support\ChannelPhone;
 use App\Support\PermissionCatalog;
+use App\Support\Scheduling\DefaultWorkflow;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -95,6 +96,10 @@ class BusinessesController
                     BusinessFeaturePresets::fromVertical($data['vertical']),
                 ),
                 'scheduling_settings' => config('spa.defaults'),
+                // Con flujo desde el primer dia. Un negocio sin etapas no
+                // puede confirmar ni marcar una inasistencia, y eso no es una
+                // funcion avanzada: es el mostrador.
+                'appointment_workflow_id' => DefaultWorkflow::sync()->id,
                 'is_active' => true,
             ]);
 

@@ -56,7 +56,7 @@ class CheckoutController
     public function destroy(Request $request, Appointment $appointment): JsonResponse
     {
         try {
-            $revertida = $this->checkout->undo($appointment);
+            $revertida = $this->checkout->undo($appointment, $request->user());
         } catch (\DomainException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }

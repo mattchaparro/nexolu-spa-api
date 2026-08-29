@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Support\BusinessFeaturePresets;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
@@ -16,6 +17,7 @@ class Business extends Model
         'name', 'slug', 'vertical', 'timezone', 'country_code', 'currency',
         'phone', 'email', 'address', 'logo_path', 'cover_path',
         'feature_flags', 'subscription_plan', 'scheduling_settings', 'is_active',
+        'appointment_workflow_id',
     ];
 
     protected function casts(): array
@@ -25,6 +27,12 @@ class Business extends Model
             'scheduling_settings' => 'array',
             'is_active' => 'boolean',
         ];
+    }
+
+    /** El flujo de etapas que este negocio usa para sus citas. */
+    public function appointmentWorkflow(): BelongsTo
+    {
+        return $this->belongsTo(AppointmentWorkflow::class, 'appointment_workflow_id');
     }
 
     public function users(): HasMany

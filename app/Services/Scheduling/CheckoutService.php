@@ -22,9 +22,13 @@ use Illuminate\Support\Facades\DB;
  */
 class CheckoutService
 {
+    public function __construct(private readonly StageTransitionService $transitions) {}
+
     /**
      * @param  array<int, float>  $itemPrices  Precio final por id de item, para
      *                                         ajustar a mano lo que se cobro.
+     * @param  bool  $transition  Falso solo cuando quien llama es la propia
+     *                            maquina de estados (accion `mark_paid`).
      */
     public function checkout(
         Appointment $appointment,
@@ -33,6 +37,7 @@ class CheckoutService
         float $discountAmount = 0,
         ?string $discountReason = null,
         array $itemPrices = [],
+        bool $transition = true,
     ): Appointment {
         if ($appointment->checked_out_at !== null) {
             throw new \DomainException('Esta cita ya fue cobrada.');
@@ -46,7 +51,7 @@ class CheckoutService
             throw new \DomainException('El descuento no puede ser negativo.');
         }
 
-        return DB::transaction(function () use ($appointment, $paymentMethod, $by, $discountAmount, $discountReason, $itemPrices) {
+        return DB::transaction(function () use ($appointment, $paymentMethod, $by, $discountAmount, $discountReason, $itemPrices, $transition) {
             $items = $appointment->items()->lockForUpdate()->get();
 
             $subtotal = 0.0;
@@ -84,7 +89,6 @@ class CheckoutService
             }
 
             $appointment->update([
-                'status' => Appointment::STATUS_COMPLETED,
                 'payment_method_id' => $paymentMethod->id,
                 'checked_out_at' => now(),
                 'checked_out_by_user_id' => $by->id,
@@ -94,6 +98,20 @@ class CheckoutService
                 'total' => round($subtotal - $discountAmount, 2),
                 'commission_total' => round($commissionTotal, 2),
             ]);
+
+            /*
+             * El estado lo mueve la maquina de estados, no este servicio.
+             * Asi el cambio queda registrado, valida que el salto sea legal, y
+             * dispara lo que el negocio haya configurado para "completada"
+             * -- el mensaje de agradecimiento, por ejemplo.
+             *
+             * `$transition = false` cuando quien llama ES la maquina: la
+             * accion `mark_paid` entra por aca con el estado ya movido, y
+             * volver a moverlo desde adentro se llamaria a si mismo sin fin.
+             */
+            if ($transition) {
+                $this->transitions->moveToStatus($appointment, Appointment::STATUS_COMPLETED, $by);
+            }
 
             return $appointment->fresh(['items.service', 'items.resource', 'paymentMethod']);
         });
@@ -106,20 +124,19 @@ class CheckoutService
      * revierte la parte de dinero, para corregir un metodo de pago o un
      * descuento mal digitado sin tener que inventar una cita nueva.
      */
-    public function undo(Appointment $appointment): Appointment
+    public function undo(Appointment $appointment, ?User $by = null): Appointment
     {
         if ($appointment->checked_out_at === null) {
             throw new \DomainException('Esta cita no ha sido cobrada.');
         }
 
-        return DB::transaction(function () use ($appointment) {
+        return DB::transaction(function () use ($appointment, $by) {
             $appointment->items()->update([
                 'final_price' => null,
                 'commission_amount' => null,
             ]);
 
             $appointment->update([
-                'status' => Appointment::STATUS_CONFIRMED,
                 'payment_method_id' => null,
                 'checked_out_at' => null,
                 'checked_out_by_user_id' => null,
@@ -129,6 +146,10 @@ class CheckoutService
                 'total' => null,
                 'commission_total' => null,
             ]);
+
+            // Vuelve a "confirmada", no a "sin confirmar": deshacer un cobro
+            // corrige la plata, no borra que la clienta vino.
+            $this->transitions->moveToStatus($appointment, Appointment::STATUS_CONFIRMED, $by);
 
             return $appointment->fresh(['items.service', 'items.resource']);
         });
