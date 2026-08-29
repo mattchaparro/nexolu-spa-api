@@ -54,14 +54,22 @@ class BusinessFeaturePresets
         ];
     }
 
-    /** @return array<string, bool> */
+    /**
+     * @return array<string, bool>
+     *
+     * `cash_shift` queda APAGADO por defecto. En un spa nadie abre y cierra
+     * caja por turnos: las profesionales registran sus servicios y lo que
+     * importa es que el cierre del dia cuadre contra lo que reportaron. El
+     * turno existe para el negocio que si tenga una cajera dedicada, pero no
+     * es el caso normal y encenderlo por defecto obliga a todos a un ritual
+     * que no hacen.
+     */
     public static function basico(): array
     {
         return array_merge(self::none(), [
             'scheduling' => true,
             'clients' => true,
             'reminders' => true,
-            'cash_shift' => true,
             'cash_closing' => true,
             'reports' => true,
         ]);
@@ -82,10 +90,18 @@ class BusinessFeaturePresets
         ]);
     }
 
-    /** @return array<string, bool> */
+    /**
+     * @return array<string, bool>
+     *
+     * Full tampoco enciende `cash_shift`: no es una funcion "avanzada" sino
+     * una forma distinta de operar la caja. Se enciende negocio por negocio.
+     */
     public static function full(): array
     {
-        return array_map(fn () => true, array_flip(self::catalog()));
+        return array_merge(
+            array_map(fn () => true, array_flip(self::catalog())),
+            ['cash_shift' => false],
+        );
     }
 
     /** @return array<string, bool> */

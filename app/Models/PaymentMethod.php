@@ -11,7 +11,8 @@ class PaymentMethod extends Model
     use BelongsToBusiness, HasFactory;
 
     protected $fillable = [
-        'business_id', 'name', 'counts_as_cash', 'provider_fee_rate', 'is_active', 'sort_order',
+        'business_id', 'platform_payment_method_id', 'name', 'counts_as_cash',
+        'provider_fee_rate', 'is_active', 'sort_order',
     ];
 
     protected function casts(): array

@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\V1\Admin\BusinessPaymentMethodController;
 use App\Http\Controllers\Api\V1\Admin\ResourceAdminController;
 use App\Http\Controllers\Api\V1\Admin\ServiceAdminController;
 use App\Http\Controllers\Api\V1\AgendaController;
@@ -13,6 +14,7 @@ use App\Http\Controllers\Api\V1\ClientProfileController;
 use App\Http\Controllers\Api\V1\ExpenseController;
 use App\Http\Controllers\Api\V1\ResourceController;
 use App\Http\Controllers\Api\V1\ServiceController;
+use App\Http\Controllers\Api\V1\WalkInController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -81,20 +83,35 @@ Route::prefix('v1')->group(function () {
 
         Route::get('/payment-methods', [CheckoutController::class, 'paymentMethods']);
 
+        // Que medios acepta ESTE negocio, elegidos del catalogo global.
+        Route::get('/payment-methods/catalog', [BusinessPaymentMethodController::class, 'index'])
+            ->middleware('permission:negocio.configurar');
+        Route::put('/payment-methods/catalog', [BusinessPaymentMethodController::class, 'sync'])
+            ->middleware('permission:negocio.configurar');
+
+        // Alguien que llega sin cita: registrar y cobrar en un paso.
+        Route::post('/walk-in', [WalkInController::class, 'store'])
+            ->middleware('permission:citas.crear');
+
         /*
         |----------------------------------------------------------------------
         | Caja y dinero
         |----------------------------------------------------------------------
-        | El turno es de UNA persona; el cierre del dia es del negocio. Un dia
-        | puede tener varios turnos, por eso van separados y con permisos
-        | distintos.
+        | El CIERRE DEL DIA es lo central: comprobar que lo que hay coincide
+        | con lo que cada profesional registro. Va detras de `cash_closing`.
+        |
+        | El TURNO es opcional y viene apagado por defecto (`cash_shift`). En
+        | un spa nadie abre y cierra caja por turnos; existe para el negocio
+        | que si tenga una cajera dedicada.
         */
-        Route::prefix('cash')->middleware('feature:cash_shift')->group(function () {
-            Route::get('/shift', [CashController::class, 'currentShift'])->middleware('permission:caja.turno');
-            Route::post('/shift/open', [CashController::class, 'openShift'])->middleware('permission:caja.turno');
-            Route::post('/shift/close', [CashController::class, 'closeShift'])->middleware('permission:caja.turno');
+        Route::prefix('cash')->group(function () {
+            Route::middleware(['feature:cash_shift', 'permission:caja.turno'])->group(function () {
+                Route::get('/shift', [CashController::class, 'currentShift']);
+                Route::post('/shift/open', [CashController::class, 'openShift']);
+                Route::post('/shift/close', [CashController::class, 'closeShift']);
+            });
 
-            Route::middleware('permission:caja.cierre')->group(function () {
+            Route::middleware(['feature:cash_closing', 'permission:caja.cierre'])->group(function () {
                 Route::get('/closing/preview', [CashController::class, 'closingPreview']);
                 Route::post('/closing', [CashController::class, 'closeDay']);
                 Route::get('/closings', [CashController::class, 'closings']);

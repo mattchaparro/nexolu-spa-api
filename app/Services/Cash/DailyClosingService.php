@@ -2,6 +2,7 @@
 
 namespace App\Services\Cash;
 
+use App\Models\AppointmentItem;
 use App\Models\Business;
 use App\Models\CashClosing;
 use App\Models\User;
@@ -39,7 +40,59 @@ class DailyClosingService
         return $totals + [
             'date' => $local->toDateString(),
             'already_closed' => $this->closingFor($business, $local) !== null,
+            // Lo que reporto cada profesional. Es contra esto que se cuadra:
+            // el cierre del dia no es un ritual de caja, es comprobar que lo
+            // que hay coincide con lo que cada una registro.
+            'by_resource' => $this->byResource($business, $local, $tz),
         ];
+    }
+
+    /**
+     * @return list<array{name: string, appointments: int, charged: float, cash: float, other: float, commission: float}>
+     */
+    public function byResource(Business $business, CarbonImmutable $date, string $tz): array
+    {
+        $start = $date->setTimezone($tz)->startOfDay();
+
+        $items = AppointmentItem::withoutGlobalScope('business')
+            ->where('business_id', $business->id)
+            ->whereHas('appointment', function ($q) use ($start) {
+                $q->whereNotNull('checked_out_at')
+                    ->whereBetween('checked_out_at', [$start->utc(), $start->addDay()->utc()]);
+            })
+            ->with(['resource', 'appointment.paymentMethod'])
+            ->get();
+
+        $rows = [];
+
+        foreach ($items as $item) {
+            $name = $item->resource?->name ?? 'Sin asignar';
+            $charged = (float) ($item->final_price ?? 0);
+            $isCash = (bool) ($item->appointment?->paymentMethod?->counts_as_cash ?? false);
+
+            $rows[$name] ??= [
+                'name' => $name,
+                'appointments' => 0,
+                'charged' => 0.0,
+                // Separado a proposito: lo que una profesional debe ENTREGAR
+                // es lo que cobro en efectivo, no todo lo que facturo.
+                'cash' => 0.0,
+                'other' => 0.0,
+                'commission' => 0.0,
+            ];
+
+            $rows[$name]['appointments']++;
+            $rows[$name]['charged'] = round($rows[$name]['charged'] + $charged, 2);
+            $rows[$name][$isCash ? 'cash' : 'other'] = round($rows[$name][$isCash ? 'cash' : 'other'] + $charged, 2);
+            $rows[$name]['commission'] = round(
+                $rows[$name]['commission'] + (float) ($item->commission_amount ?? 0),
+                2,
+            );
+        }
+
+        usort($rows, fn ($a, $b) => $b['charged'] <=> $a['charged']);
+
+        return array_values($rows);
     }
 
     public function close(Business $business, User $user, CarbonImmutable $date, float $actualCash, ?string $note = null): CashClosing

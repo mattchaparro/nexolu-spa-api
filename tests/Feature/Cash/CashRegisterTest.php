@@ -46,6 +46,13 @@ class CashRegisterTest extends TestCase
         PermissionCatalog::sync();
 
         $this->business = $this->makeBusiness(['slot_granularity_min' => 60]);
+
+        // El turno viene APAGADO por defecto: en un spa nadie abre y cierra
+        // caja por turnos. Se enciende aca a proposito, porque esta clase
+        // prueba justamente esa funcion para el negocio que si la use.
+        $this->business->update([
+            'feature_flags' => array_merge($this->business->feature_flags ?? [], ['cash_shift' => true]),
+        ]);
         $this->admin = User::create([
             'business_id' => $this->business->id,
             'name' => 'Admin',
