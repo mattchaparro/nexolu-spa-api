@@ -52,7 +52,7 @@ final class StageActionCatalog
             'config' => ['template'],
         ],
         self::NOTIFY_STAFF => [
-            'label' => 'Avisarle a la profesional',
+            'label' => 'Avisarle a quien atiende',
             'help' => 'Le avisa a quien atiende que su cita cambió.',
             'critical' => false,
             'feature' => 'reminders',

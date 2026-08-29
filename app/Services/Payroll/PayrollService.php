@@ -184,7 +184,7 @@ class PayrollService
 
         if ($ultima?->id !== $settlement->id) {
             throw ValidationException::withMessages([
-                'settlement' => 'Solo se puede deshacer la última liquidación de esta profesional.',
+                'settlement' => 'Solo se puede deshacer la última liquidación de esta persona.',
             ]);
         }
 

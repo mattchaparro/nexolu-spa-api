@@ -50,7 +50,7 @@ class PermissionCatalog
             ['name' => 'citas.ver', 'category' => 'agenda', 'label' => 'Ver la agenda', 'description' => 'Ver las citas del negocio.'],
             ['name' => 'citas.ver_todas', 'category' => 'agenda', 'label' => 'Ver la agenda completa', 'description' => 'Ver las citas de todo el equipo, no solo las propias.'],
             ['name' => 'citas.crear', 'category' => 'agenda', 'label' => 'Agendar', 'description' => 'Crear citas nuevas.'],
-            ['name' => 'citas.editar', 'category' => 'agenda', 'label' => 'Reagendar', 'description' => 'Mover una cita de hora o de profesional.'],
+            ['name' => 'citas.editar', 'category' => 'agenda', 'label' => 'Reagendar', 'description' => 'Mover una cita de hora o de persona.'],
             ['name' => 'citas.cancelar', 'category' => 'agenda', 'label' => 'Cancelar citas', 'description' => 'Cancelar y marcar inasistencias.'],
             ['name' => 'horarios.gestionar', 'category' => 'agenda', 'label' => 'Gestionar horarios', 'description' => 'Definir turnos, vacaciones y bloqueos.'],
 
@@ -66,7 +66,7 @@ class PermissionCatalog
 
             // Catalogo
             ['name' => 'servicios.gestionar', 'category' => 'catalogo', 'label' => 'Gestionar servicios', 'description' => 'Crear y editar el catalogo, precios y duraciones.'],
-            ['name' => 'recursos.gestionar', 'category' => 'catalogo', 'label' => 'Gestionar equipo y recursos', 'description' => 'Administrar profesionales, sillas y cabinas.'],
+            ['name' => 'recursos.gestionar', 'category' => 'catalogo', 'label' => 'Gestionar equipo y recursos', 'description' => 'Administrar al equipo, sillas y cabinas.'],
 
             // Caja
             // Sin bandera: cobrar lo que se atendio es la operacion basica de
@@ -80,7 +80,7 @@ class PermissionCatalog
             ['name' => 'gastos.gestionar', 'category' => 'finanzas', 'label' => 'Gestionar gastos', 'description' => 'Registrar y editar gastos.', 'feature' => 'expenses'],
             ['name' => 'comisiones.ver', 'category' => 'finanzas', 'label' => 'Ver comisiones', 'description' => 'Consultar comisiones del equipo.', 'feature' => 'commissions'],
             ['name' => 'contabilidad.ver', 'category' => 'finanzas', 'label' => 'Contabilidad gerencial', 'description' => 'Ver y cerrar periodos contables.', 'feature' => 'managerial_accounting'],
-            ['name' => 'nomina.gestionar', 'category' => 'finanzas', 'label' => 'Liquidar nómina', 'description' => 'Liquidar y pagar a las profesionales, y registrar anticipos.', 'feature' => 'payroll'],
+            ['name' => 'nomina.gestionar', 'category' => 'finanzas', 'label' => 'Liquidar nómina', 'description' => 'Liquidar y pagarle al equipo, y registrar anticipos.', 'feature' => 'payroll'],
 
             // Reportes
             ['name' => 'reportes.ver', 'category' => 'reportes', 'label' => 'Ver reportes', 'description' => 'Consultar reportes del negocio.', 'feature' => 'reports'],

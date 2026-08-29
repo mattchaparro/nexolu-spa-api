@@ -73,7 +73,7 @@ class BusinessFeaturePresets
             'online_booking' => ['group' => 'Agenda', 'label' => 'Reserva en línea', 'help' => 'Página pública donde el cliente se agenda solo.'],
             'whatsapp_agent' => ['group' => 'Agenda', 'label' => 'Agente de WhatsApp', 'help' => 'Asistente de IA que agenda por chat.'],
             'reminders' => ['group' => 'Agenda', 'label' => 'Recordatorios', 'help' => 'Avisos automáticos de cita y de retoque.'],
-            'multi_resource' => ['group' => 'Agenda', 'label' => 'Servicios con varios recursos', 'help' => 'Un servicio que ocupa a la vez a una profesional y una cabina.'],
+            'multi_resource' => ['group' => 'Agenda', 'label' => 'Servicios con varios recursos', 'help' => 'Un servicio que ocupa a la vez a una persona y una cabina.'],
             'no_show_penalties' => ['group' => 'Agenda', 'label' => 'Registro de inasistencias', 'help' => 'Anota en la ficha cuando alguien no llega.'],
 
             'clients' => ['group' => 'Clientes', 'label' => 'Base de clientes', 'help' => 'Fichas con nombre y teléfono.'],
@@ -84,7 +84,7 @@ class BusinessFeaturePresets
             'cash_closing' => ['group' => 'Dinero', 'label' => 'Cierre del día', 'help' => 'Cuadrar lo que hay en caja contra lo que se cobró.'],
             'cash_shift' => ['group' => 'Dinero', 'label' => 'Turnos de caja', 'help' => 'Abrir y cerrar caja por persona. En un spa casi nunca se usa: viene apagado.'],
             'expenses' => ['group' => 'Dinero', 'label' => 'Gastos', 'help' => 'Lo que sale, por fecha contable.'],
-            'commissions' => ['group' => 'Dinero', 'label' => 'Comisiones', 'help' => 'Porcentaje por profesional y por servicio.'],
+            'commissions' => ['group' => 'Dinero', 'label' => 'Comisiones', 'help' => 'Porcentaje por persona y por servicio.'],
             'payroll' => ['group' => 'Dinero', 'label' => 'Nómina', 'help' => 'Liquidar y pagarle al equipo, con anticipos y descuentos.'],
             'product_sales' => ['group' => 'Dinero', 'label' => 'Venta de producto', 'help' => 'Vender esmaltes y demás sin agendar una cita.'],
             'managerial_accounting' => ['group' => 'Dinero', 'label' => 'Contabilidad gerencial', 'help' => 'Cerrar periodos contables.'],

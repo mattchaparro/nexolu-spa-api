@@ -35,7 +35,7 @@ class NotifyStaffAction implements StageAction
         $phone = $appointment->items->first()?->resource?->user?->phone;
 
         if (! $phone) {
-            return StageActionResult::skipped('La profesional no tiene teléfono registrado.');
+            return StageActionResult::skipped('Quien atiende no tiene teléfono registrado.');
         }
 
         $body = StageMessage::render(

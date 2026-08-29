@@ -64,7 +64,7 @@ class WalkInController
 
         if ($resource === null) {
             return response()->json([
-                'message' => 'No sabemos quién prestó el servicio. Elige a la profesional.',
+                'message' => 'No sabemos quién prestó el servicio. Elige a quién atendió.',
             ], 422);
         }
 

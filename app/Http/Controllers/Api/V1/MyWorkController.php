@@ -26,7 +26,7 @@ class MyWorkController
         if ($resource === null) {
             return response()->json([
                 'resource' => null,
-                'message' => 'Tu usuario no está asociado a una profesional de la agenda.',
+                'message' => 'Tu usuario no está asociado a nadie de la agenda.',
             ]);
         }
 
