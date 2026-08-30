@@ -23,6 +23,7 @@ use App\Http\Controllers\Api\V1\ExpenseController;
 use App\Http\Controllers\Api\V1\MyWorkController;
 use App\Http\Controllers\Api\V1\PayrollController;
 use App\Http\Controllers\Api\V1\PublicBookingController;
+use App\Http\Controllers\Api\V1\SurveyController;
 use App\Http\Controllers\Api\V1\ResourceController;
 use App\Http\Controllers\Api\V1\SalesReportController;
 use App\Http\Controllers\Api\V1\ServiceController;
@@ -342,6 +343,22 @@ Route::prefix('v1')->group(function () {
     | y la disponibilidad de UN negocio, y crear una cita para ese mismo
     | negocio. Nunca listar clientes, nunca cancelar, nunca cobrar.
     */
+    /*
+    |----------------------------------------------------------------------
+    | Encuesta de satisfaccion
+    |----------------------------------------------------------------------
+    | Sin autenticar y por token del enlace: quien responde es una clienta con
+    | un mensaje de WhatsApp, no alguien con cuenta. Va fuera del prefijo del
+    | negocio porque el token ya identifica la cita, y pedir ademas el slug
+    | solo agrega una forma mas de que el enlace quede mal armado.
+    */
+    Route::prefix('survey/{token}')
+        ->middleware('throttle:pagina-publica')
+        ->group(function () {
+            Route::get('/', [SurveyController::class, 'show']);
+            Route::post('/', [SurveyController::class, 'store']);
+        });
+
     Route::prefix('public/{business:slug}')
         ->middleware('throttle:pagina-publica')
         ->group(function () {

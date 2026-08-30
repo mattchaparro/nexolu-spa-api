@@ -10,6 +10,7 @@ use App\Models\PayrollAdjustment;
 use App\Models\PayrollSettlement;
 use App\Models\PayrollSettlementItem;
 use App\Models\Resource;
+use App\Models\ServiceRating;
 use App\Models\User;
 use App\Support\Payroll\AdjustmentCatalog;
 use App\Support\Payroll\PayrollCalculator;
@@ -103,6 +104,17 @@ class PayrollService
              * por quien lo puso.
              */
             'warranties' => $this->warrantiesFor($business, $resource, $start, $end, $tz),
+
+            /*
+             * Como la calificaron en el periodo, al lado de las garantias.
+             *
+             * Van juntas porque responden la misma pregunta desde dos lados:
+             * las garantias dicen cuantas veces hubo que rehacer su trabajo,
+             * la calificacion dice que opinaron los que si quedaron conformes.
+             * Mirar una sin la otra lleva a conclusiones injustas en las dos
+             * direcciones.
+             */
+            'ratings' => $this->ratingsFor($business, $resource, $start, $end, $tz),
             'adjustments' => $adjustments->map(fn (PayrollAdjustment $a) => [
                 'id' => $a->id,
                 'date' => $a->date->toDateString(),
@@ -365,6 +377,50 @@ class PayrollService
                 // Quien la rehizo: puede no ser la misma persona.
                 'done_by' => $item->resource?->name,
                 'note' => $item->warranty_note,
+            ])->values()->all(),
+        ];
+    }
+
+    /**
+     * Como la calificaron en el periodo.
+     *
+     * El promedio se calcula sobre las notas que EXISTEN. Tratar una encuesta
+     * sin puntualidad como un cero le bajaria el promedio a alguien por algo
+     * que el cliente simplemente no contesto.
+     *
+     * @return array<string, mixed>
+     */
+    private function ratingsFor(
+        Business $business,
+        Resource $resource,
+        CarbonImmutable $start,
+        CarbonImmutable $end,
+        string $tz,
+    ): array {
+        $rows = ServiceRating::withoutGlobalScope('business')
+            ->where('business_id', $business->id)
+            ->where('resource_id', $resource->id)
+            ->whereBetween('created_at', [
+                $start->setTimezone($tz)->startOfDay()->utc(),
+                $end->setTimezone($tz)->endOfDay()->utc(),
+            ])
+            ->orderByDesc('created_at')
+            ->get();
+
+        $promedio = fn (string $campo) => $rows->whereNotNull($campo)->isEmpty()
+            ? null
+            : round((float) $rows->whereNotNull($campo)->avg($campo), 2);
+
+        return [
+            'count' => $rows->count(),
+            'staff_average' => $promedio('staff_rating'),
+            'service_average' => $promedio('service_rating'),
+            'punctuality_average' => $promedio('punctuality_rating'),
+            // Solo los comentarios escritos: una lista de nulos no dice nada.
+            'comments' => $rows->whereNotNull('comment')->take(10)->map(fn (ServiceRating $r) => [
+                'comment' => $r->comment,
+                'staff_rating' => $r->staff_rating,
+                'date' => $r->created_at?->setTimezone($tz)->toDateString(),
             ])->values()->all(),
         ];
     }

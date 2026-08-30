@@ -41,6 +41,7 @@ class Appointment extends Model
         'payment_method_id', 'checked_out_at', 'checked_out_by_user_id',
         'subtotal', 'discount_amount', 'discount_reason', 'total', 'commission_total',
         'deposit_amount', 'deposit_paid_at', 'deposit_payment_method_id', 'deposit_reference',
+        'survey_token', 'survey_sent_at', 'survey_answered_at',
     ];
 
     protected function casts(): array
@@ -57,6 +58,8 @@ class Appointment extends Model
             'commission_total' => 'decimal:2',
             'deposit_amount' => 'decimal:2',
             'deposit_paid_at' => 'datetime',
+            'survey_sent_at' => 'datetime',
+            'survey_answered_at' => 'datetime',
         ];
     }
 
