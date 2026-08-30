@@ -277,6 +277,8 @@ Route::prefix('v1')->group(function () {
             // Como se le paga a cada una: modo, base y hasta cuando.
             Route::get('/compensation', [PayrollController::class, 'compensation']);
             Route::put('/compensation/{resource}', [PayrollController::class, 'updateCompensation']);
+            // Sobre que valor se paga comision cuando hubo descuento.
+            Route::put('/commission-bases', [PayrollController::class, 'updateCommissionBases']);
         });
 
         Route::prefix('clients')->middleware('feature:clients')->group(function () {

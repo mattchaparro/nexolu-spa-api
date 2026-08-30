@@ -10,6 +10,7 @@ use App\Models\PaymentMethod;
 use App\Models\Resource;
 use App\Models\Service;
 use App\Models\User;
+use App\Support\Money\CommissionPolicy;
 use App\Support\Money\LoyaltyCalculator;
 use App\Support\PermissionCatalog;
 use Carbon\CarbonImmutable;
@@ -404,5 +405,100 @@ class LoyaltyTest extends TestCase
         // Y no se suman sellos por debajo.
         $this->visita('10:00');
         $this->assertSame(0, LoyaltyStamp::withoutGlobalScope('business')->count());
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Comision sobre el premio
+    |--------------------------------------------------------------------------
+    | La pregunta que esto responde: si a una clienta le regalan el servicio
+    | por su tarjeta, ¿quien la atendió trabaja gratis?
+    */
+
+    public function test_por_defecto_el_premio_si_le_baja_la_comision(): void
+    {
+        /*
+         * Decisión del negocio: el premio es una atención al cliente por su
+         * fidelidad, y de esa fidelidad vive también quien lo atiende -- una
+         * clienta que vuelve es trabajo suyo. Distinto de una campaña de
+         * temporada, que el negocio decide para traer gente nueva y por eso
+         * absorbe él.
+         */
+        $this->crearPrograma(['stamps_required' => 2, 'reward_value' => 100]);
+        $this->visita('10:00');
+        $cliente = $this->clienteId();
+        $this->visita('11:00', $cliente);
+
+        $premio = LoyaltyReward::withoutGlobalScope('business')->latest('id')->first();
+
+        $id = $this->postJson('/api/v1/appointments', [
+            'service_id' => $this->service->id,
+            'resource_id' => $this->maria->id,
+            'starts_at' => $this->hoy()->format('Y-m-d').' 13:00:00',
+            'client_id' => $cliente,
+        ])->assertCreated()->json('id');
+
+        $cobrada = $this->postJson("/api/v1/appointments/{$id}/checkout", [
+            'payment_method_id' => $this->efectivo->id,
+            'loyalty_reward_id' => $premio->id,
+        ])->assertOk();
+
+        // La clienta no paga nada, y la comisión sigue a lo cobrado.
+        $this->assertEqualsWithDelta(0, $cobrada->json('total'), 0.01);
+        $this->assertEqualsWithDelta(0, $cobrada->json('commission_total'), 0.01);
+    }
+
+    public function test_el_negocio_puede_decidir_asumir_el_premio_el_mismo(): void
+    {
+        // El local que prefiera que su equipo cobre igual lo cambia desde
+        // "Pagos al equipo", sin tocar código.
+        $this->business->update(['commission_settings' => [
+            'commission_base_loyalty' => CommissionPolicy::BASE_LIST,
+        ]]);
+        Sanctum::actingAs($this->admin->fresh());
+
+        $this->crearPrograma(['stamps_required' => 2, 'reward_value' => 100]);
+        $this->visita('10:00');
+        $cliente = $this->clienteId();
+        $this->visita('11:00', $cliente);
+
+        $premio = LoyaltyReward::withoutGlobalScope('business')->latest('id')->first();
+
+        $id = $this->postJson('/api/v1/appointments', [
+            'service_id' => $this->service->id,
+            'resource_id' => $this->maria->id,
+            'starts_at' => $this->hoy()->format('Y-m-d').' 13:00:00',
+            'client_id' => $cliente,
+        ])->assertCreated()->json('id');
+
+        $cobrada = $this->postJson("/api/v1/appointments/{$id}/checkout", [
+            'payment_method_id' => $this->efectivo->id,
+            'loyalty_reward_id' => $premio->id,
+        ])->assertOk();
+
+        $this->assertEqualsWithDelta(15000, $cobrada->json('commission_total'), 0.01);
+    }
+
+    public function test_un_descuento_a_mano_si_baja_la_comision(): void
+    {
+        // El default de siempre: nadie se despierta con la nómina cambiada.
+        $this->crearPrograma();
+
+        $id = $this->postJson('/api/v1/appointments', [
+            'service_id' => $this->service->id,
+            'resource_id' => $this->maria->id,
+            'starts_at' => $this->hoy()->format('Y-m-d').' 14:00:00',
+            'client_name' => 'Quien Sea',
+            'client_phone' => '3005550000',
+        ])->assertCreated()->json('id');
+
+        $cobrada = $this->postJson("/api/v1/appointments/{$id}/checkout", [
+            'payment_method_id' => $this->efectivo->id,
+            'discount_amount' => 20000,
+            'discount_reason' => 'Acuerdo',
+        ])->assertOk();
+
+        // 30% sobre 30.000, no sobre 50.000.
+        $this->assertEqualsWithDelta(9000, $cobrada->json('commission_total'), 0.01);
     }
 }

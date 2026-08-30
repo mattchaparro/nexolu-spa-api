@@ -8,6 +8,7 @@ use App\Models\LoyaltyReward;
 use App\Models\PaymentMethod;
 use App\Services\Loyalty\LoyaltyService;
 use App\Services\Scheduling\CheckoutService;
+use App\Support\Money\CommissionPolicy;
 use App\Support\Money\LoyaltyCalculator;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -23,18 +24,24 @@ class CheckoutController
      * Que descuento se aplica: el que se escribio, o el del combo.
      *
      * @param  array<string, mixed>  $data
-     * @return array{0: float, 1: ?string}
+     * @return array{0: float, 1: ?string, 2: string}  Monto, motivo y ORIGEN.
+     *         El origen decide si ese descuento le baja la comision a quien
+     *         atendio (ver CommissionPolicy).
      */
     private function discountFor(Appointment $appointment, array $data): array
     {
         if (array_key_exists('discount_amount', $data) && $data['discount_amount'] !== null) {
-            return [(float) $data['discount_amount'], $data['discount_reason'] ?? null];
+            return [
+                (float) $data['discount_amount'],
+                $data['discount_reason'] ?? null,
+                CommissionPolicy::SOURCE_MANUAL,
+            ];
         }
 
         $package = $appointment->servicePackage;
 
         if ($package === null) {
-            return [0.0, $data['discount_reason'] ?? null];
+            return [0.0, $data['discount_reason'] ?? null, CommissionPolicy::SOURCE_MANUAL];
         }
 
         /*
@@ -46,7 +53,7 @@ class CheckoutController
          */
         $quote = $package->loadMissing('services')->quote();
 
-        return [$quote['discount'], "Combo {$package->name}"];
+        return [$quote['discount'], "Combo {$package->name}", CommissionPolicy::SOURCE_PACKAGE];
     }
 
     /**
@@ -78,17 +85,18 @@ class CheckoutController
      * aplicarlo. Negarselo por haber reservado un combo seria cambiarle las
      * reglas en el mostrador.
      *
-     * @return array{0: float, 1: ?string}
+     * @return array{0: float, 1: ?string, 2: float}  Total, motivo, y cuanto
+     *         puso el PREMIO -- que se mide aparte porque puede tener otra
+     *         regla de comision que el resto del descuento.
      */
     private function withReward(
         Appointment $appointment,
         ?LoyaltyReward $reward,
         float $discount,
         ?string $reason,
-        array $data,
     ): array {
         if ($reward === null) {
-            return [$discount, $reason];
+            return [$discount, $reason, 0.0];
         }
 
         $subtotal = (float) $appointment->items()->sum('price');
@@ -106,7 +114,10 @@ class CheckoutController
         $total = min($subtotal, round($discount + $premio, 2));
         $texto = trim(($reason ? $reason.' + ' : '').$reward->label());
 
-        return [$total, $texto ?: null];
+        // Lo que el premio puso DE VERDAD, ya recortado por el tope: si se
+        // devolviera el bruto, la base de comision podria descontar mas de lo
+        // que el cliente dejo de pagar.
+        return [$total, $texto ?: null, round($total - $discount, 2)];
     }
 
     public function paymentMethods(Request $request): JsonResponse
@@ -144,8 +155,20 @@ class CheckoutController
          * decidido. Lo que se escriba MANDA sobre lo que el combo trae, y la
          * pantalla lo muestra prellenado para que se vea que se esta pisando.
          */
-        [$discount, $reason] = $this->discountFor($appointment, $data);
-        [$discount, $reason] = $this->withReward($appointment, $reward, $discount, $reason, $data);
+        [$base, $reason, $source] = $this->discountFor($appointment, $data);
+        [$discount, $reason, $premio] = $this->withReward($appointment, $reward, $base, $reason);
+
+        /*
+         * Cuanto del descuento le baja la comision a quien atendio.
+         *
+         * Cada parte se mide por su ORIGEN: un negocio puede querer que el
+         * premio de fidelizacion no le toque la comision (lo regala el
+         * negocio, el trabajo fue el mismo) y que el descuento a mano si.
+         */
+        $commissionDiscount = CommissionPolicy::discountAffectingCommission(
+            [$source => $base, CommissionPolicy::SOURCE_LOYALTY => $premio],
+            $request->user()->business->commissionBases(),
+        );
 
         try {
             $cobrada = $this->checkout->checkout(
@@ -155,6 +178,8 @@ class CheckoutController
                 $discount,
                 $reason,
                 $data['item_prices'] ?? [],
+                true,
+                $commissionDiscount,
             );
 
             // Se marca DESPUES de cobrar: si el cobro falla, el premio tiene

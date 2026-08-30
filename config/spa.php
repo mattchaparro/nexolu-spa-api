@@ -46,6 +46,27 @@ return [
         'deposit_instructions' => null,
 
         'timezone' => 'America/Bogota',
+
+        /*
+         * Sobre que valor se le paga comision a quien atendio cuando hubo
+         * descuento. `charged` = sobre lo cobrado; `list` = sobre el precio de
+         * lista, y el descuento lo asume el negocio.
+         *
+         * Los tres arrancan en `charged`, que es lo que el sistema ya hacia:
+         * nadie se despierta con la nomina cambiada por un deploy.
+         *
+         * FIDELIZACION en `charged` por decision del negocio: el premio es una
+         * atencion al cliente por su fidelidad, y de esa fidelidad vive
+         * tambien quien lo atiende -- una clienta que vuelve es trabajo suyo.
+         * Es distinto de una campana de temporada (mes de la madre), que la
+         * decide el negocio para traer gente nueva y por eso la absorbe el
+         * negocio; cuando exista ese modulo, su default sera `list`.
+         *
+         * Cada negocio puede darlo vuelta desde "Pagos al equipo".
+         */
+        'commission_base_manual' => 'charged',
+        'commission_base_package' => 'charged',
+        'commission_base_loyalty' => 'charged',
     ],
 
 ];

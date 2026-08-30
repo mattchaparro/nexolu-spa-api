@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Support\BusinessFeaturePresets;
 use App\Support\BusinessPlanLimits;
+use App\Support\Money\CommissionPolicy;
 use App\Support\Money\DepositCalculator;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -18,7 +19,7 @@ class Business extends Model
     protected $fillable = [
         'name', 'slug', 'vertical', 'timezone', 'country_code', 'currency',
         'phone', 'email', 'address', 'logo_path', 'cover_path',
-        'public_profile', 'feature_flags', 'plan_limits', 'subscription_plan', 'scheduling_settings', 'is_active',
+        'public_profile', 'feature_flags', 'plan_limits', 'subscription_plan', 'scheduling_settings', 'commission_settings', 'is_active',
         'appointment_workflow_id',
     ];
 
@@ -29,6 +30,7 @@ class Business extends Model
             'plan_limits' => 'array',
             'public_profile' => 'array',
             'scheduling_settings' => 'array',
+            'commission_settings' => 'array',
             'is_active' => 'boolean',
         ];
     }
@@ -71,6 +73,44 @@ class Business extends Model
     {
         return data_get($this->scheduling_settings, $key)
             ?? config("spa.defaults.{$key}");
+    }
+
+    /**
+     * Sobre que valor se paga comision para un origen de descuento.
+     *
+     * Mismo patron que `schedulingSetting()`: lo del negocio manda, y el
+     * default de plataforma responde. Es el UNICO camino para leer esto.
+     */
+    public function commissionBaseFor(string $source): string
+    {
+        $key = CommissionPolicy::settingKey($source);
+
+        $value = data_get($this->commission_settings, $key)
+            ?? config("spa.defaults.{$key}")
+            ?? CommissionPolicy::BASE_CHARGED;
+
+        // Un valor invalido cae a `charged`, que es el conservador: al reves,
+        // un typo en la configuracion pagaria comision sobre plata que no
+        // entro y se descubriria en la nomina.
+        return in_array($value, CommissionPolicy::bases(), true)
+            ? $value
+            : CommissionPolicy::BASE_CHARGED;
+    }
+
+    /**
+     * La politica completa, para el checkout y para la pantalla.
+     *
+     * @return array<string, string>
+     */
+    public function commissionBases(): array
+    {
+        $result = [];
+
+        foreach (CommissionPolicy::sources() as $source) {
+            $result[$source] = $this->commissionBaseFor($source);
+        }
+
+        return $result;
     }
 
     public function businessTimezone(): string

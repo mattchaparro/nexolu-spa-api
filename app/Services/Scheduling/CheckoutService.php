@@ -33,6 +33,10 @@ class CheckoutService
      *                                         ajustar a mano lo que se cobro.
      * @param  bool  $transition  Falso solo cuando quien llama es la propia
      *                            maquina de estados (accion `mark_paid`).
+     * @param  float|null  $commissionDiscount  Cuanto del descuento le baja la
+     *        comision a quien atendio. Null = todo, que es como se comportaba
+     *        el sistema antes de que el descuento pudiera venir de un premio
+     *        de fidelizacion.
      */
     public function checkout(
         Appointment $appointment,
@@ -42,6 +46,7 @@ class CheckoutService
         ?string $discountReason = null,
         array $itemPrices = [],
         bool $transition = true,
+        ?float $commissionDiscount = null,
     ): Appointment {
         if ($appointment->checked_out_at !== null) {
             throw new \DomainException('Esta cita ya fue cobrada.');
@@ -55,7 +60,7 @@ class CheckoutService
             throw new \DomainException('El descuento no puede ser negativo.');
         }
 
-        return DB::transaction(function () use ($appointment, $paymentMethod, $by, $discountAmount, $discountReason, $itemPrices, $transition) {
+        return DB::transaction(function () use ($appointment, $paymentMethod, $by, $discountAmount, $discountReason, $itemPrices, $transition, $commissionDiscount) {
             $items = $appointment->items()->lockForUpdate()->get();
 
             $subtotal = 0.0;
@@ -77,8 +82,32 @@ class CheckoutService
                 $discountAmount,
             );
 
+            /*
+             * La comision puede calcularse sobre una base DISTINTA de lo
+             * cobrado.
+             *
+             * Un premio de fidelizacion lo regala el negocio para que la
+             * clienta vuelva; el trabajo de quien atendio fue el mismo, asi
+             * que ese descuento no tiene por que bajarle la comision. Un
+             * descuento a mano si, normalmente. Cual es cual lo decide el
+             * negocio (ver `Business::commissionBases()`), y quien llama ya
+             * trae sumado cuanto del descuento SI baja la comision.
+             *
+             * Se reparte dos veces con el MISMO repartidor: si se restara el
+             * descuento a mano del total repartido, el redondeo de las dos
+             * cuentas podria no coincidir y la nomina quedaria con centavos
+             * que nadie sabe explicar.
+             */
+            $commissionBase = $commissionDiscount === null
+                || round($commissionDiscount, 2) === round($discountAmount, 2)
+                ? $charged
+                : DiscountAllocator::allocate(
+                    $items->map(fn (AppointmentItem $item) => (float) $item->final_price)->all(),
+                    min(max(0, (float) $commissionDiscount), $subtotal),
+                );
+
             $commissionAmounts = DiscountAllocator::commissions(
-                $charged,
+                $commissionBase,
                 $items->map(fn (AppointmentItem $item) => $item->commission_rate === null
                     ? null
                     : (float) $item->commission_rate)->all(),

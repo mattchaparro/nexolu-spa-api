@@ -6,6 +6,7 @@ use App\Models\PayrollAdjustment;
 use App\Models\PayrollSettlement;
 use App\Models\Resource;
 use App\Services\Payroll\PayrollService;
+use App\Support\Money\CommissionPolicy;
 use App\Support\Payroll\AdjustmentCatalog;
 use App\Support\Payroll\BasePeriod;
 use App\Support\Payroll\PayrollMode;
@@ -221,7 +222,47 @@ class PayrollController
             'base_periods' => array_map(fn (string $p) => [
                 'name' => $p, 'label' => BasePeriod::label($p), 'days' => BasePeriod::days($p),
             ], BasePeriod::all()),
+
+            /*
+             * Sobre que valor se paga comision cuando hubo descuento. Vive en
+             * esta pantalla y no en la de servicios porque es una regla de
+             * NOMINA: quien busca como se le paga al equipo la busca aca.
+             */
+            'commission_bases' => $request->user()->business->commissionBases(),
+            'commission_sources' => array_map(
+                fn (string $s) => ['key' => $s] + CommissionPolicy::labels()[$s],
+                CommissionPolicy::sources(),
+            ),
+            'commission_base_options' => array_values(CommissionPolicy::baseLabels()),
         ]);
+    }
+
+    /** Guarda sobre que valor se paga comision para cada origen de descuento. */
+    public function updateCommissionBases(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'commission_bases' => ['required', 'array'],
+            'commission_bases.*' => [Rule::in(CommissionPolicy::bases())],
+        ]);
+
+        $business = $request->user()->business;
+
+        // Solo origenes del catalogo: uno inventado quedaria guardado para
+        // siempre sin que nada lo lea, y quien lo escribio creeria que aplico.
+        $limpio = array_intersect_key(
+            $data['commission_bases'],
+            array_flip(CommissionPolicy::sources()),
+        );
+
+        $business->update([
+            'commission_settings' => collect($limpio)
+                ->mapWithKeys(fn (string $base, string $source) => [
+                    CommissionPolicy::settingKey($source) => $base,
+                ])
+                ->all(),
+        ]);
+
+        return response()->json(['commission_bases' => $business->fresh()->commissionBases()]);
     }
 
     public function updateCompensation(Request $request, Resource $resource): JsonResponse
