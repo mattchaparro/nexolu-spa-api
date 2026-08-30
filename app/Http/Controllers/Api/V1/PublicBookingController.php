@@ -280,6 +280,9 @@ class PublicBookingController
             'service_id' => ['required', 'integer'],
             'from' => ['required', 'date_format:Y-m-d'],
             'resource_id' => ['nullable', 'integer'],
+            // Cuantos dias mirar. El calendario pide el mes visible; la tira de
+            // fichas rapidas se conforma con dos semanas.
+            'days' => ['nullable', 'integer', 'min:1', 'max:42'],
         ]);
 
         $service = $this->bookableService($business, $data['service_id']);
@@ -293,9 +296,13 @@ class PublicBookingController
 
         $days = [];
 
-        // Dos semanas por peticion: es lo que cabe en un calendario mensual sin
-        // volver el endpoint caro.
-        for ($i = 0; $i < 14; $i++) {
+        /*
+         * Un mes cuesta menos de lo que parece: los dias pasados del horizonte
+         * cortan por el `&&` sin calcular nada, y un dia sin horario devuelve
+         * vacio de una. Lo que se paga es solo por dia laboral dentro del
+         * horizonte.
+         */
+        for ($i = 0, $total = (int) ($data['days'] ?? 14); $i < $total; $i++) {
             $date = $from->addDays($i);
 
             $days[] = [
@@ -327,6 +334,7 @@ class PublicBookingController
 
             'client_name' => ['required', 'string', 'min:2', 'max:255'],
             'client_phone' => ['required', 'string', 'max:32'],
+            'client_email' => ['required', 'email:rfc', 'max:255'],
             'notes' => ['nullable', 'string', 'max:500'],
         ]);
 
@@ -382,7 +390,13 @@ class PublicBookingController
             return response()->json(['message' => $rechazo], 422);
         }
 
-        $client = $this->clients->resolve($business->id, null, $data['client_name'], $phone);
+        $client = $this->clients->resolve(
+            $business->id,
+            null,
+            $data['client_name'],
+            $phone,
+            $data['client_email'],
+        );
 
         try {
             $appointment = $this->booking->book(

@@ -87,6 +87,7 @@ class PublicBookingTest extends TestCase
             'starts_at' => $this->wednesday()->format('Y-m-d').' 10:00:00',
             'client_name' => 'Carolina Restrepo',
             'client_phone' => '3001234567',
+            'client_email' => 'carolina@correo.test',
         ], $overrides));
     }
 
@@ -238,7 +239,46 @@ class PublicBookingTest extends TestCase
         $this->assertDatabaseHas('clients', [
             'business_id' => $this->business->id,
             'phone' => '573001234567',
+            'email' => 'carolina@correo.test',
         ]);
+    }
+
+    public function test_el_correo_es_obligatorio_y_tiene_que_ser_valido(): void
+    {
+        $this->reservar(['client_email' => null])->assertStatus(422);
+        $this->reservar(['client_email' => 'esto no es un correo'])->assertStatus(422);
+
+        $this->assertSame(0, Appointment::withoutGlobalScope('business')->count());
+    }
+
+    public function test_el_correo_completa_la_ficha_pero_no_pisa_el_que_ya_tenia(): void
+    {
+        /*
+         * Reservar por internet solo prueba que quien lo hace tiene el teléfono
+         * a mano. Si ese formulario pudiera reescribir el correo de una ficha
+         * que ya lo tenía, cualquiera podría cambiarle el contacto a un cliente
+         * ajeno. Se completa cuando está vacío; no se pisa.
+         */
+        $cliente = Client::create([
+            'business_id' => $this->business->id, 'name' => 'Carolina',
+            'phone' => '573001234567', 'email' => 'el.bueno@correo.test', 'is_active' => true,
+        ]);
+
+        $this->reservar(['client_email' => 'otro@correo.test'])->assertCreated();
+
+        $this->assertSame('el.bueno@correo.test', $cliente->fresh()->email);
+    }
+
+    public function test_el_correo_llena_una_ficha_que_no_lo_tenia(): void
+    {
+        $cliente = Client::create([
+            'business_id' => $this->business->id, 'name' => 'Carolina',
+            'phone' => '573001234567', 'is_active' => true,
+        ]);
+
+        $this->reservar()->assertCreated();
+
+        $this->assertSame('carolina@correo.test', $cliente->fresh()->email);
     }
 
     public function test_la_respuesta_no_devuelve_la_ficha_del_cliente(): void
@@ -579,6 +619,7 @@ class PublicBookingTest extends TestCase
             ], $slot['legs']),
             'client_name' => 'Carolina Restrepo',
             'client_phone' => '3001234567',
+            'client_email' => 'carolina@correo.test',
         ])->assertCreated();
 
         $this->assertSame('Manos y pies', $respuesta->json('package'));
@@ -606,6 +647,7 @@ class PublicBookingTest extends TestCase
             ]],
             'client_name' => 'Carolina Restrepo',
             'client_phone' => '3001234567',
+            'client_email' => 'carolina@correo.test',
         ])->assertStatus(422);
 
         $this->assertSame(0, Appointment::withoutGlobalScope('business')->count());
@@ -637,6 +679,7 @@ class PublicBookingTest extends TestCase
             ],
             'client_name' => 'Carolina Restrepo',
             'client_phone' => '3001234567',
+            'client_email' => 'carolina@correo.test',
         ])->assertNotFound();
 
         $this->assertSame(0, Appointment::withoutGlobalScope('business')->count());
@@ -668,6 +711,7 @@ class PublicBookingTest extends TestCase
             ]],
             'client_name' => 'Carolina Restrepo',
             'client_phone' => '3001234567',
+            'client_email' => 'carolina@correo.test',
         ])->assertNotFound();
     }
 
@@ -693,6 +737,7 @@ class PublicBookingTest extends TestCase
             ], $slot['legs']),
             'client_name' => 'Carolina Restrepo',
             'client_phone' => '3001234567',
+            'client_email' => 'carolina@correo.test',
         ])->assertCreated();
 
         $this->assertNull($respuesta->json('package'));

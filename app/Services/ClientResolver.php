@@ -18,8 +18,13 @@ class ClientResolver
     /**
      * @param  string|null  $phone  Ya normalizado a E.164 sin '+'.
      */
-    public function resolve(int $businessId, ?int $clientId, ?string $name, ?string $phone): ?Client
-    {
+    public function resolve(
+        int $businessId,
+        ?int $clientId,
+        ?string $name,
+        ?string $phone,
+        ?string $email = null,
+    ): ?Client {
         if ($clientId !== null) {
             return Client::withoutGlobalScope('business')
                 ->where('business_id', $businessId)
@@ -40,6 +45,18 @@ class ClientResolver
                 ->first();
 
             if ($existing !== null) {
+                /*
+                 * El correo se COMPLETA, no se pisa.
+                 *
+                 * Quien reserva por la pagina publica solo prueba que tiene el
+                 * telefono a mano. Dejar que ese formulario reescriba el correo
+                 * de una ficha que ya lo tenia es dejar que cualquiera cambie
+                 * el contacto de un cliente ajeno.
+                 */
+                if ($email !== null && ($existing->email === null || $existing->email === '')) {
+                    $existing->update(['email' => $email]);
+                }
+
                 return $existing;
             }
         }
@@ -51,6 +68,7 @@ class ClientResolver
             'name' => $parts[0],
             'last_name' => $parts[1] ?? null,
             'phone' => $phone,
+            'email' => $email,
             'is_active' => true,
         ]);
     }

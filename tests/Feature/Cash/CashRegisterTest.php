@@ -43,6 +43,25 @@ class CashRegisterTest extends TestCase
     {
         parent::setUp();
 
+        /*
+         * El reloj se ancla a un miercoles.
+         *
+         * Sin anclarlo, la clase fallaba los domingos por dos razones a la vez:
+         * `laboral()` retrocedia al sabado, asi que "hoy" y "ayer" caian el
+         * MISMO dia y el gasto de ayer si descontaba de hoy; y el cobro estampa
+         * `checked_out_at` con el reloj real, asi que la venta se contaba un dia
+         * despues de la cita y el resumen del dia salia en cero.
+         *
+         * A las 08:00 para que las citas de las 10:00 y 11:00 queden adelante y
+         * no dependan de la hora a la que alguien corra las pruebas.
+         */
+        $this->travelTo(
+            CarbonImmutable::now('America/Bogota')
+                ->startOfDay()
+                ->previous(CarbonImmutable::WEDNESDAY)
+                ->setTime(8, 0),
+        );
+
         PermissionCatalog::sync();
 
         $this->business = $this->makeBusiness(['slot_granularity_min' => 60]);
