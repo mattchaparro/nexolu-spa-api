@@ -57,9 +57,20 @@ class BookingService
 
         return DB::transaction(function () use ($business, $items, $client, $clientName, $clientPhone, $source, $notes, $tz, $granularity, $enforceSchedule, $package) {
             $resolved = $this->resolveItems($business, $items, $tz, $enforceSchedule);
+            $this->assertSingleLocation($resolved);
 
             $appointment = Appointment::create([
                 'business_id' => $business->id,
+                /*
+                 * La sede sale de quien atiende, y se CONGELA. Si manana esa
+                 * persona se traslada, el cierre de caja de hace tres meses no
+                 * puede cambiar de local: misma regla que el precio y la
+                 * comision.
+                 *
+                 * De la primera linea: una visita ocurre en un solo local, y
+                 * repartir una cita entre sedes no es algo que exista.
+                 */
+                'location_id' => $resolved[0]['resource']->location_id,
                 'client_id' => $client?->id,
                 'client_name' => $clientName ?? $client?->fullName(),
                 'client_phone' => $clientPhone ?? $client?->phone,
@@ -177,6 +188,21 @@ class BookingService
             $item = $items->first();
             $resource = $newResource ?? $item->resource;
             $service = $item->service;
+
+            /*
+             * Cambiar de persona dentro de la misma sede es rutina; cambiarla
+             * a otra sede no es reagendar, es otra visita.
+             *
+             * Se rechaza en vez de mover la sede de la cita porque el cliente
+             * cree que va al local de siempre: quien mueve la cita en la
+             * pantalla no es quien se aparece en la puerta equivocada.
+             */
+            if ($resource->location_id !== $item->resource->location_id) {
+                throw new \DomainException(
+                    'Esa persona atiende en otra sede. Cancela la cita y agéndala allá, '
+                    .'para que el cliente sepa a qué local ir.'
+                );
+            }
 
             // Liberar antes de reclamar: si el hueco nuevo se solapa con el
             // viejo (mover 30 minutos), el indice unico rechazaria una fila
@@ -315,6 +341,31 @@ class BookingService
             }
 
             throw $e;
+        }
+    }
+
+    /**
+     * Una visita ocurre en un solo local.
+     *
+     * Encadenar manos en Chapinero con pies en Cedritos no es una cita larga,
+     * son dos visitas -- nadie cruza la ciudad entre servicio y servicio. Y si
+     * se dejara pasar, la cita quedaria contada en la caja de una sede con
+     * trabajo hecho en la otra, que es exactamente lo que la sede viene a
+     * ordenar.
+     *
+     * @param  list<array{resource:Resource}>  $resolved
+     */
+    private function assertSingleLocation(array $resolved): void
+    {
+        $sedes = array_unique(array_map(
+            fn (array $row) => $row['resource']->location_id,
+            $resolved,
+        ));
+
+        if (count($sedes) > 1) {
+            throw new \DomainException(
+                'Una misma cita no puede repartirse entre dos sedes. Agenda una cita por sede.'
+            );
         }
     }
 

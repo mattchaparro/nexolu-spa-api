@@ -17,6 +17,7 @@ use App\Http\Controllers\Api\V1\CheckoutController;
 use App\Http\Controllers\Api\V1\DepositController;
 use App\Http\Controllers\Api\V1\ClientController;
 use App\Http\Controllers\Api\V1\Admin\CampaignController;
+use App\Http\Controllers\Api\V1\Admin\LocationController;
 use App\Http\Controllers\Api\V1\Admin\LoyaltyProgramController;
 use App\Http\Controllers\Api\V1\ClientProfileController;
 use App\Http\Controllers\Api\V1\LoyaltyCardController;
@@ -325,6 +326,27 @@ Route::prefix('v1')->group(function () {
                 Route::post('/', [CampaignController::class, 'store']);
                 Route::post('/{campaign}', [CampaignController::class, 'store']);
                 Route::delete('/{campaign}', [CampaignController::class, 'destroy']);
+            });
+
+        /*
+        |----------------------------------------------------------------------
+        | Sedes
+        |----------------------------------------------------------------------
+        | Sin `feature:multi_location` en el listado a proposito: la pantalla
+        | de sedes tiene que poder mostrar la unica sede que ya existe, y el
+        | selector de sede al crear a alguien la necesita. Lo que la bandera
+        | controla es ABRIR la segunda, y eso se defiende en `store()` con el
+        | tope del plan.
+        */
+        Route::prefix('locations')
+            ->middleware('permission:negocio.configurar')
+            ->group(function () {
+                Route::get('/', [LocationController::class, 'index']);
+                Route::post('/', [LocationController::class, 'store'])
+                    ->middleware('feature:multi_location');
+                Route::post('/{location}', [LocationController::class, 'update']);
+                Route::post('/{location}/primary', [LocationController::class, 'makePrimary']);
+                Route::delete('/{location}', [LocationController::class, 'disable']);
             });
 
         Route::prefix('loyalty')->middleware('feature:loyalty')->group(function () {

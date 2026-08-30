@@ -34,6 +34,8 @@ class BusinessPlanLimits
 
     public const MAX_RESOURCES = 'max_resources';
 
+    public const MAX_LOCATIONS = 'max_locations';
+
     /**
      * Catalogo completo de topes. Agregar uno es tocar este archivo y el
      * contador que lo mide, nada mas.
@@ -47,7 +49,7 @@ class BusinessPlanLimits
      */
     public static function catalog(): array
     {
-        return [self::MAX_RESOURCES];
+        return [self::MAX_RESOURCES, self::MAX_LOCATIONS];
     }
 
     /**
@@ -64,6 +66,12 @@ class BusinessPlanLimits
                     .'desactivar a alguien libera el cupo.',
                 'unit' => 'personas',
             ],
+            self::MAX_LOCATIONS => [
+                'label' => 'Sedes',
+                'help' => 'Cuántos locales puede tener el negocio. Todas comparten clientes y '
+                    .'catálogo; la agenda y la caja son de cada sede.',
+                'unit' => 'sedes',
+            ],
         ];
     }
 
@@ -75,19 +83,19 @@ class BusinessPlanLimits
      */
     public static function basico(): array
     {
-        return [self::MAX_RESOURCES => 3];
+        return [self::MAX_RESOURCES => 3, self::MAX_LOCATIONS => 1];
     }
 
     /** @return array<string, int|null> */
     public static function pro(): array
     {
-        return [self::MAX_RESOURCES => 10];
+        return [self::MAX_RESOURCES => 10, self::MAX_LOCATIONS => 3];
     }
 
     /** @return array<string, int|null> */
     public static function full(): array
     {
-        return [self::MAX_RESOURCES => self::UNLIMITED];
+        return [self::MAX_RESOURCES => self::UNLIMITED, self::MAX_LOCATIONS => self::UNLIMITED];
     }
 
     /** @return array<string, int|null> */

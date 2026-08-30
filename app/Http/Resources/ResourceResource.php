@@ -16,6 +16,8 @@ class ResourceResource extends JsonResource
         return [
             'id' => $this->id,
             'type' => $this->type,
+            // En que local trabaja. Nulo solo en datos anteriores a las sedes.
+            'location_id' => $this->location_id,
             'name' => $this->name,
             'color' => $this->color,
             'photo_url' => ImageStorage::url($this->photo_path),

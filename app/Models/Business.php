@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\DB;
 
 class Business extends Model
 {
@@ -49,6 +50,60 @@ class Business extends Model
     public function resources(): HasMany
     {
         return $this->hasMany(Resource::class);
+    }
+
+    /**
+     * Todo negocio nace con su sede Principal.
+     *
+     * Va en el modelo y no en el controlador de alta porque hay tres caminos
+     * que crean negocios -- el panel de superadmin, el seeder y las factories
+     * de pruebas -- y un negocio sin sede deja a su gente sin donde trabajar y
+     * a la rejilla sin columnas. Es la clase de hueco que solo aparece por el
+     * camino que alguien olvido tocar.
+     */
+    protected static function booted(): void
+    {
+        static::created(function (Business $business) {
+            /*
+             * Insert directo, no `Location::create()`.
+             *
+             * `BelongsToBusiness` sobrescribe el `business_id` con el del
+             * usuario autenticado, y quien crea un negocio es un superadmin
+             * logueado en OTRO: la sede del negocio nuevo terminaria colgando
+             * del negocio del superadmin. Aca el business_id no viene del
+             * cliente, viene de la fila que se acaba de crear.
+             */
+            DB::table('locations')->insert([
+                'business_id' => $business->id,
+                'name' => 'Principal',
+                'slug' => 'principal',
+                'address' => $business->address,
+                'phone' => $business->phone,
+                'is_primary' => true,
+                'is_active' => true,
+                'sort_order' => 0,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        });
+    }
+
+    public function locations(): HasMany
+    {
+        return $this->hasMany(Location::class)->orderBy('sort_order')->orderBy('name');
+    }
+
+    /**
+     * La sede a la que cae lo que no diga otra cosa.
+     *
+     * Devuelve null solo si al negocio le faltara la sede principal, que no
+     * deberia pasar: la migracion se la crea a todos y `LocationController`
+     * no deja apagar ni quedarse sin la principal.
+     */
+    public function primaryLocation(): ?Location
+    {
+        return $this->locations()->where('is_primary', true)->first()
+            ?? $this->locations()->where('is_active', true)->first();
     }
 
     public function services(): HasMany
@@ -226,6 +281,14 @@ class Business extends Model
                 ->where('type', Resource::TYPE_STAFF)
                 ->where('is_active', true)
                 ->count(),
+
+            // Igual que con la gente: se cuenta solo lo activo. Una sede
+            // cerrada libera el cupo, y por eso una sede se apaga en vez de
+            // borrarse -- lo que se atendio ahi no puede desaparecer.
+            BusinessPlanLimits::MAX_LOCATIONS => $this->locations()
+                ->where('is_active', true)
+                ->count(),
+
             default => 0,
         };
     }

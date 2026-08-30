@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1\Admin;
 
+use App\Models\Appointment;
 use App\Http\Resources\ResourceResource;
 use App\Models\Resource;
 use App\Models\ResourceSchedule;
@@ -73,6 +74,14 @@ class ResourceAdminController
 
             $resource = Resource::create([
                 'business_id' => $business->id,
+                /*
+                 * En que local trabaja. Si la pantalla no lo mando -- negocio
+                 * de una sola sede, o un formulario que todavia no pregunta --
+                 * cae en la principal. Nunca queda en nulo: un recurso sin
+                 * sede desaparece del filtro de la agenda y nadie entiende por
+                 * que.
+                 */
+                'location_id' => $data['location_id'] ?? $business->primaryLocation()?->id,
                 'type' => $data['type'],
                 'user_id' => $userId,
                 'name' => trim($data['name'].' '.($data['last_name'] ?? '')),
@@ -112,7 +121,36 @@ class ResourceAdminController
             // que "no lo mandaste" y no habria forma de quitarle el porcentaje
             // a alguien una vez puesto.
             'commission_rate' => ['sometimes', 'present', 'nullable', 'numeric', 'min:0', 'max:1'],
+            'location_id' => [
+                'sometimes', 'integer',
+                Rule::exists('locations', 'id')->where('business_id', $business->id),
+            ],
         ]);
+
+        /*
+         * Trasladar a alguien de sede con citas ya agendadas dejaria a esos
+         * clientes citados en un local al que esa persona ya no va. La cita
+         * guarda su sede congelada -- eso protege la caja y las comisiones ya
+         * hechas -- pero no puede arreglar sola a quien va a aparecerse en la
+         * puerta equivocada. Asi que se avisa y se deja la decision a quien
+         * administra.
+         */
+        if (array_key_exists('location_id', $data) && (int) $data['location_id'] !== (int) $resource->location_id) {
+            $pendientes = $resource->appointmentItems()
+                ->where('starts_at', '>=', now())
+                ->whereHas('appointment', fn ($q) => $q->whereNotIn('status', [
+                    Appointment::STATUS_CANCELLED, Appointment::STATUS_NO_SHOW,
+                ]))
+                ->count();
+
+            if ($pendientes > 0) {
+                return response()->json([
+                    'message' => "{$resource->name} tiene {$pendientes} cita(s) pendiente(s) en su sede actual. "
+                        .'Reagéndalas o cancélalas antes de trasladarla, para que ningún cliente '
+                        .'llegue al local equivocado.',
+                ], 422);
+            }
+        }
 
         $resource->update(collect($data)->except('photo')->all());
 
@@ -191,6 +229,13 @@ class ResourceAdminController
         return $request->validate([
             'type' => ['required', Rule::in(Resource::types())],
             'name' => ['required', 'string', 'max:255'],
+
+            // La sede tiene que ser de ESTE negocio: sin el `where`, un id
+            // ajeno pondria a alguien a trabajar en el local de otro.
+            'location_id' => [
+                'nullable', 'integer',
+                Rule::exists('locations', 'id')->where('business_id', $businessId),
+            ],
             'last_name' => ['nullable', 'string', 'max:255'],
             'color' => ['nullable', 'string', 'max:7'],
             'is_bookable_online' => ['nullable', 'boolean'],

@@ -28,8 +28,33 @@ class Resource extends Model
 
     public const TYPE_EQUIPMENT = 'equipment';
 
+    /**
+     * Sin sede explicita, la principal del negocio.
+     *
+     * Va en el modelo y no solo en el controlador de alta porque hay varios
+     * caminos que crean recursos -- el alta del panel, el seeder, las
+     * factories -- y un recurso sin sede desaparece del filtro de la agenda
+     * sin que nadie entienda por que. El seeder ya lo hizo una vez.
+     *
+     * Solo rellena el nulo: una sede elegida a mano nunca se pisa.
+     */
+    protected static function booted(): void
+    {
+        static::creating(function (Resource $resource) {
+            if ($resource->location_id !== null || $resource->business_id === null) {
+                return;
+            }
+
+            $resource->location_id = Location::withoutGlobalScopes()
+                ->where('business_id', $resource->business_id)
+                ->orderByDesc('is_primary')
+                ->orderBy('id')
+                ->value('id');
+        });
+    }
+
     protected $fillable = [
-        'business_id', 'type', 'user_id', 'name', 'color', 'photo_path',
+        'business_id', 'location_id', 'type', 'user_id', 'name', 'color', 'photo_path',
         'is_bookable_online', 'is_active', 'sort_order',
         'payroll_mode', 'commission_rate', 'base_amount', 'base_period', 'base_until', 'payroll_started_on',
     ];
@@ -62,6 +87,12 @@ class Resource extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /** En que local trabaja. */
+    public function location(): BelongsTo
+    {
+        return $this->belongsTo(Location::class);
     }
 
     public function schedules(): HasMany

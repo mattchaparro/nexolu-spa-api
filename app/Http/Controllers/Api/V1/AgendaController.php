@@ -32,6 +32,17 @@ class AgendaController
             'from' => ['required', 'date_format:Y-m-d'],
             // Hasta 14 dias: mas que eso ya no es una rejilla, es un reporte.
             'to' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:from'],
+
+            /*
+             * Que sede se esta mirando. Opcional: sin sede la rejilla trae
+             * todas, que es lo correcto para un negocio de un solo local y lo
+             * que hacia antes de que existieran las sedes.
+             *
+             * Una rejilla con las columnas de dos locales mezcladas no se
+             * puede leer -- son dos jornadas distintas en el mismo ancho -- asi
+             * que la pantalla manda sede casi siempre.
+             */
+            'location_id' => ['nullable', 'integer'],
         ]);
 
         $business = $request->user()->business;
@@ -51,6 +62,13 @@ class AgendaController
 
         $resources = Resource::where('type', Resource::TYPE_STAFF)
             ->where('is_active', true)
+            // El id ajeno no hace falta filtrarlo a mano: el scope de negocio
+            // ya deja fuera las sedes de otros, asi que un id prestado
+            // devuelve una rejilla vacia, no la de otro local.
+            ->when(
+                ! empty($data['location_id']),
+                fn ($q) => $q->where('location_id', (int) $data['location_id']),
+            )
             ->when($scope->resourceId !== null, fn ($q) => $q->whereKey($scope->resourceId))
             ->when($scope->seesNothing(), fn ($q) => $q->whereRaw('1 = 0'))
             ->orderBy('sort_order')

@@ -34,7 +34,7 @@ class Appointment extends Model
     public const SOURCE_PHONE = 'phone';
 
     protected $fillable = [
-        'business_id', 'client_id', 'client_name', 'client_phone', 'stage_id', 'service_package_id',
+        'business_id', 'location_id', 'client_id', 'client_name', 'client_phone', 'stage_id', 'service_package_id',
         'discount_campaign_id',
         'starts_at', 'ends_at', 'status', 'source', 'notes',
         'confirmed_at', 'cancelled_at', 'cancelled_by_user_id', 'cancellation_reason',
@@ -88,6 +88,16 @@ class Appointment extends Model
     public function client(): BelongsTo
     {
         return $this->belongsTo(Client::class);
+    }
+
+    /**
+     * En que local ocurrio. Congelada al agendar, no derivada del recurso:
+     * si esa persona se traslada, el cierre de caja de hace tres meses no
+     * puede cambiar de local.
+     */
+    public function location(): BelongsTo
+    {
+        return $this->belongsTo(Location::class);
     }
 
     public function items(): HasMany

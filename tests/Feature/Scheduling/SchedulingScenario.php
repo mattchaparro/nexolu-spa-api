@@ -49,9 +49,13 @@ trait SchedulingScenario
         string $start = '09:00:00',
         string $end = '18:00:00',
         array $weekdays = [1, 2, 3, 4, 5, 6],
+        ?int $locationId = null,
     ): Resource {
         $resource = Resource::create([
             'business_id' => $business->id,
+            // Igual que en el alta real: sin sede explicita cae en la
+            // principal, nunca en nulo.
+            'location_id' => $locationId ?? $business->primaryLocation()?->id,
             'type' => Resource::TYPE_STAFF,
             'name' => $name,
             'is_bookable_online' => true,

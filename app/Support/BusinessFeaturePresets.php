@@ -33,6 +33,7 @@ class BusinessFeaturePresets
     {
         return [
             'scheduling',            // agenda y citas
+            'multi_location',        // varias sedes bajo un mismo negocio
             'online_booking',        // reserva publica sin autenticar
             'whatsapp_agent',        // agente de IA por WhatsApp
             'reminders',             // recordatorios automaticos
@@ -70,6 +71,7 @@ class BusinessFeaturePresets
     public static function labels(): array
     {
         return [
+            'multi_location' => ['group' => 'Agenda', 'label' => 'Varias sedes', 'help' => 'Más de un local bajo el mismo negocio, con clientes y catálogo compartidos. Con una sola sede no cambia nada en pantalla.'],
             'scheduling' => ['group' => 'Agenda', 'label' => 'Agenda y citas', 'help' => 'El calendario y el motor de disponibilidad. Sin esto no hay producto.'],
             'online_booking' => ['group' => 'Agenda', 'label' => 'Reserva en línea', 'help' => 'Página pública donde el cliente se agenda solo.'],
             'whatsapp_agent' => ['group' => 'Agenda', 'label' => 'Agente de WhatsApp', 'help' => 'Asistente de IA que agenda por chat.'],
@@ -165,6 +167,7 @@ class BusinessFeaturePresets
     public static function pro(): array
     {
         return array_merge(self::basico(), [
+            'multi_location' => true,
             'online_booking' => true,
             'client_history' => true,
             'commissions' => true,
