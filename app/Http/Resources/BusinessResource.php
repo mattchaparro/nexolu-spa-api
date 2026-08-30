@@ -26,6 +26,12 @@ class BusinessResource extends JsonResource
             // mostrandole modulos no contratados a negocios del plan Basico.
             'resolved_features' => $this->resolvedFeatureFlags(),
 
+            // Topes del plan CON el uso de hoy, no solo el numero: la pantalla
+            // tiene que poder decir "3 de 3" antes de que alguien llene un
+            // formulario que va a ser rechazado al guardar.
+            'plan_usage' => $this->planUsage(),
+            'subscription_plan' => $this->subscription_plan,
+
             'scheduling_settings' => [
                 'slot_granularity_min' => (int) $this->schedulingSetting('slot_granularity_min'),
                 'min_booking_notice_min' => (int) $this->schedulingSetting('min_booking_notice_min'),

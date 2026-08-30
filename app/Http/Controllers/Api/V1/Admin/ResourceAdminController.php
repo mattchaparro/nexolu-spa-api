@@ -6,6 +6,7 @@ use App\Http\Resources\ResourceResource;
 use App\Models\Resource;
 use App\Models\ResourceSchedule;
 use App\Models\User;
+use App\Support\BusinessPlanLimits;
 use App\Support\ChannelPhone;
 use App\Support\ImageStorage;
 use App\Support\PermissionCatalog;
@@ -29,6 +30,27 @@ class ResourceAdminController
     {
         $business = $request->user()->business;
         $data = $this->validated($request, $business->id);
+
+        /*
+         * El tope del plan, y SOLO al crear.
+         *
+         * Un negocio que ya quedo por encima -- porque bajo de plan o porque
+         * le cambiaron la excepcion -- sigue trabajando con lo que tiene;
+         * simplemente no puede agregar mas. Bloquearle la agenda por una
+         * decision comercial seria romperle el dia para cobrarle.
+         *
+         * Solo cuenta el personal: una silla o una cabina no son un cupo de
+         * plan (ver `usageFor`).
+         */
+        if ($data['type'] === Resource::TYPE_STAFF && ! $business->canAddWithinLimit(BusinessPlanLimits::MAX_RESOURCES)) {
+            $limite = $business->limitFor(BusinessPlanLimits::MAX_RESOURCES);
+
+            return response()->json([
+                'message' => "Tu plan permite {$limite} personas en la agenda y ya las tienes activas. "
+                    .'Puedes desactivar a alguien para liberar un cupo, o escribirnos para ampliar el plan.',
+                'limit' => ['key' => BusinessPlanLimits::MAX_RESOURCES, 'max' => $limite],
+            ], 422);
+        }
 
         $resource = DB::transaction(function () use ($business, $data, $request) {
             $userId = null;

@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Support\BusinessFeaturePresets;
+use App\Support\BusinessPlanLimits;
 use App\Support\Money\DepositCalculator;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -17,7 +18,7 @@ class Business extends Model
     protected $fillable = [
         'name', 'slug', 'vertical', 'timezone', 'country_code', 'currency',
         'phone', 'email', 'address', 'logo_path', 'cover_path',
-        'public_profile', 'feature_flags', 'subscription_plan', 'scheduling_settings', 'is_active',
+        'public_profile', 'feature_flags', 'plan_limits', 'subscription_plan', 'scheduling_settings', 'is_active',
         'appointment_workflow_id',
     ];
 
@@ -25,6 +26,7 @@ class Business extends Model
     {
         return [
             'feature_flags' => 'array',
+            'plan_limits' => 'array',
             'public_profile' => 'array',
             'scheduling_settings' => 'array',
             'is_active' => 'boolean',
@@ -138,5 +140,85 @@ class Business extends Model
         return $policy === null
             ? 0.0
             : DepositCalculator::forTotal($total, $policy['type'], $policy['value']);
+    }
+
+    /**
+     * Topes ya resueltos: el preset del plan mas las excepciones del negocio.
+     *
+     * Misma mezcla y misma razon que `resolvedFeatureFlags()`: el front lee
+     * ESTO y nunca la recalcula. Dos implementaciones de la misma regla es
+     * como el POS termino mostrandole modulos no contratados a negocios del
+     * plan Basico.
+     *
+     * @return array<string, int|null>
+     */
+    public function resolvedPlanLimits(): array
+    {
+        $defaults = BusinessPlanLimits::fromPlan($this->subscription_plan);
+        $explicit = $this->plan_limits;
+
+        if (empty($explicit)) {
+            return $defaults;
+        }
+
+        return array_merge($defaults, $explicit);
+    }
+
+    /** El tope de una llave, o null si no tiene. */
+    public function limitFor(string $key): ?int
+    {
+        $limit = $this->resolvedPlanLimits()[$key] ?? null;
+
+        return $limit === null ? null : (int) $limit;
+    }
+
+    /**
+     * Cuantos hay hoy contra ese tope.
+     *
+     * Se cuenta solo lo ACTIVO: desactivar a alguien libera el cupo. Contar
+     * los inactivos dejaria a un local que rota personal chocando contra un
+     * tope que no puede explicarse.
+     */
+    public function usageFor(string $key): int
+    {
+        return match ($key) {
+            BusinessPlanLimits::MAX_RESOURCES => $this->resources()
+                ->where('type', Resource::TYPE_STAFF)
+                ->where('is_active', true)
+                ->count(),
+            default => 0,
+        };
+    }
+
+    /** Si cabe uno mas de `$key`. */
+    public function canAddWithinLimit(string $key): bool
+    {
+        return BusinessPlanLimits::allows($this->limitFor($key), $this->usageFor($key));
+    }
+
+    /**
+     * Tope y uso de cada llave, para que la pantalla lo diga ANTES de que
+     * alguien choque contra el.
+     *
+     * @return array<string, array{limit: int|null, used: int, remaining: int|null}>
+     */
+    public function planUsage(): array
+    {
+        $result = [];
+
+        foreach (BusinessPlanLimits::catalog() as $key) {
+            $limit = $this->limitFor($key);
+            $used = $this->usageFor($key);
+
+            $result[$key] = [
+                'limit' => $limit,
+                'used' => $used,
+                // Nunca negativo: un negocio que quedo por encima de su tope
+                // (bajo de plan) muestra 0 disponibles, no "-2 disponibles".
+                'remaining' => $limit === null ? null : max(0, $limit - $used),
+            ];
+        }
+
+        return $result;
     }
 }

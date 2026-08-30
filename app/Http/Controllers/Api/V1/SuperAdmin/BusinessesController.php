@@ -9,6 +9,7 @@ use App\Models\Resource;
 use App\Models\Service;
 use App\Models\User;
 use App\Support\BusinessFeaturePresets;
+use App\Support\BusinessPlanLimits;
 use App\Support\ChannelPhone;
 use App\Support\PermissionCatalog;
 use App\Support\Scheduling\DefaultWorkflow;
@@ -144,6 +145,11 @@ class BusinessesController
             ])],
             'feature_flags' => ['sometimes', 'array'],
             'feature_flags.*' => ['boolean'],
+            // Excepciones de tope. `null` en una llave = sin limite para este
+            // negocio, que es como se le concede una excepcion sin inventarle
+            // un plan propio.
+            'plan_limits' => ['sometimes', 'array'],
+            'plan_limits.*' => ['nullable', 'integer', 'min:1'],
             'scheduling_settings' => ['sometimes', 'array'],
             'scheduling_settings.slot_granularity_min' => ['nullable', 'integer', 'min:5', 'max:60'],
             'scheduling_settings.min_booking_notice_min' => ['nullable', 'integer', 'min:0'],
@@ -158,6 +164,16 @@ class BusinessesController
             $data['feature_flags'] = array_intersect_key(
                 $data['feature_flags'],
                 array_flip(BusinessFeaturePresets::catalog()),
+            );
+        }
+
+        if (isset($data['plan_limits'])) {
+            // Mismo criterio que las banderas: solo llaves del catalogo. Un
+            // tope inventado quedaria guardado para siempre sin que nada lo
+            // lea, y quien lo escribio creeria que aplico.
+            $data['plan_limits'] = array_intersect_key(
+                $data['plan_limits'],
+                array_flip(BusinessPlanLimits::catalog()),
             );
         }
 
@@ -199,6 +215,14 @@ class BusinessesController
                 BusinessFeaturePresets::PLAN_FULL => BusinessFeaturePresets::full(),
             ],
             'verticals' => BusinessFeaturePresets::verticals(),
+
+            // El otro eje del plan: cuanto puede cargar, no solo que ve.
+            'limits' => BusinessPlanLimits::describedCatalog(),
+            'plan_limits' => [
+                BusinessFeaturePresets::PLAN_BASICO => BusinessPlanLimits::basico(),
+                BusinessFeaturePresets::PLAN_PRO => BusinessPlanLimits::pro(),
+                BusinessFeaturePresets::PLAN_FULL => BusinessPlanLimits::full(),
+            ],
         ]);
     }
 
@@ -228,6 +252,12 @@ class BusinessesController
             'country_code' => $business->country_code,
             'feature_flags' => $business->feature_flags ?? [],
             'resolved_features' => $business->resolvedFeatureFlags(),
+            // Las excepciones concedidas, los topes ya resueltos, y cuanto
+            // lleva usado: sin el uso, soporte no puede responder "¿por que no
+            // me deja agregar a nadie?" sin entrar a mirar la base.
+            'plan_limits' => $business->plan_limits ?? [],
+            'resolved_limits' => $business->resolvedPlanLimits(),
+            'plan_usage' => $business->planUsage(),
             'scheduling_settings' => $business->scheduling_settings ?? config('spa.defaults'),
             /*
              * TODO el equipo, no solo los dueños. Soporte casi nunca entra
