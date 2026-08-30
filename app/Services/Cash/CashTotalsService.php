@@ -90,7 +90,28 @@ class CashTotalsService
             ->with('paymentMethod')
             ->get();
 
-        return $this->build($businessId, $appointments, $expenses, $openingCash);
+        /*
+         * Los abonos que ENTRARON en esta ventana, aunque su cita se cobre
+         * otro dia -- o no se cobre nunca.
+         *
+         * La plata llego el dia que llego. Contarla el dia del servicio dejaria
+         * el cierre de hoy largo y el de la semana entrante corto, sin nada que
+         * lo explique.
+         *
+         * Solo en el total del DIA, no en el de un turno: quien confirma una
+         * transferencia no es necesariamente quien esta en caja, y meterla en
+         * su turno le cuadraria mal el cajon a esa persona.
+         */
+        $deposits = $userId !== null
+            ? collect()
+            : Appointment::withoutGlobalScope('business')
+                ->where('business_id', $businessId)
+                ->whereNotNull('deposit_paid_at')
+                ->whereBetween('deposit_paid_at', [$from->utc(), $to->utc()])
+                ->with('depositPaymentMethod')
+                ->get();
+
+        return $this->build($businessId, $appointments, $expenses, $openingCash, $deposits);
     }
 
     /** Totales de un dia completo, en la zona del negocio. */
@@ -104,9 +125,15 @@ class CashTotalsService
     /**
      * @param  Collection<int, Appointment>  $appointments
      * @param  Collection<int, Expense>  $expenses
+     * @param  Collection<int, Appointment>  $deposits  Abonos recibidos en la ventana.
      */
-    private function build(int $businessId, Collection $appointments, Collection $expenses, float $openingCash): array
-    {
+    private function build(
+        int $businessId,
+        Collection $appointments,
+        Collection $expenses,
+        float $openingCash,
+        Collection $deposits = new Collection,
+    ): array {
         $methods = PaymentMethod::withoutGlobalScope('business')
             ->where('business_id', $businessId)
             ->get()
@@ -121,7 +148,15 @@ class CashTotalsService
                 : null;
 
             return [
-                'amount' => (float) ($appointment->total ?? 0),
+                /*
+                 * Lo que entro POR ESTE METODO hoy, no la venta completa.
+                 *
+                 * Si el cliente abono 30.000 la semana pasada por Nequi, en el
+                 * mostrador solo dejo el resto. Cobrar el total contra el
+                 * metodo del cierre dejaria la caja del dia larga por el
+                 * abono, todos los dias, sin nada que lo explique.
+                 */
+                'amount' => round((float) ($appointment->total ?? 0) - $appointment->depositPaid(), 2),
                 'method_id' => $method?->id,
                 // Una cita cobrada sin metodo no deberia existir, pero si
                 // aparece se muestra en vez de desaparecer del cuadre.
@@ -129,6 +164,17 @@ class CashTotalsService
                 'counts_as_cash' => (bool) ($method?->counts_as_cash ?? false),
             ];
         })->values()->all();
+
+        foreach ($deposits as $abono) {
+            $method = $abono->depositPaymentMethod;
+
+            $charges[] = [
+                'amount' => (float) $abono->deposit_amount,
+                'method_id' => $method?->id,
+                'method_label' => $method?->name ?? 'Abono sin método',
+                'counts_as_cash' => (bool) ($method?->counts_as_cash ?? false),
+            ];
+        }
 
         $expenseRows = $expenses->map(fn (Expense $expense) => [
             'value' => (float) $expense->value,

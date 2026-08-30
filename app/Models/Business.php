@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Support\BusinessFeaturePresets;
+use App\Support\Money\DepositCalculator;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -97,5 +98,45 @@ class Business extends Model
     public function hasFeature(string $feature): bool
     {
         return (bool) ($this->resolvedFeatureFlags()[$feature] ?? false);
+    }
+
+    /**
+     * La politica de abono del negocio, o null si no pide.
+     *
+     * Devuelve null tambien con la bandera apagada, para que ningun camino
+     * pueda calcular un abono de un negocio que no contrato la funcion: la
+     * comprobacion vive aca y no repartida en cada controlador.
+     *
+     * @return array{type: string, value: float, instructions: ?string, label: ?string}|null
+     */
+    public function depositPolicy(): ?array
+    {
+        if (! $this->hasFeature('booking_deposit')) {
+            return null;
+        }
+
+        $type = (string) ($this->schedulingSetting('deposit_type') ?? DepositCalculator::TYPE_NONE);
+        $value = (float) ($this->schedulingSetting('deposit_value') ?? 0);
+
+        if ($type === DepositCalculator::TYPE_NONE || $value <= 0) {
+            return null;
+        }
+
+        return [
+            'type' => $type,
+            'value' => $value,
+            'instructions' => $this->schedulingSetting('deposit_instructions'),
+            'label' => DepositCalculator::label($type, $value),
+        ];
+    }
+
+    /** Cuanto hay que abonar por un total, segun la politica vigente. */
+    public function depositFor(float $total): float
+    {
+        $policy = $this->depositPolicy();
+
+        return $policy === null
+            ? 0.0
+            : DepositCalculator::forTotal($total, $policy['type'], $policy['value']);
     }
 }

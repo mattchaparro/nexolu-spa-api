@@ -14,6 +14,7 @@ use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\AvailabilityController;
 use App\Http\Controllers\Api\V1\CashController;
 use App\Http\Controllers\Api\V1\CheckoutController;
+use App\Http\Controllers\Api\V1\DepositController;
 use App\Http\Controllers\Api\V1\ClientController;
 use App\Http\Controllers\Api\V1\ClientProfileController;
 use App\Http\Controllers\Api\V1\ExpenseController;
@@ -144,6 +145,11 @@ Route::prefix('v1')->group(function () {
             Route::post('/{appointment}/cancel', [AppointmentController::class, 'cancel'])->middleware('permission:citas.cancelar');
             Route::post('/{appointment}/checkout', [CheckoutController::class, 'store'])->middleware('permission:caja.cobrar');
             Route::delete('/{appointment}/checkout', [CheckoutController::class, 'destroy'])->middleware('permission:caja.cobrar');
+
+            // El abono con que el cliente separo. Mismo permiso que cobrar:
+            // es plata que entra y tiene que quedar en una cuenta.
+            Route::post('/{appointment}/deposit', [DepositController::class, 'store'])->middleware('permission:caja.cobrar');
+            Route::delete('/{appointment}/deposit', [DepositController::class, 'destroy'])->middleware('permission:caja.cobrar');
 
             /*
              * Mover de etapa. Detras de `citas.editar` y no de un permiso

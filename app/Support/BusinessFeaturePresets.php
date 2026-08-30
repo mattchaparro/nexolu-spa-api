@@ -49,6 +49,7 @@ class BusinessFeaturePresets
             'loyalty',               // sellos y recompensas
             'promotions',
             'no_show_penalties',
+            'booking_deposit',       // abono para separar la cita
             'permissions_management',
             'audit_logs',
             'reports',
@@ -75,6 +76,7 @@ class BusinessFeaturePresets
             'reminders' => ['group' => 'Agenda', 'label' => 'Recordatorios', 'help' => 'Avisos automáticos de cita y de retoque.'],
             'multi_resource' => ['group' => 'Agenda', 'label' => 'Servicios con varios recursos', 'help' => 'Un servicio que ocupa a la vez a una persona y una cabina.'],
             'no_show_penalties' => ['group' => 'Agenda', 'label' => 'Registro de inasistencias', 'help' => 'Anota en la ficha cuando alguien no llega.'],
+            'booking_deposit' => ['group' => 'Agenda', 'label' => 'Abono para separar', 'help' => 'Pide un adelanto al reservar en línea. Baja las inasistencias, pero es fricción: viene apagado.'],
 
             'clients' => ['group' => 'Clientes', 'label' => 'Base de clientes', 'help' => 'Fichas con nombre y teléfono.'],
             'client_history' => ['group' => 'Clientes', 'label' => 'Historial y fotos', 'help' => 'Qué se le hizo, cuánto gastó y fotos del trabajo.'],
@@ -178,14 +180,22 @@ class BusinessFeaturePresets
     /**
      * @return array<string, bool>
      *
-     * Full tampoco enciende `cash_shift`: no es una funcion "avanzada" sino
-     * una forma distinta de operar la caja. Se enciende negocio por negocio.
+     * Full tampoco enciende `cash_shift` ni `booking_deposit`. Ninguna de las
+     * dos es una funcion "avanzada":
+     *
+     * - `cash_shift` es una forma distinta de operar la caja.
+     * - `booking_deposit` le PIDE PLATA POR ADELANTADO al cliente. Baja las
+     *   inasistencias, pero tambien espanta a quien solo queria una hora de
+     *   manicure. Encenderla porque el negocio contrato el plan mas caro seria
+     *   cambiarle la tasa de conversion sin que lo haya pedido.
+     *
+     * Las dos se encienden negocio por negocio.
      */
     public static function full(): array
     {
         return array_merge(
             array_map(fn () => true, array_flip(self::catalog())),
-            ['cash_shift' => false],
+            ['cash_shift' => false, 'booking_deposit' => false],
         );
     }
 

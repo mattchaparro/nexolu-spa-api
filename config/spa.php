@@ -32,6 +32,19 @@ return [
         // Penalizacion por inasistencia. 0 = deshabilitada.
         'no_show_penalty_amount' => 0,
 
+        /*
+         * Abono para separar la cita. Solo aplica con la bandera
+         * `booking_deposit` encendida.
+         *
+         * El default NO pide nada aunque la bandera se encienda: prender el
+         * modulo y que de una empiece a pedirle plata por adelantado a los
+         * clientes, con un monto que nadie eligio, es la clase de sorpresa que
+         * el negocio descubre por las quejas.
+         */
+        'deposit_type' => 'none',   // none | percent | fixed
+        'deposit_value' => 0,
+        'deposit_instructions' => null,
+
         'timezone' => 'America/Bogota',
     ],
 

@@ -101,6 +101,30 @@ class BookingService
                 $this->claimOccupancy($business, $item, $granularity);
             }
 
+            /*
+             * El abono se congela AL RESERVAR, sobre lo que el cliente va a
+             * pagar de verdad -- con el descuento del combo ya aplicado.
+             *
+             * Congelado y no recalculado: si el negocio sube el abono del 20%
+             * al 40% la semana entrante, a quien ya reservo se le sigue
+             * pidiendo lo que le dijo la pantalla el dia que reservo.
+             *
+             * Solo para lo que entra por internet. Una cita que agenda el
+             * mostrador por telefono no necesita que el sistema le pida un
+             * adelanto: ahi hay alguien del local decidiendo.
+             */
+            if ($source === Appointment::SOURCE_ONLINE) {
+                $base = $package !== null
+                    ? $package->loadMissing('services')->quote()['total']
+                    : array_sum(array_map(fn (array $row) => (float) $row['service']->price, $resolved));
+
+                $deposit = $business->depositFor((float) $base);
+
+                if ($deposit > 0) {
+                    $appointment->update(['deposit_amount' => $deposit]);
+                }
+            }
+
             return $appointment->load('items');
         });
     }

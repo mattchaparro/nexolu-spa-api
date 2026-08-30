@@ -39,6 +39,7 @@ class Appointment extends Model
         'confirmed_at', 'cancelled_at', 'cancelled_by_user_id', 'cancellation_reason',
         'payment_method_id', 'checked_out_at', 'checked_out_by_user_id',
         'subtotal', 'discount_amount', 'discount_reason', 'total', 'commission_total',
+        'deposit_amount', 'deposit_paid_at', 'deposit_payment_method_id', 'deposit_reference',
     ];
 
     protected function casts(): array
@@ -53,7 +54,31 @@ class Appointment extends Model
             'discount_amount' => 'decimal:2',
             'total' => 'decimal:2',
             'commission_total' => 'decimal:2',
+            'deposit_amount' => 'decimal:2',
+            'deposit_paid_at' => 'datetime',
         ];
+    }
+
+    /**
+     * Lo que falta por cobrar cuando el cliente llega.
+     *
+     * El abono ya entro, asi que no se le vuelve a pedir. El `total` sigue
+     * siendo la venta completa: el abono no es un descuento, es plata de la
+     * misma venta que llego antes.
+     */
+    public function amountDue(): float
+    {
+        if ($this->total === null) {
+            return 0.0;
+        }
+
+        return round(max(0, (float) $this->total - $this->depositPaid()), 2);
+    }
+
+    /** Lo que de verdad se recibio de abono, no lo que se pidio. */
+    public function depositPaid(): float
+    {
+        return $this->deposit_paid_at === null ? 0.0 : (float) $this->deposit_amount;
     }
 
     public function client(): BelongsTo
@@ -74,6 +99,17 @@ class Appointment extends Model
     public function paymentMethod(): BelongsTo
     {
         return $this->belongsTo(PaymentMethod::class);
+    }
+
+    /**
+     * Por donde entro el abono.
+     *
+     * Es una cuenta distinta del cobro final y casi siempre lo es: el abono
+     * llega por transferencia dias antes y el resto se paga en el mostrador.
+     */
+    public function depositPaymentMethod(): BelongsTo
+    {
+        return $this->belongsTo(PaymentMethod::class, 'deposit_payment_method_id');
     }
 
     public function isPaid(): bool

@@ -45,6 +45,14 @@ class AppointmentResource extends JsonResource
             'subtotal' => $this->subtotal === null ? null : (float) $this->subtotal,
             'discount_amount' => (float) $this->discount_amount,
             'total' => $this->total === null ? null : (float) $this->total,
+            // El abono: cuanto se pidio, si ya llego, y cuanto falta cobrar
+            // cuando el cliente se sienta. `total` sigue siendo la venta
+            // completa -- el abono no es un descuento, es plata de la misma
+            // venta que entro antes.
+            'deposit_amount' => (float) $this->deposit_amount,
+            'deposit_paid_at' => $this->deposit_paid_at?->toIso8601String(),
+            'deposit_paid' => $this->depositPaid(),
+            'amount_due' => $this->amountDue(),
             'commission_total' => $this->commission_total === null ? null : (float) $this->commission_total,
             'starts_at' => $this->starts_at?->setTimezone($tz)->toIso8601String(),
             'ends_at' => $this->ends_at?->setTimezone($tz)->toIso8601String(),

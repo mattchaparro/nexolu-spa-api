@@ -80,6 +80,10 @@ class PublicBookingController
             // Lo que el negocio dice de si mismo. Cuando llegue el constructor
             // de landings, sus bloques se suman aca sin tocar el resto.
             'profile' => PublicProfile::resolve($business),
+            // Cuanto hay que abonar para separar, si el negocio lo pide. Va en
+            // la carga inicial para que el paso de datos pueda decirlo ANTES de
+            // que la persona llene el formulario, y no despues de confirmar.
+            'deposit' => $business->depositPolicy(),
             'services' => $this->services($business),
             'packages' => $this->packages($business),
             'resources' => $this->resources($business),
@@ -426,6 +430,8 @@ class PublicBookingController
         }
 
         $start = CarbonImmutable::parse($appointment->starts_at)->setTimezone($tz);
+        // Lo congelo `BookingService` al reservar; aca solo se lee.
+        $deposito = (float) $appointment->deposit_amount;
 
         /*
          * La respuesta NO devuelve la ficha del cliente, ni su id, ni su
@@ -451,7 +457,21 @@ class PublicBookingController
             'starts_at' => $start->toIso8601String(),
             'date_label' => $start->translatedFormat('l j \d\e F'),
             'time_label' => $start->format('g:i a'),
-            'message' => 'Tu cita quedó registrada. Te esperamos.',
+            /*
+             * El abono va en la confirmacion, con las instrucciones de pago.
+             *
+             * No se cobra en linea: este API todavia no tiene pasarela. La cita
+             * queda registrada y el negocio confirma el abono cuando le llega
+             * la transferencia. Decirlo aca, y no despues por WhatsApp, es lo
+             * que evita que alguien crea que la cita esta asegurada.
+             */
+            'deposit_amount' => $deposito > 0 ? $deposito : null,
+            'deposit_instructions' => $deposito > 0
+                ? ($business->depositPolicy()['instructions'] ?? null)
+                : null,
+            'message' => $deposito > 0
+                ? 'Tu cita quedó registrada. Para separarla, envíanos el abono.'
+                : 'Tu cita quedó registrada. Te esperamos.',
         ], 201);
     }
 
