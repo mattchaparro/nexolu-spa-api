@@ -50,13 +50,47 @@ Por lo mismo, `deploy.sh` corre el `docker build` con `nice`/`ionice`.
 ssh root@134.122.116.201
 ```
 
-**1. Clonar**
+**1. Instalar la deploy key y clonar**
+
+El repo se clona por SSH y no por HTTPS: el servidor tiene que poder hacer
+`git pull` solo, sin que nadie escriba un token. La llave ya está registrada
+en GitHub como deploy key **de solo lectura** (el droplet nunca escribe al
+repo). La privada está en la máquina del dev, en
+`~/.ssh/nexolu_spa_api_deploy` — se sube así:
 
 ```bash
-mkdir -p /opt && cd /opt
-git clone https://github.com/mattchaparro/nexolu-spa-api.git
+# desde la máquina del dev
+scp ~/.ssh/nexolu_spa_api_deploy root@134.122.116.201:/root/.ssh/nexolu_spa_api_deploy
+ssh root@134.122.116.201 'chmod 600 /root/.ssh/nexolu_spa_api_deploy'
+```
+
+Y en el droplet, para que git la use solo con GitHub:
+
+```bash
+cat >> /root/.ssh/config <<'EOF'
+
+Host github-spa-api
+    HostName github.com
+    User git
+    IdentityFile /root/.ssh/nexolu_spa_api_deploy
+    IdentitiesOnly yes
+EOF
+chmod 600 /root/.ssh/config
+```
+
+`IdentitiesOnly yes` no es adorno: sin eso, ssh ofrece todas las llaves que
+tenga el agente y GitHub responde con la identidad de la primera que acepte
+— que puede ser la deploy key de OTRO repo, y entonces el clone falla con un
+"repository not found" que no dice nada.
+
+```bash
+mkdir -p /opt/nexolu && cd /opt/nexolu
+git clone github-spa-api:mattchaparro/nexolu-spa-api.git
 cd nexolu-spa-api
 ```
+
+> La ruta es `/opt/nexolu/nexolu-spa-api`, igual que el resto del ecosistema
+> y que lo que espera el panel admin (`SERVICE_REPOS`).
 
 **2. Base de datos** — usuario propio, no el de `pos-saas`: si algo del Spa se
 descontrola, no puede tocar la base del monolito.
@@ -90,9 +124,22 @@ nginx -t && systemctl reload nginx
 certbot --nginx -d spa-backend.nexolu.co
 ```
 
-Requiere que el A record ya resuelva. **El DNS de `nexolu.co` no está en la
-cuenta de DigitalOcean** y dónde vive no está documentado — averiguarlo antes
-de este paso.
+Requiere que el A record ya resuelva. **El DNS de `nexolu.co` vive en
+Hostinger**, no en DigitalOcean (nameservers `nebula`/`aurora.dns-parking.com`,
+verificado el 2026-08-30). Los registros se crean en el panel de Hostinger y
+`doctl` no los ve:
+
+| Tipo | Nombre | Valor |
+|---|---|---|
+| A | `spa-backend` | `134.122.116.201` |
+| A | `spa` | `134.122.116.201` |
+
+Confirmar que propagó antes de correr certbot — si no, la validación HTTP-01
+falla y certbot deja el vhost a medio configurar:
+
+```bash
+nslookup spa-backend.nexolu.co 8.8.8.8
+```
 
 **5. Desplegar**
 
@@ -102,9 +149,23 @@ bash deploy.sh
 
 ## Deploys siguientes
 
+Desde el panel superadmin (`admin.nexolu.co` → Infraestructura → desplegar
+`spa-api`), o por SSH:
+
 ```bash
-ssh root@134.122.116.201 'cd /opt/nexolu-spa-api && bash deploy.sh'
+ssh root@134.122.116.201 'cd /opt/nexolu/nexolu-spa-api && bash deploy.sh'
 ```
+
+Si sólo cambiaron variables de entorno, no hace falta un deploy completo:
+
+```bash
+ssh root@134.122.116.201 'cd /opt/nexolu/nexolu-spa-api && bash deploy.sh recrear'
+```
+
+Es lo mismo que hace el panel después de editar el `.env`. **`docker restart`
+no sirve**: el contenedor se levanta con `--env-file` y esas variables quedan
+fijadas cuando se crea, no cuando arranca — reiniciarlo seguiría con las
+viejas sin decir nada.
 
 ## Verificación
 
@@ -125,7 +186,13 @@ tráfico real en el único core. Los recordatorios llegan en la fase 05, cuando
 
 - **Sin backups automatizados**, igual que el resto del ecosistema
   (`nexolu-infra/README.md`). El Spa nace con el mismo hueco.
-- **`nexolu-admin` no conoce este servicio**: falta agregarlo a
-  `_DEPLOY_SERVICES`, `SERVICE_ENV_FILES`, `SERVICE_REPOS` y
-  `SERVICE_DROPLET_ROLE` para poder desplegarlo desde el panel. Mientras tanto,
-  por SSH.
+- **El panel admin ya conoce este servicio** (`_DEPLOY_SERVICES`,
+  `SERVICE_ENV_FILES`, `SERVICE_REPOS`, `SERVICE_DROPLET_ROLE`,
+  `SERVICE_DEPLOY_COMMANDS`), pero para que funcione hay que darle la llave
+  SSH del droplet legacy: `ENVIRONMENTS__PROD__DROPLETS__SPA__SSH_KEY_PATH`
+  apunta a `/ssh/prod_spa_deploy_key` **dentro del contenedor del panel**, y
+  esa llave todavía no está montada. Hasta entonces, deploy por SSH.
+- **`spa-front` no se despliega desde el panel** y no es un olvido: se
+  compila en la máquina del dev (este droplet no puede correr Node) y se
+  sube con `rsync`. El panel despliega tirando de git EN el servidor, que es
+  justo lo que acá no se puede hacer.

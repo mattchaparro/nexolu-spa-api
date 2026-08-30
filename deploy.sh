@@ -3,7 +3,18 @@
 # Deploy de nexolu-spa-api EN el droplet legacy `nexolu`, donde ya viven
 # pos-saas y el panel nexolu-admin.
 #
-#   ssh root@134.122.116.201 'cd /opt/nexolu-spa-api && bash deploy.sh'
+#   ssh root@134.122.116.201 'cd /opt/nexolu/nexolu-spa-api && bash deploy.sh'
+#
+#   bash deploy.sh            pull + build + recrear + migrar
+#   bash deploy.sh recrear    SOLO recrear el contenedor, sin build ni pull
+#
+# `recrear` existe para cuando cambia el .env. El contenedor se levanta con
+# --env-file, y esas variables quedan fijadas cuando se CREA, no cuando
+# arranca: `docker restart` seguiria con las viejas sin decir nada. El panel
+# nexolu-admin llama justo a este subcomando despues de editar variables
+# (ver app/infra/env_files.py:SERVICE_ENV_FILES), en vez de repetir alla los
+# flags de `docker run` -- duplicarlos es garantizar que un dia queden
+# distintos de los de aca.
 #
 # Sigue el patron de nexolu-admin (contenedor suelto, sin compose) y no el
 # de nexolu-pos-api: ese asume el docker-compose.yml de nexolu-infra, que
@@ -31,6 +42,30 @@ cd "$(dirname "$0")"
 
 IMAGE="nexolu-spa-api:latest"
 CONTAINER="nexolu-spa-api"
+MODO="${1:-completo}"
+
+# Levantar el contenedor vive en una sola funcion porque hay DOS caminos que
+# lo hacen -- el deploy completo y `recrear` -- y si los flags se separan, el
+# reinicio por cambio de .env deja corriendo algo distinto de lo que deja un
+# deploy.
+levantar() {
+    docker stop "$CONTAINER" 2>/dev/null || true
+    docker rm "$CONTAINER" 2>/dev/null || true
+    docker run -d \
+        --name "$CONTAINER" \
+        --restart unless-stopped \
+        --network host \
+        -v "$(pwd)/storage:/var/www/html/storage" \
+        --env-file .env \
+        "$IMAGE"
+}
+
+if [ "$MODO" = "recrear" ]; then
+    echo "[deploy] Recreando el contenedor para que tome el .env actual"
+    levantar
+    echo "[deploy] Listo. Sin build ni migraciones: solo se releyeron las variables."
+    exit 0
+fi
 
 NICE_CMD=""
 if command -v nice >/dev/null 2>&1; then
@@ -48,15 +83,7 @@ echo "[deploy] 2/5 docker build (prioridad baja: pos-saas sigue sirviendo)"
 $NICE_CMD docker build -t "$IMAGE" .
 
 echo "[deploy] 3/5 Reiniciando contenedor"
-docker stop "$CONTAINER" 2>/dev/null || true
-docker rm "$CONTAINER" 2>/dev/null || true
-docker run -d \
-    --name "$CONTAINER" \
-    --restart unless-stopped \
-    --network host \
-    -v "$(pwd)/storage:/var/www/html/storage" \
-    --env-file .env \
-    "$IMAGE"
+levantar
 
 echo "[deploy] 4/5 Migraciones"
 # Explicitas y una sola vez, nunca en el entrypoint: un reinicio del
