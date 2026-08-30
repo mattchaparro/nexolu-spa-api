@@ -6,6 +6,7 @@ use App\Models\Appointment;
 use App\Models\AppointmentItem;
 use App\Models\PaymentMethod;
 use App\Models\User;
+use App\Services\Loyalty\LoyaltyService;
 use App\Support\Money\DiscountAllocator;
 use Illuminate\Support\Facades\DB;
 
@@ -22,7 +23,10 @@ use Illuminate\Support\Facades\DB;
  */
 class CheckoutService
 {
-    public function __construct(private readonly StageTransitionService $transitions) {}
+    public function __construct(
+        private readonly StageTransitionService $transitions,
+        private readonly LoyaltyService $loyalty,
+    ) {}
 
     /**
      * @param  array<int, float>  $itemPrices  Precio final por id de item, para
@@ -113,6 +117,18 @@ class CheckoutService
                 $this->transitions->moveToStatus($appointment, Appointment::STATUS_COMPLETED, $by);
             }
 
+            /*
+             * El sello se cuenta al COBRAR, aca y no como accion opcional del
+             * flujo de etapas. Un programa de fidelizacion que solo funciona
+             * si el negocio se acordo de cablearlo en su workflow es un
+             * programa que para la mayoria no funciona en silencio, y de eso
+             * se entera la clienta en el mostrador.
+             *
+             * Va despues del update: `earnFor` lee el `total` ya congelado
+             * para decidir si la visita llega al minimo.
+             */
+            $this->loyalty->earnFor($appointment->fresh());
+
             return $appointment->fresh(['items.service', 'items.resource', 'paymentMethod']);
         });
     }
@@ -135,6 +151,16 @@ class CheckoutService
                 'final_price' => null,
                 'commission_amount' => null,
             ]);
+
+            /*
+             * El premio que se haya usado vuelve a estar disponible: deshacer
+             * un cobro corrige la plata, no le quita a la clienta un premio
+             * que ya se habia ganado.
+             *
+             * El SELLO no se borra: la visita ocurrio igual. Y si se vuelve a
+             * cobrar, el unico por cita lo impide duplicar.
+             */
+            $this->loyalty->release($appointment);
 
             $appointment->update([
                 'payment_method_id' => null,
