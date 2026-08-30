@@ -94,5 +94,5 @@ echo "[deploy] 5/5 Sincronizando permisos (idempotente, no borra nada)"
 docker exec -u www-data "$CONTAINER" php artisan permissions:sync
 
 echo "[deploy] Listo. Verificar:"
-echo "         curl -s https://spa-backend.nexolu.co/up"
+echo "         curl -s https://agenda-backend.nexolu.co/up"
 echo "         curl -s https://pos.nexolu.co   <- que el monolito siga sano"

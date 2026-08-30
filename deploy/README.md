@@ -3,6 +3,14 @@
 Corre en el **droplet legacy `nexolu`** (`134.122.116.201`), el mismo que
 sirve `pos.nexolu.co`. No en los droplets nuevos que administra `nexolu-infra`.
 
+> **El repo se llama `spa` pero el dominio es `agenda`.** No es un descuido:
+> el producto ya atiende spas de uñas, barberías y centros de estética (ver
+> `BusinessFeaturePresets::verticals()`), y `spa.nexolu.co` lo encerraba en
+> una sola de las tres delante del cliente. El dominio es lo que ve la gente;
+> el nombre del repo es interno y renombrarlo rompe clones, remotos, la
+> deploy key y el mapeo del panel, así que se deja para cuando haya una razón
+> más fuerte que la estética.
+
 ## Por qué ahí
 
 Cuando termine la migración del POS, ese droplet queda sin tráfico productivo
@@ -16,7 +24,7 @@ servidor extra durante la transición.
 | `pos-saas` → `pos.nexolu.co` | Nativo: nginx del host + php8.2-fpm + **MySQL nativo** | 80/443 |
 | `nexolu-admin` → `api-admin.nexolu.co` | Contenedor Docker suelto | `127.0.0.1:8001` |
 | `nexolu-admin-front` → `admin.nexolu.co` | Estático en `/var/www/` | — |
-| **`nexolu-spa-api`** → `spa-backend.nexolu.co` | Contenedor Docker, red de host | `127.0.0.1:8030` |
+| **`nexolu-spa-api`** → `agenda-backend.nexolu.co` | Contenedor Docker, red de host | `127.0.0.1:8030` |
 
 ## Las tres decisiones que no son obvias
 
@@ -109,19 +117,19 @@ cp .env.example .env
 ```
 
 Ajustar: `APP_ENV=production`, `APP_DEBUG=false`,
-`APP_URL=https://spa-backend.nexolu.co`, `DB_DATABASE=nexolu_spa`,
+`APP_URL=https://agenda-backend.nexolu.co`, `DB_DATABASE=nexolu_spa`,
 `DB_USERNAME=nexolu_spa`, `DB_PASSWORD=<clave>`, `DB_HOST=127.0.0.1`,
-`FRONTEND_URL=https://spa.nexolu.co`.
+`FRONTEND_URL=https://agenda.nexolu.co`.
 
 Generar la llave: `docker run --rm -v "$(pwd):/app" -w /app php:8.4-cli php artisan key:generate`
 
 **4. nginx y TLS**
 
 ```bash
-cp deploy/nginx/spa-backend.nexolu.co.conf /etc/nginx/sites-available/
-ln -s /etc/nginx/sites-available/spa-backend.nexolu.co.conf /etc/nginx/sites-enabled/
+cp deploy/nginx/agenda-backend.nexolu.co.conf /etc/nginx/sites-available/
+ln -s /etc/nginx/sites-available/agenda-backend.nexolu.co.conf /etc/nginx/sites-enabled/
 nginx -t && systemctl reload nginx
-certbot --nginx -d spa-backend.nexolu.co
+certbot --nginx -d agenda-backend.nexolu.co
 ```
 
 Requiere que el A record ya resuelva. **El DNS de `nexolu.co` vive en
@@ -131,14 +139,14 @@ verificado el 2026-08-30). Los registros se crean en el panel de Hostinger y
 
 | Tipo | Nombre | Valor |
 |---|---|---|
-| A | `spa-backend` | `134.122.116.201` |
-| A | `spa` | `134.122.116.201` |
+| A | `agenda-backend` | `134.122.116.201` |
+| A | `agenda` | `134.122.116.201` |
 
 Confirmar que propagó antes de correr certbot — si no, la validación HTTP-01
 falla y certbot deja el vhost a medio configurar:
 
 ```bash
-nslookup spa-backend.nexolu.co 8.8.8.8
+nslookup agenda-backend.nexolu.co 8.8.8.8
 ```
 
 **5. Desplegar**
@@ -170,7 +178,7 @@ viejas sin decir nada.
 ## Verificación
 
 ```bash
-curl -s https://spa-backend.nexolu.co/up          # 200
+curl -s https://agenda-backend.nexolu.co/up          # 200
 curl -s -o /dev/null -w '%{http_code}' https://pos.nexolu.co   # el monolito sigue sano
 ssh root@134.122.116.201 'uptime && docker ps'    # load average bajo, ambos contenedores arriba
 ```
