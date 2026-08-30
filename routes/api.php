@@ -16,7 +16,9 @@ use App\Http\Controllers\Api\V1\CashController;
 use App\Http\Controllers\Api\V1\CheckoutController;
 use App\Http\Controllers\Api\V1\DepositController;
 use App\Http\Controllers\Api\V1\ClientController;
+use App\Http\Controllers\Api\V1\Admin\LoyaltyProgramController;
 use App\Http\Controllers\Api\V1\ClientProfileController;
+use App\Http\Controllers\Api\V1\LoyaltyCardController;
 use App\Http\Controllers\Api\V1\ExpenseController;
 use App\Http\Controllers\Api\V1\MyWorkController;
 use App\Http\Controllers\Api\V1\PayrollController;
@@ -293,6 +295,27 @@ Route::prefix('v1')->group(function () {
                 ->middleware('permission:clientes.gestionar');
             Route::delete('/photos/{photo}', [ClientProfileController::class, 'destroyPhoto'])
                 ->middleware('permission:clientes.gestionar');
+
+            // La tarjeta de sellos de esa persona. Mismo permiso que el
+            // historial: cuantas veces vino es exactamente eso.
+            Route::get('/{client}/loyalty', [LoyaltyCardController::class, 'show'])
+                ->middleware(['feature:loyalty', 'permission:clientes.historial']);
+        });
+
+        /*
+        |----------------------------------------------------------------------
+        | Fidelizacion
+        |----------------------------------------------------------------------
+        | La tarjeta de sellos. Detras de su bandera de plan: es una funcion
+        | contratable, no parte del nucleo.
+        */
+        Route::prefix('loyalty')->middleware('feature:loyalty')->group(function () {
+            Route::get('/program', [LoyaltyProgramController::class, 'show'])
+                ->middleware('permission:servicios.gestionar');
+            Route::post('/program', [LoyaltyProgramController::class, 'store'])
+                ->middleware('permission:servicios.gestionar');
+            Route::delete('/program', [LoyaltyProgramController::class, 'destroy'])
+                ->middleware('permission:servicios.gestionar');
         });
 
         /*

@@ -4,14 +4,20 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Resources\AppointmentResource;
 use App\Models\Appointment;
+use App\Models\LoyaltyReward;
 use App\Models\PaymentMethod;
+use App\Services\Loyalty\LoyaltyService;
 use App\Services\Scheduling\CheckoutService;
+use App\Support\Money\LoyaltyCalculator;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class CheckoutController
 {
-    public function __construct(private readonly CheckoutService $checkout) {}
+    public function __construct(
+        private readonly CheckoutService $checkout,
+        private readonly LoyaltyService $loyalty,
+    ) {}
 
     /**
      * Que descuento se aplica: el que se escribio, o el del combo.
@@ -43,6 +49,66 @@ class CheckoutController
         return [$quote['discount'], "Combo {$package->name}"];
     }
 
+    /**
+     * El premio que se quiere usar, validado contra ESTE cliente.
+     *
+     * Se busca por el negocio y por el cliente de la cita, no solo por id: sin
+     * eso, mandar un id ajeno canjearia el premio de otra persona.
+     */
+    private function rewardFor(Request $request, Appointment $appointment, array $data): ?LoyaltyReward
+    {
+        if (empty($data['loyalty_reward_id']) || $appointment->client_id === null) {
+            return null;
+        }
+
+        return LoyaltyReward::where('business_id', $request->user()->business_id)
+            ->where('client_id', $appointment->client_id)
+            ->where('status', LoyaltyReward::STATUS_AVAILABLE)
+            ->with('rewardService')
+            ->findOrFail($data['loyalty_reward_id']);
+    }
+
+    /**
+     * Suma el premio al descuento que ya venia.
+     *
+     * Aca SI se suma, al reves que el descuento a mano sobre el del combo, y
+     * la diferencia no es caprichosa: alla el riesgo era descontar de mas sin
+     * que nadie lo decidiera. Un premio, en cambio, alguien lo decidio dos
+     * veces -- la clienta se lo gano visita a visita y quien cobra eligio
+     * aplicarlo. Negarselo por haber reservado un combo seria cambiarle las
+     * reglas en el mostrador.
+     *
+     * @return array{0: float, 1: ?string}
+     */
+    private function withReward(
+        Appointment $appointment,
+        ?LoyaltyReward $reward,
+        float $discount,
+        ?string $reason,
+        array $data,
+    ): array {
+        if ($reward === null) {
+            return [$discount, $reason];
+        }
+
+        $subtotal = (float) $appointment->items()->sum('price');
+        $premio = $reward->reward_type === LoyaltyCalculator::REWARD_FREE_SERVICE
+            // El servicio gratis vale lo que valga ESA linea en ESTA cita: se
+            // descuenta la mas cara que coincida, no un precio de catalogo que
+            // pudo cambiar.
+            ? (float) $appointment->items()
+                ->where('service_id', $reward->reward_service_id)
+                ->max('price')
+            : $reward->discountFor(max(0, $subtotal - $discount));
+
+        // Tope duro contra el subtotal: el descuento nunca puede dejar al
+        // negocio devolviendo plata, y `CheckoutService` lo rechazaria.
+        $total = min($subtotal, round($discount + $premio, 2));
+        $texto = trim(($reason ? $reason.' + ' : '').$reward->label());
+
+        return [$total, $texto ?: null];
+    }
+
     public function paymentMethods(Request $request): JsonResponse
     {
         $methods = PaymentMethod::where('is_active', true)
@@ -60,10 +126,14 @@ class CheckoutController
             'discount_reason' => ['nullable', 'string', 'max:255'],
             'item_prices' => ['nullable', 'array'],
             'item_prices.*' => ['numeric', 'min:0'],
+            // Un premio de la tarjeta de sellos que la clienta quiere usar hoy.
+            'loyalty_reward_id' => ['nullable', 'integer'],
         ]);
 
         $method = PaymentMethod::where('business_id', $request->user()->business_id)
             ->findOrFail($data['payment_method_id']);
+
+        $reward = $this->rewardFor($request, $appointment, $data);
 
         /*
          * El descuento del combo se aplica solo, salvo que quien cobra ponga
@@ -75,6 +145,7 @@ class CheckoutController
          * pantalla lo muestra prellenado para que se vea que se esta pisando.
          */
         [$discount, $reason] = $this->discountFor($appointment, $data);
+        [$discount, $reason] = $this->withReward($appointment, $reward, $discount, $reason, $data);
 
         try {
             $cobrada = $this->checkout->checkout(
@@ -85,6 +156,12 @@ class CheckoutController
                 $reason,
                 $data['item_prices'] ?? [],
             );
+
+            // Se marca DESPUES de cobrar: si el cobro falla, el premio tiene
+            // que seguir disponible para el siguiente intento.
+            if ($reward !== null) {
+                $this->loyalty->markUsed($reward, $cobrada);
+            }
         } catch (\DomainException $e) {
             // 422 y no 500: cobrar dos veces o pasarse con el descuento son
             // errores del operador, no fallas del sistema.
