@@ -88,6 +88,21 @@ class PayrollService
             'services_count' => $items->count(),
             'charged_total' => round((float) $items->sum('charged'), 2),
             'items' => $items->values()->all(),
+
+            /*
+             * Las garantias que RECIBIO en el periodo.
+             *
+             * Van en la liquidacion porque es el momento en que alguien mira
+             * el trabajo de esa persona con la plata delante, y es cuando se
+             * decide si hay una conversacion, una capacitacion o un descuento.
+             *
+             * Se MUESTRAN, no se descuentan solas. Una multa automatica por un
+             * numero sin contexto es la clase de regla que convierte un
+             * esmalte corrido en un descuento de nomina, y eso se pelea. Si el
+             * negocio decide multar, lo hace con un ajuste, que queda firmado
+             * por quien lo puso.
+             */
+            'warranties' => $this->warrantiesFor($business, $resource, $start, $end, $tz),
             'adjustments' => $adjustments->map(fn (PayrollAdjustment $a) => [
                 'id' => $a->id,
                 'date' => $a->date->toDateString(),
@@ -309,6 +324,51 @@ class PayrollService
      *
      * @return Collection<int, array<string, mixed>>
      */
+    /**
+     * Las garantias que esa persona RECIBIO en el periodo.
+     *
+     * Se filtra por `warranty_for_resource_id` y no por quien la atendio: la
+     * garantia es de quien hizo el trabajo que fallo, aunque la rehaga otra.
+     *
+     * Por FECHA DE LA CITA y no por fecha de cobro, a diferencia de las
+     * comisiones: una garantia no se cobra, asi que nunca tendria
+     * `checked_out_at` y no aparecería nunca en ninguna liquidacion.
+     *
+     * @return array<string, mixed>
+     */
+    private function warrantiesFor(
+        Business $business,
+        Resource $resource,
+        CarbonImmutable $start,
+        CarbonImmutable $end,
+        string $tz,
+    ): array {
+        $from = $start->setTimezone($tz)->startOfDay()->utc();
+        $to = $end->setTimezone($tz)->endOfDay()->utc();
+
+        $rows = AppointmentItem::withoutGlobalScope('business')
+            ->where('appointment_items.business_id', $business->id)
+            ->where('appointment_items.warranty_for_resource_id', $resource->id)
+            ->where('appointment_items.is_warranty', true)
+            ->whereBetween('appointment_items.starts_at', [$from, $to])
+            ->with(['service', 'resource', 'appointment'])
+            ->orderBy('appointment_items.starts_at')
+            ->get();
+
+        return [
+            'count' => $rows->count(),
+            'items' => $rows->map(fn (AppointmentItem $item) => [
+                'appointment_item_id' => $item->id,
+                'date' => CarbonImmutable::parse($item->starts_at)->setTimezone($tz)->toDateString(),
+                'service_name' => $item->service?->name,
+                'client_name' => $item->appointment?->client_name,
+                // Quien la rehizo: puede no ser la misma persona.
+                'done_by' => $item->resource?->name,
+                'note' => $item->warranty_note,
+            ])->values()->all(),
+        ];
+    }
+
     private function chargedItems(
         Business $business,
         Resource $resource,

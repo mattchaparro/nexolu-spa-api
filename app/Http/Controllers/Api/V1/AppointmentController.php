@@ -111,6 +111,17 @@ class AppointmentController
             // De que combo sale, para que el cobro sepa que descuento aplicar.
             'service_package_id' => ['nullable', 'integer'],
 
+            /*
+             * Garantia: rehacer un trabajo que fallo. Vale 0 y no paga
+             * comision, y se anota a quien hizo el ORIGINAL -- no a quien lo
+             * rehace. El sentido de llevar la cuenta es saber quien esta
+             * recibiendo garantias.
+             */
+            'is_warranty' => ['nullable', 'boolean'],
+            'warranty_for_resource_id' => ['required_if:is_warranty,true', 'nullable', 'integer'],
+            'warranty_for_item_id' => ['nullable', 'integer'],
+            'warranty_note' => ['nullable', 'string', 'max:1000'],
+
             'client_id' => ['nullable', 'integer'],
             'client_name' => ['required_without:client_id', 'nullable', 'string', 'max:255'],
             'client_phone' => ['nullable', 'string', 'max:32'],
@@ -135,6 +146,20 @@ class AppointmentController
                 'resource_id' => $data['resource_id'],
                 'starts_at' => self::interpret($data['starts_at'], $tz),
             ]];
+
+        /*
+         * La garantia aplica a la visita completa, no linea por linea: nadie
+         * agenda "esto es garantia y esto no" en la misma cita. Si algun dia
+         * hiciera falta, se mueve a `items.*`.
+         */
+        if ($request->boolean('is_warranty')) {
+            $items = array_map(fn (array $item) => $item + [
+                'is_warranty' => true,
+                'warranty_for_resource_id' => $data['warranty_for_resource_id'],
+                'warranty_for_item_id' => $data['warranty_for_item_id'] ?? null,
+                'warranty_note' => $data['warranty_note'] ?? null,
+            ], $items);
+        }
 
         if ($package !== null) {
             $esperados = $package->services->pluck('id')->sort()->values()->all();

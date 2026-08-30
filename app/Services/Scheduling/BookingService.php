@@ -89,13 +89,28 @@ class BookingService
                     'ends_at' => $row['ends_at'],
                     'service_starts_at' => $row['service_starts_at'],
                     'service_ends_at' => $row['service_ends_at'],
-                    'price' => $row['service']->price,
+                    /*
+                     * Una garantia vale 0 y no paga comision, y se fuerza aca
+                     * y no en el cobro: si dependiera de que alguien acuerde
+                     * poner el descuento al cobrar, tarde o temprano se cobra
+                     * una garantia, y eso se descubre con la clienta delante.
+                     */
+                    'price' => ($row['is_warranty'] ?? false) ? 0 : $row['service']->price,
                     // Se congela el porcentaje vigente al agendar, y el del
                     // recurso concreto -- no el generico del servicio. Que
                     // el negocio cambie sus porcentajes manana no debe
                     // reescribir lo que ya se pacto en una cita existente.
-                    'commission_rate' => $row['service']->commissionRateFor($row['resource']),
+                    'commission_rate' => ($row['is_warranty'] ?? false)
+                        ? 0
+                        : $row['service']->commissionRateFor($row['resource']),
                     'sort_order' => $index,
+
+                    'is_warranty' => $row['is_warranty'] ?? false,
+                    // A quien se le anota: quien hizo el trabajo que fallo, no
+                    // quien lo rehace.
+                    'warranty_for_resource_id' => $row['warranty_for_resource_id'] ?? null,
+                    'warranty_for_item_id' => $row['warranty_for_item_id'] ?? null,
+                    'warranty_note' => $row['warranty_note'] ?? null,
                 ]);
 
                 $this->claimOccupancy($business, $item, $granularity);
@@ -329,7 +344,15 @@ class BookingService
                 $this->assertWorkable($business, $resource, $window, $tz);
             }
 
-            $resolved[] = array_merge(['service' => $service, 'resource' => $resource], $window);
+            $resolved[] = array_merge(
+                ['service' => $service, 'resource' => $resource],
+                $window,
+                // Lo de garantia viaja tal cual desde quien llama: son datos
+                // del negocio, no del calculo de horarios.
+                array_intersect_key($raw, array_flip([
+                    'is_warranty', 'warranty_for_resource_id', 'warranty_for_item_id', 'warranty_note',
+                ])),
+            );
         }
 
         return $resolved;
