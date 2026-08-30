@@ -22,6 +22,7 @@ final class PublicProfile
         'instagram' => 'Instagram',
         'whatsapp' => 'WhatsApp',
         'maps_url' => 'Enlace de Google Maps',
+        'google_review_url' => 'Enlace para dejar reseña en Google',
     ];
 
     /** @return list<string> */
@@ -56,6 +57,16 @@ final class PublicProfile
             'instagram' => self::instagramUrl(self::clean($stored['instagram'] ?? null)),
             'whatsapp' => self::clean($stored['whatsapp'] ?? null) ?? $business->phone,
             'maps_url' => self::clean($stored['maps_url'] ?? null),
+            /*
+             * A donde mandar a quien quiera dejar resena en Google.
+             *
+             * Se le ofrece a TODO el que responde la encuesta, no solo a quien
+             * calificó bien. Filtrar por nota se llama "review gating" y las
+             * politicas de Google lo prohiben expresamente: pedir resenas solo
+             * a los contentos puede costarle al negocio la ficha entera. Las
+             * notas bajas sirven para llamar a esa persona, no para esconderla.
+             */
+            'google_review_url' => self::clean($stored['google_review_url'] ?? null),
         ];
     }
 

@@ -56,7 +56,17 @@ class SurveyService
         $items = $appointment->items()->with(['service', 'resource'])->get();
 
         return [
-            'business' => ['name' => $appointment->business->name],
+            'business' => [
+                'name' => $appointment->business->name,
+                /*
+                 * Se ofrece a TODO el que responde, no solo a quien calificó
+                 * bien. Filtrar por nota se llama "review gating" y las
+                 * políticas de Google lo prohíben: puede costarle la ficha
+                 * entera al negocio. Las notas bajas sirven para llamar a esa
+                 * persona, no para esconderla.
+                 */
+                'google_review_url' => \App\Support\PublicProfile::resolve($appointment->business)['google_review_url'] ?? null,
+            ],
             'date_label' => $appointment->starts_at
                 ->setTimezone($appointment->business->businessTimezone())
                 ->translatedFormat('l j \d\e F'),
