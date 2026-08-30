@@ -44,6 +44,9 @@ class AppointmentResource extends JsonResource
             'payment_method' => $this->whenLoaded('paymentMethod', fn () => $this->paymentMethod?->name),
             'subtotal' => $this->subtotal === null ? null : (float) $this->subtotal,
             'discount_amount' => (float) $this->discount_amount,
+            // Por que se descontó. En pantalla es la diferencia entre "le
+            // rebajaron algo" y "le aplicó el mes de la madre".
+            'discount_reason' => $this->discount_reason,
             'total' => $this->total === null ? null : (float) $this->total,
             // El abono: cuanto se pidio, si ya llego, y cuanto falta cobrar
             // cuando el cliente se sienta. `total` sigue siendo la venta

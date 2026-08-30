@@ -6,6 +6,7 @@ use App\Http\Resources\AppointmentResource;
 use App\Models\Appointment;
 use App\Models\LoyaltyReward;
 use App\Models\PaymentMethod;
+use App\Services\Discounts\CampaignService;
 use App\Services\Loyalty\LoyaltyService;
 use App\Services\Scheduling\CheckoutService;
 use App\Support\Money\CommissionPolicy;
@@ -18,6 +19,7 @@ class CheckoutController
     public function __construct(
         private readonly CheckoutService $checkout,
         private readonly LoyaltyService $loyalty,
+        private readonly CampaignService $campaigns,
     ) {}
 
     /**
@@ -38,10 +40,13 @@ class CheckoutController
             ];
         }
 
+        $campana = $this->campaigns->bestFor($appointment);
         $package = $appointment->servicePackage;
 
         if ($package === null) {
-            return [0.0, $data['discount_reason'] ?? null, CommissionPolicy::SOURCE_MANUAL];
+            return $campana === null
+                ? [0.0, $data['discount_reason'] ?? null, CommissionPolicy::SOURCE_MANUAL]
+                : [$campana['amount'], $campana['campaign']->label(), CommissionPolicy::SOURCE_CAMPAIGN];
         }
 
         /*
@@ -52,6 +57,18 @@ class CheckoutController
          * diferencia es el negocio -- no el cliente, que reservo por un precio.
          */
         $quote = $package->loadMissing('services')->quote();
+
+        /*
+         * Combo y campana NO se suman: gana el que mas descuente.
+         *
+         * Encimar una promocion de temporada sobre un precio de combo da un
+         * descuento que nadie decidio, y en un negocio de margen chico eso se
+         * nota rapido. Aplicar el mayor es ademas lo que el cliente espera:
+         * se lleva la mejor oferta vigente, no las dos.
+         */
+        if ($campana !== null && $campana['amount'] > (float) $quote['discount']) {
+            return [$campana['amount'], $campana['campaign']->label(), CommissionPolicy::SOURCE_CAMPAIGN];
+        }
 
         return [$quote['discount'], "Combo {$package->name}", CommissionPolicy::SOURCE_PACKAGE];
     }
@@ -186,6 +203,17 @@ class CheckoutController
             // que seguir disponible para el siguiente intento.
             if ($reward !== null) {
                 $this->loyalty->markUsed($reward, $cobrada);
+            }
+
+            /*
+             * Que campana se aplico queda GUARDADA, no se recalcula: un reporte
+             * de hace seis meses tiene que decir cual estaba corriendo ese dia,
+             * no cual correria hoy. Misma regla que el precio y la comision.
+             */
+            if ($source === CommissionPolicy::SOURCE_CAMPAIGN) {
+                $cobrada->update([
+                    'discount_campaign_id' => $this->campaigns->bestFor($appointment)['campaign']->id ?? null,
+                ]);
             }
         } catch (\DomainException $e) {
             // 422 y no 500: cobrar dos veces o pasarse con el descuento son

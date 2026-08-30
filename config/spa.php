@@ -67,6 +67,14 @@ return [
         'commission_base_manual' => 'charged',
         'commission_base_package' => 'charged',
         'commission_base_loyalty' => 'charged',
+
+        /*
+         * La campana SI arranca en `list`: es el unico origen que el negocio
+         * decide por su cuenta, para traer gente que de otro modo no habria
+         * venido. Bajarle la comision a quien atiende por una promocion que
+         * nadie le consulto es cobrarle a ella la publicidad del local.
+         */
+        'commission_base_campaign' => 'list',
     ],
 
 ];

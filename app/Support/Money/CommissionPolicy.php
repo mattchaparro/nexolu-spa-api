@@ -40,10 +40,18 @@ final class CommissionPolicy
     /** Un premio de la tarjeta de sellos. */
     public const SOURCE_LOYALTY = 'loyalty';
 
+    /** Una campana de temporada: el mes de la madre, la semana de pestanas. */
+    public const SOURCE_CAMPAIGN = 'campaign';
+
     /** @return list<string> */
     public static function sources(): array
     {
-        return [self::SOURCE_MANUAL, self::SOURCE_PACKAGE, self::SOURCE_LOYALTY];
+        return [
+            self::SOURCE_MANUAL,
+            self::SOURCE_PACKAGE,
+            self::SOURCE_LOYALTY,
+            self::SOURCE_CAMPAIGN,
+        ];
     }
 
     /** @return list<string> */
@@ -70,8 +78,13 @@ final class CommissionPolicy
             ],
             self::SOURCE_LOYALTY => [
                 'label' => 'Premio de la tarjeta de sellos',
-                'help' => 'El negocio regala el servicio para que el cliente vuelva. '
-                    .'El trabajo de quien atendió fue el mismo.',
+                'help' => 'Una atención al cliente por su fidelidad. De esa fidelidad vive '
+                    .'también quien lo atiende: un cliente que vuelve es trabajo suyo.',
+            ],
+            self::SOURCE_CAMPAIGN => [
+                'label' => 'Campaña de temporada',
+                'help' => 'El mes de la madre, la semana de pestañas. La decide el negocio para '
+                    .'traer gente nueva, así que normalmente la asume el negocio.',
             ],
         ];
     }

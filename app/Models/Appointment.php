@@ -35,6 +35,7 @@ class Appointment extends Model
 
     protected $fillable = [
         'business_id', 'client_id', 'client_name', 'client_phone', 'stage_id', 'service_package_id',
+        'discount_campaign_id',
         'starts_at', 'ends_at', 'status', 'source', 'notes',
         'confirmed_at', 'cancelled_at', 'cancelled_by_user_id', 'cancellation_reason',
         'payment_method_id', 'checked_out_at', 'checked_out_by_user_id',
