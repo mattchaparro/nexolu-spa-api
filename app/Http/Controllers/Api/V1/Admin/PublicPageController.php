@@ -58,6 +58,7 @@ class PublicPageController
             'instagram' => ['nullable', 'string', 'max:120'],
             'whatsapp' => ['nullable', 'string', 'max:32'],
             'maps_url' => ['nullable', 'string', 'max:500'],
+            'google_review_url' => ['nullable', 'string', 'max:500'],
             'cover' => ImageStorage::rules(),
         ]);
 

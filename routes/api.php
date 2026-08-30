@@ -16,6 +16,7 @@ use App\Http\Controllers\Api\V1\CashController;
 use App\Http\Controllers\Api\V1\CheckoutController;
 use App\Http\Controllers\Api\V1\DepositController;
 use App\Http\Controllers\Api\V1\ClientController;
+use App\Http\Controllers\Api\V1\Admin\CampaignController;
 use App\Http\Controllers\Api\V1\Admin\LoyaltyProgramController;
 use App\Http\Controllers\Api\V1\ClientProfileController;
 use App\Http\Controllers\Api\V1\LoyaltyCardController;
@@ -312,6 +313,20 @@ Route::prefix('v1')->group(function () {
         | La tarjeta de sellos. Detras de su bandera de plan: es una funcion
         | contratable, no parte del nucleo.
         */
+        /*
+        |----------------------------------------------------------------------
+        | Campanas de temporada
+        |----------------------------------------------------------------------
+        */
+        Route::prefix('campaigns')
+            ->middleware(['feature:promotions', 'permission:servicios.gestionar'])
+            ->group(function () {
+                Route::get('/', [CampaignController::class, 'index']);
+                Route::post('/', [CampaignController::class, 'store']);
+                Route::post('/{campaign}', [CampaignController::class, 'store']);
+                Route::delete('/{campaign}', [CampaignController::class, 'destroy']);
+            });
+
         Route::prefix('loyalty')->middleware('feature:loyalty')->group(function () {
             Route::get('/program', [LoyaltyProgramController::class, 'show'])
                 ->middleware('permission:servicios.gestionar');

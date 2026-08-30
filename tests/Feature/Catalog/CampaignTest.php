@@ -255,4 +255,93 @@ class CampaignTest extends TestCase
 
         $this->assertEqualsWithDelta(0, $this->cobrar()->json('discount_amount'), 0.01);
     }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Administrarlas
+    |--------------------------------------------------------------------------
+    */
+
+    public function test_se_crea_y_se_lista_una_campana(): void
+    {
+        $this->postJson('/api/v1/campaigns', [
+            'name' => 'Mes de la madre',
+            'discount_type' => CampaignCalculator::TYPE_PERCENT,
+            'discount_value' => 20,
+            'applies_to' => CampaignCalculator::APPLIES_ALL,
+            'starts_on' => $this->hoy()->toDateString(),
+            'ends_on' => $this->hoy()->addDays(10)->toDateString(),
+        ])->assertOk();
+
+        $lista = $this->getJson('/api/v1/campaigns')->assertOk();
+
+        $this->assertSame('Mes de la madre', $lista->json('campaigns.0.name'));
+        // La pantalla necesita saber si corre HOY sin comparar fechas a mano.
+        $this->assertTrue($lista->json('campaigns.0.running'));
+    }
+
+    public function test_un_porcentaje_mayor_a_cien_se_rechaza(): void
+    {
+        $this->postJson('/api/v1/campaigns', [
+            'name' => 'Imposible',
+            'discount_type' => CampaignCalculator::TYPE_PERCENT,
+            'discount_value' => 150,
+            'applies_to' => CampaignCalculator::APPLIES_ALL,
+            'starts_on' => $this->hoy()->toDateString(),
+        ])->assertStatus(422);
+    }
+
+    public function test_una_campana_por_servicios_exige_decir_cuales(): void
+    {
+        $this->postJson('/api/v1/campaigns', [
+            'name' => 'Sin alcance',
+            'discount_type' => CampaignCalculator::TYPE_PERCENT,
+            'discount_value' => 20,
+            'applies_to' => CampaignCalculator::APPLIES_SERVICES,
+            'service_ids' => [],
+            'starts_on' => $this->hoy()->toDateString(),
+        ])->assertStatus(422);
+    }
+
+    public function test_no_se_puede_meter_el_servicio_de_otro_negocio(): void
+    {
+        // Un id ajeno le aplicaría la campaña de este local al servicio de otro.
+        $ajeno = \DB::table('businesses')->insertGetId([
+            'name' => 'Otro', 'slug' => 'otro-spa-campana', 'timezone' => 'America/Bogota',
+            'currency' => 'COP', 'country_code' => 'CO', 'is_active' => true,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $servicioAjeno = \DB::table('services')->insertGetId([
+            'business_id' => $ajeno, 'name' => 'Ajeno', 'slug' => 'ajeno', 'duration_min' => 30,
+            'price' => 10000, 'is_active' => true, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $this->postJson('/api/v1/campaigns', [
+            'name' => 'Con ajeno',
+            'discount_type' => CampaignCalculator::TYPE_PERCENT,
+            'discount_value' => 20,
+            'applies_to' => CampaignCalculator::APPLIES_SERVICES,
+            'service_ids' => [$this->manicure->id, $servicioAjeno],
+            'starts_on' => $this->hoy()->toDateString(),
+        ])->assertOk();
+
+        $campana = DiscountCampaign::withoutGlobalScope('business')->latest('id')->first();
+
+        $this->assertSame([$this->manicure->id], $campana->services->pluck('id')->all());
+    }
+
+    public function test_apagar_una_campana_no_la_borra(): void
+    {
+        /*
+         * Las citas cobradas guardan a qué campaña se les aplicó el descuento.
+         * Borrarla dejaría un reporte de hace tres meses diciendo que hubo una
+         * rebaja que nadie sabe de dónde salió.
+         */
+        $campana = $this->campana();
+
+        $this->deleteJson("/api/v1/campaigns/{$campana->id}")->assertOk();
+
+        $this->assertFalse($campana->fresh()->is_active);
+        $this->assertNotNull(DiscountCampaign::withoutGlobalScope('business')->find($campana->id));
+    }
 }
