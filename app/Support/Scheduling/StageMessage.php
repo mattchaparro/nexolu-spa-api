@@ -65,6 +65,16 @@ final class StageMessage
             'servicio' => $item?->service?->name ?? '',
             'profesional' => $item?->resource?->name ?? '',
             'negocio' => $business?->name ?? '',
+
+            /*
+             * El enlace de la encuesta. Vacio si la cita todavia no tiene
+             * token: se prefiere una frase sin enlace a un `{encuesta}` crudo
+             * viajando por WhatsApp.
+             */
+            'encuesta' => $appointment->survey_token
+                ? rtrim((string) config('app.frontend_url', ''), '/')
+                    .'/encuesta/'.$appointment->survey_token
+                : '',
         ];
     }
 
@@ -78,7 +88,18 @@ final class StageMessage
      */
     public static function placeholders(): array
     {
-        return ['cliente', 'fecha', 'hora', 'servicio', 'profesional', 'negocio'];
+        return ['cliente', 'fecha', 'hora', 'servicio', 'profesional', 'negocio', 'encuesta'];
+    }
+
+    /**
+     * Que preguntar cuando el negocio no escribio nada.
+     *
+     * Corto y con el enlace al final: un mensaje largo en WhatsApp se lee a
+     * medias y el enlace queda debajo del "ver mas".
+     */
+    public static function defaultSurveyTemplate(): string
+    {
+        return '¡Gracias por venir, {cliente}! ¿Nos cuentas cómo te fue? Son 30 segundos: {encuesta}';
     }
 
     /**

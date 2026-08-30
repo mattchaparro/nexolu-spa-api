@@ -269,6 +269,7 @@ class StageTransitionService
             Actions\MarkPaidAction::class,
             Actions\ReleaseSlotAction::class,
             Actions\ApplyNoShowPenaltyAction::class,
+            Actions\SendSurveyAction::class,
         ])
             ->map(fn (string $class) => app($class))
             ->keyBy(fn (StageAction $action) => $action->type())

@@ -32,6 +32,9 @@ final class StageActionCatalog
     /** Anotar la inasistencia en la ficha del cliente. */
     public const APPLY_NO_SHOW_PENALTY = 'apply_no_show_penalty';
 
+    /** Mandarle al cliente el enlace de la encuesta. */
+    public const SEND_SURVEY = 'send_survey';
+
     /*
      * NO estan en el catalogo, a proposito, hasta que exista con que
      * ejecutarlas: pedir anticipo (falta el enlace de pago de Wompi) y sumar
@@ -78,6 +81,14 @@ final class StageActionCatalog
             'critical' => false,
             'feature' => 'no_show_penalties',
             'config' => [],
+        ],
+        self::SEND_SURVEY => [
+            'label' => 'Preguntarle cómo le fue',
+            'help' => 'Le manda el enlace de la encuesta. Las notas y los comentarios quedan por '
+                .'persona y se ven al liquidar. No se manda en garantías.',
+            'critical' => false,
+            'feature' => null,
+            'config' => ['template'],
         ],
     ];
 

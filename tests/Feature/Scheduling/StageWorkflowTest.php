@@ -585,4 +585,65 @@ class StageWorkflowTest extends TestCase
             'stage_id' => $this->stage('cancelada')->id,
         ])->assertForbidden();
     }
+
+    /*
+    |--------------------------------------------------------------------------
+    | La encuesta
+    |--------------------------------------------------------------------------
+    */
+
+    public function test_completar_el_servicio_manda_la_encuesta(): void
+    {
+        $canal = $this->canalQueFunciona();
+
+        $this->stage('lista')->update(['actions' => [[
+            'type' => StageActionCatalog::SEND_SURVEY,
+            'config' => [],
+        ]]]);
+
+        $cita = $this->agendar();
+
+        $this->postJson("/api/v1/appointments/{$cita->id}/stage", [
+            'stage_id' => $this->stage('lista')->id,
+        ])->assertOk();
+
+        // El enlace viaja armado, no el marcador crudo.
+        $this->assertStringContainsString('/encuesta/', $canal->sent[0]['body']);
+        $this->assertStringNotContainsString('{encuesta}', $canal->sent[0]['body']);
+
+        $fresca = $cita->fresh();
+        $this->assertNotNull($fresca->survey_token);
+        $this->assertNotNull($fresca->survey_sent_at);
+        // Y el token del mensaje es el de ESA cita.
+        $this->assertStringContainsString($fresca->survey_token, $canal->sent[0]['body']);
+    }
+
+    public function test_no_se_encuesta_una_garantia(): void
+    {
+        // La visita existe porque algo salió mal; pedir estrellas ahí es
+        // preguntar por el clavo en la herida.
+        $canal = $this->canalQueFunciona();
+
+        $this->stage('lista')->update(['actions' => [[
+            'type' => StageActionCatalog::SEND_SURVEY,
+            'config' => [],
+        ]]]);
+
+        $id = $this->postJson('/api/v1/appointments', [
+            'service_id' => $this->service->id,
+            'resource_id' => $this->maria->id,
+            'starts_at' => $this->wednesday()->format('Y-m-d').' 15:00:00',
+            'client_name' => 'Carolina Restrepo',
+            'client_phone' => '3001234567',
+            'is_warranty' => true,
+            'warranty_for_resource_id' => $this->maria->id,
+        ])->assertCreated()->json('id');
+
+        $respuesta = $this->postJson("/api/v1/appointments/{$id}/stage", [
+            'stage_id' => $this->stage('lista')->id,
+        ])->assertOk();
+
+        $this->assertSame([], $canal->sent);
+        $this->assertSame('skipped', $respuesta->json('actions.0.status'));
+    }
 }
