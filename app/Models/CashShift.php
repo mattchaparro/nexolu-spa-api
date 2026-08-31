@@ -16,7 +16,7 @@ class CashShift extends Model
     use BelongsToBusiness, HasFactory;
 
     protected $fillable = [
-        'business_id', 'user_id', 'opened_at', 'closed_at',
+        'business_id', 'location_id', 'user_id', 'opened_at', 'closed_at',
         'opening_cash', 'opening_note', 'counted_cash', 'expected_cash',
         'difference', 'closing_note', 'total_charged', 'total_cash',
         'total_other_methods', 'total_expenses', 'payment_breakdown',
@@ -38,6 +38,12 @@ class CashShift extends Model
             'total_expenses' => 'decimal:2',
             'payment_breakdown' => 'array',
         ];
+    }
+
+    /** En que local ocurrio. */
+    public function location(): BelongsTo
+    {
+        return $this->belongsTo(Location::class);
     }
 
     public function user(): BelongsTo

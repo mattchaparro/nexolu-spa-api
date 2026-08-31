@@ -12,7 +12,7 @@ class CashClosing extends Model
     use BelongsToBusiness, HasFactory;
 
     protected $fillable = [
-        'business_id', 'date', 'total_charged', 'total_cash', 'total_other_methods',
+        'business_id', 'location_id', 'date', 'total_charged', 'total_cash', 'total_other_methods',
         'payment_breakdown', 'opening_cash', 'total_expenses', 'expected_cash',
         'actual_cash', 'difference', 'base_for_next_day', 'total_commissions',
         'note', 'closed_by_user_id',
@@ -34,6 +34,12 @@ class CashClosing extends Model
             'base_for_next_day' => 'decimal:2',
             'total_commissions' => 'decimal:2',
         ];
+    }
+
+    /** En que local ocurrio. */
+    public function location(): BelongsTo
+    {
+        return $this->belongsTo(Location::class);
     }
 
     public function closedBy(): BelongsTo

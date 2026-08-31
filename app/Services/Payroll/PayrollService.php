@@ -509,6 +509,17 @@ class PayrollService
 
         return Expense::create([
             'business_id' => $business->id,
+            /*
+             * El cajon de SU sede.
+             *
+             * Pagarle en efectivo a la manicurista de Cedritos saca billetes
+             * del cajon de Cedritos, no del de Chapinero. Sin esta linea el
+             * gasto quedaba sin sede y desaparecia de los dos cierres: el dia
+             * quedaba corto por el monto de la liquidacion sin nada que lo
+             * explicara. Es el mismo bug que ya habia costado el gasto
+             * administrativo pagado en efectivo, por otro camino.
+             */
+            'location_id' => $resource->location_id,
             'expense_type_id' => $type->id,
             'date' => CarbonImmutable::parse($settlement->paid_at)
                 ->setTimezone($business->businessTimezone())

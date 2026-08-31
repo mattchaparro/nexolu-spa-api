@@ -2,15 +2,28 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Models\Appointment;
 use App\Models\CashClosing;
 use App\Models\CashShift;
 use App\Services\Cash\CashShiftService;
 use App\Services\Cash\CashTotalsService;
 use App\Services\Cash\DailyClosingService;
+use App\Support\LocationScope;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
+/**
+ * La caja, por sede.
+ *
+ * El efectivo es fisico: hay un cajon en Chapinero y otro en Cedritos. Toda
+ * peticion de aca pasa por `LocationScope`, que decide que sedes puede mirar
+ * quien pregunta -- el dueno todas, los demas las suyas.
+ *
+ * Una sede prohibida devuelve 422 con su mensaje, NO se degrada en silencio a
+ * "sin filtro": convertir un filtro no permitido en "todas" es exactamente al
+ * reves de lo que se quiere.
+ */
 class CashController
 {
     public function __construct(
@@ -18,6 +31,18 @@ class CashController
         private readonly DailyClosingService $closings,
         private readonly CashTotalsService $totals,
     ) {}
+
+    private function scope(Request $request): LocationScope
+    {
+        return LocationScope::for($request->user());
+    }
+
+    private function requestedLocation(Request $request): ?int
+    {
+        $raw = $request->query('location_id') ?? $request->input('location_id');
+
+        return $raw === null || $raw === '' ? null : (int) $raw;
+    }
 
     /** El turno propio, con lo que lleva hasta ahora. */
     public function currentShift(Request $request): JsonResponse
@@ -39,10 +64,23 @@ class CashController
         $data = $request->validate([
             'opening_cash' => ['required', 'numeric', 'min:0'],
             'note' => ['nullable', 'string', 'max:255'],
+            'location_id' => ['nullable', 'integer'],
         ]);
 
         try {
-            $shift = $this->shifts->open($request->user(), (float) $data['opening_cash'], $data['note'] ?? null);
+            $shift = $this->shifts->open(
+                $request->user(),
+                (float) $data['opening_cash'],
+                $data['note'] ?? null,
+                // Un turno ocurre en UN cajon. Quien solo puede estar en una
+                // sede no tiene que decirlo; quien puede estar en varias -- la
+                // dueña incluida -- si.
+                $this->scope($request)->resolveOneFor(
+                    $request->user()->business,
+                    $data['location_id'] ?? null,
+                    'el turno',
+                ),
+            );
         } catch (\DomainException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
@@ -79,9 +117,19 @@ class CashController
         $business = $request->user()->business;
         $date = $this->dateFrom($request, $business->businessTimezone());
 
+        try {
+            // El cierre es de UN cajon: si esta persona ve varias sedes y no
+            // dijo cual, hay que preguntarle.
+            $locationId = $this->scope($request)
+                ->resolveOne($this->requestedLocation($request), 'el cierre');
+            $this->closings->assertLocationChosen($business, $locationId);
+        } catch (\DomainException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
         return response()->json(
-            $this->closings->preview($business, $date) + [
-                'pending_dates' => $this->closings->pendingDates($business),
+            $this->closings->preview($business, $date, $locationId) + [
+                'pending_dates' => $this->closings->pendingDates($business, 30, $locationId),
             ]
         );
     }
@@ -92,6 +140,7 @@ class CashController
             'date' => ['required', 'date_format:Y-m-d'],
             'actual_cash' => ['required', 'numeric', 'min:0'],
             'note' => ['nullable', 'string', 'max:255'],
+            'location_id' => ['nullable', 'integer'],
         ]);
 
         $business = $request->user()->business;
@@ -103,6 +152,7 @@ class CashController
                 CarbonImmutable::parse($data['date'], $business->businessTimezone()),
                 (float) $data['actual_cash'],
                 $data['note'] ?? null,
+                $this->scope($request)->resolveOne($data['location_id'] ?? null, 'el cierre'),
             );
         } catch (\DomainException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
@@ -113,14 +163,25 @@ class CashController
 
     public function closings(Request $request): JsonResponse
     {
+        try {
+            $sedes = $this->scope($request)->filterFor($this->requestedLocation($request));
+        } catch (\DomainException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
         return response()->json(
-            CashClosing::with('closedBy')
+            CashClosing::with(['closedBy', 'location'])
+                // Sin filtro vienen las de todas sus sedes: quien administra
+                // dos locales espera ver los dos en el historial.
+                ->when($sedes !== null, fn ($q) => $q->whereIn('location_id', $sedes))
                 ->orderByDesc('date')
                 ->limit(60)
                 ->get()
                 ->map(fn (CashClosing $c) => [
                     'id' => $c->id,
                     'date' => $c->date?->toDateString(),
+                    'location_id' => $c->location_id,
+                    'location_name' => $c->location?->name,
                     'total_charged' => (float) $c->total_charged,
                     'total_cash' => (float) $c->total_cash,
                     'total_expenses' => (float) $c->total_expenses,
@@ -136,6 +197,12 @@ class CashController
 
     public function undoClosing(Request $request, CashClosing $closing): JsonResponse
     {
+        // Deshacer el cierre de una sede ajena rehace la base de un cajon que
+        // esta persona ni siquiera puede ver.
+        if (! $this->scope($request)->allows($closing->location_id)) {
+            return response()->json(['message' => 'No tienes acceso a esa sede.'], 422);
+        }
+
         try {
             $this->closings->undo($request->user()->business, $closing);
         } catch (\DomainException $e) {
@@ -154,10 +221,22 @@ class CashController
         $tz = $business->businessTimezone();
         $date = $this->dateFrom($request, $tz);
 
-        $totals = $this->totals->forDate($business->id, $date);
+        try {
+            /*
+             * Aca SI se puede mirar todo junto, a diferencia del cierre. El
+             * resumen no se cuadra contra un cajon: responde "como nos fue
+             * hoy", y para el dueno de dos locales esa pregunta es de los dos.
+             */
+            $sedes = $this->scope($request)->filterFor($this->requestedLocation($request));
+        } catch (\DomainException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
 
-        $appointments = \App\Models\Appointment::query()
+        $totals = $this->totals->forDate($business->id, $date, 0, $sedes);
+
+        $appointments = Appointment::query()
             ->with(['items.service', 'items.resource'])
+            ->when($sedes !== null, fn ($q) => $q->whereIn('location_id', $sedes))
             ->whereBetween('starts_at', [$date->startOfDay()->utc(), $date->addDay()->startOfDay()->utc()])
             ->get();
 

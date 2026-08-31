@@ -26,6 +26,17 @@ class UserResource extends JsonResource
             'is_super_admin' => (bool) $this->is_super_admin,
             'business' => new BusinessResource($this->whenLoaded('business')),
             'resource_id' => $this->resource?->id,
+
+            /*
+             * El dueno del negocio: ve todas sus sedes, siempre.
+             *
+             * Y las sedes que ve quien no lo es. El front las usa para armar
+             * el selector; el servidor las vuelve a resolver en cada peticion
+             * con `LocationScope`, porque una lista que viaja al navegador es
+             * una sugerencia, no una defensa.
+             */
+            'is_owner' => (bool) $this->is_owner,
+            'location_ids' => $this->locationScope(),
             'roles' => $this->getRoleNames(),
             'permissions' => $this->getAllPermissions()->pluck('name'),
         ];

@@ -198,6 +198,18 @@ Route::prefix('v1')->group(function () {
         Route::put('/permissions/{user}', [PermissionController::class, 'update'])
             ->middleware(['feature:permissions_management', 'permission:permisos.gestionar']);
 
+        /*
+         * Que SEDES ve alguien. Eje distinto de QUE puede hacer, y por eso
+         * ruta aparte: al administrador de un local no se le editan permisos
+         * -- los tiene todos por su rol -- pero si se le acota el local.
+         *
+         * Sin `feature:multi_location`: con una sola sede la pantalla no lo
+         * muestra, y si alguien llama igual, sincronizar la unica sede que
+         * existe no cambia nada.
+         */
+        Route::put('/permissions/{user}/locations', [PermissionController::class, 'updateLocations'])
+            ->middleware('permission:permisos.gestionar');
+
         // Lo que ve una profesional de si misma: su agenda del dia, lo que
         // lleva ganado y lo que le falta cobrar.
         Route::get('/my-work', [MyWorkController::class, 'summary']);

@@ -35,15 +35,24 @@ class SalesReportService
         CarbonImmutable $to,
         ?int $resourceId = null,
         ?int $paymentMethodId = null,
+        ?array $locationIds = null,
     ): array {
         $tz = $business->businessTimezone();
 
-        $items = $this->items($business, $from, $to, $tz, $resourceId, $paymentMethodId);
+        $items = $this->items($business, $from, $to, $tz, $resourceId, $paymentMethodId, $locationIds);
 
         return [
             'from' => $from->toDateString(),
             'to' => $to->toDateString(),
             'totals' => $this->totals($items),
+            /*
+             * El corte por sede es el que de verdad estrena el multi-sede: la
+             * pregunta del dueno de dos locales no es "cuanto se hizo", es
+             * "cual de los dos esta jalando". Va aunque se haya filtrado a una
+             * sola sede -- entonces trae una fila -- para que la pantalla no
+             * tenga que armar dos formas distintas de la misma respuesta.
+             */
+            'by_location' => $this->byLocation($items),
             'by_person' => $this->byPerson($items),
             'by_payment_method' => $this->byPaymentMethod($items),
             'by_service' => $this->byService($items),
@@ -69,12 +78,14 @@ class SalesReportService
         string $tz,
         ?int $resourceId,
         ?int $paymentMethodId,
+        ?array $locationIds = null,
     ): Collection {
         $start = $from->setTimezone($tz)->startOfDay()->utc();
         $end = $to->setTimezone($tz)->endOfDay()->utc();
 
         return AppointmentItem::query()
             ->join('appointments', 'appointments.id', '=', 'appointment_items.appointment_id')
+            ->leftJoin('locations', 'locations.id', '=', 'appointments.location_id')
             ->leftJoin('resources', 'resources.id', '=', 'appointment_items.resource_id')
             ->leftJoin('services', 'services.id', '=', 'appointment_items.service_id')
             ->leftJoin('payment_methods', 'payment_methods.id', '=', 'appointments.payment_method_id')
@@ -83,9 +94,14 @@ class SalesReportService
             ->whereBetween('appointments.checked_out_at', [$start, $end])
             ->when($resourceId, fn ($q) => $q->where('appointment_items.resource_id', $resourceId))
             ->when($paymentMethodId, fn ($q) => $q->where('appointments.payment_method_id', $paymentMethodId))
+            // Por la sede de la CITA, congelada al agendar: si esa persona se
+            // traslado, la venta de marzo no se muda de local con ella.
+            ->when($locationIds !== null, fn ($q) => $q->whereIn('appointments.location_id', $locationIds))
             ->get([
                 'appointment_items.id',
                 'appointment_items.resource_id',
+                'appointments.location_id',
+                'locations.name as location_name',
                 'appointment_items.service_id',
                 // `final_price` es lo que de verdad se cobro, con el descuento
                 // ya repartido. `price` es el de lista y sumaria de mas.
@@ -125,6 +141,41 @@ class SalesReportService
      *
      * @param  Collection<int, object>  $items
      */
+    /**
+     * Cuanto hizo cada local.
+     *
+     * Es el corte que estrena el multi-sede: la pregunta del dueno de dos
+     * locales no es "cuanto se hizo", es "cual de los dos esta jalando".
+     *
+     * @param  Collection<int, object>  $items
+     */
+    private function byLocation(Collection $items): array
+    {
+        return $items
+            ->groupBy('location_id')
+            ->map(function (Collection $group) {
+                $charged = (float) $group->sum(fn ($i) => (float) ($i->final_price ?? 0));
+
+                return [
+                    'location_id' => $group->first()->location_id,
+                    // Lo anterior a las sedes no desaparece del reporte: se
+                    // muestra por lo que es, en vez de sumarse en silencio a
+                    // un local que no lo atendio.
+                    'name' => $group->first()->location_name ?? 'Sin sede',
+                    'services' => $group->count(),
+                    'charged' => round($charged, 2),
+                    'commission' => round(
+                        (float) $group->sum(fn ($i) => (float) ($i->commission_amount ?? 0)),
+                        2,
+                    ),
+                ];
+            })
+            ->sortByDesc('charged')
+            ->values()
+            ->all();
+    }
+
+    /** @param Collection<int, object> $items */
     private function byPerson(Collection $items): array
     {
         return $items

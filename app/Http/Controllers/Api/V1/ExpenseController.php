@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Models\Expense;
 use App\Models\ExpenseType;
 use App\Support\ImageStorage;
+use App\Support\LocationScope;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -18,7 +19,14 @@ class ExpenseController
             'from' => ['nullable', 'date_format:Y-m-d'],
             'to' => ['nullable', 'date_format:Y-m-d'],
             'scope' => ['nullable', Rule::in(Expense::scopes())],
+            'location_id' => ['nullable', 'integer'],
         ]);
+
+        try {
+            $sedes = LocationScope::for($request->user())->filterFor($data['location_id'] ?? null);
+        } catch (\DomainException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
 
         $tz = $request->user()->business->businessTimezone();
         $from = isset($data['from'])
@@ -26,9 +34,18 @@ class ExpenseController
             : CarbonImmutable::now($tz)->startOfMonth();
         $to = isset($data['to']) ? CarbonImmutable::parse($data['to'], $tz) : CarbonImmutable::now($tz);
 
-        $expenses = Expense::with(['type', 'paymentMethod'])
+        $expenses = Expense::with(['type', 'paymentMethod', 'location'])
             ->whereBetween('date', [$from->toDateString(), $to->toDateString()])
             ->when(isset($data['scope']), fn ($q) => $q->where('scope', $data['scope']))
+            /*
+             * Al filtrar por sede entra tambien lo SIN sede -- la contadora,
+             * el dominio -- porque ese gasto es de todos. Es al reves que en
+             * la caja, donde se excluye a proposito: ahi se cuenta un cajon
+             * concreto, aca se esta mirando en que se va la plata.
+             */
+            ->when($sedes !== null, fn ($q) => $q->where(
+                fn ($qq) => $qq->whereIn('location_id', $sedes)->orWhereNull('location_id'),
+            ))
             ->orderByDesc('date')
             ->orderByDesc('id')
             ->get();
@@ -44,6 +61,10 @@ class ExpenseController
                 'expense_type_id' => $e->expense_type_id,
                 'payment_method' => $e->paymentMethod?->name,
                 'payment_method_id' => $e->payment_method_id,
+                'location_id' => $e->location_id,
+                // Nulo se muestra como "Todo el negocio", no en blanco: un
+                // gasto sin local no es un dato faltante, es una decision.
+                'location_name' => $e->location?->name,
                 'receipt_url' => ImageStorage::url($e->receipt_path),
             ]),
             'totals' => [
@@ -60,6 +81,28 @@ class ExpenseController
     {
         $business = $request->user()->business;
         $data = $this->validated($request);
+
+        /*
+         * Sin sede explicita, la de quien lo registra.
+         *
+         * Es la diferencia entre "no me lo preguntaron" y "dijeron que no es
+         * de ningun local". Solo lo segundo debe quedar en nulo, porque un
+         * gasto sin sede NO entra en el cierre de ninguna caja -- descontarlo
+         * del cajon de Chapinero lo dejaria corto por una plata que ese cajon
+         * nunca tuvo.
+         *
+         * Sin esta distincion, cualquier gasto registrado desde una pantalla
+         * que todavia no pregunta sede desaparecia del cuadre del dia. Es
+         * exactamente el bug que dejaba el cierre corto sin nada que lo
+         * explicara, otra vez y por otro camino.
+         */
+        if (! array_key_exists('location_id', $data)) {
+            try {
+                $data['location_id'] = LocationScope::for($request->user())->resolveOne(null, 'el gasto');
+            } catch (\DomainException $e) {
+                return response()->json(['message' => $e->getMessage()], 422);
+            }
+        }
 
         $expense = Expense::create($data + [
             'business_id' => $business->id,
@@ -135,6 +178,11 @@ class ExpenseController
             // restringirlo solo en el formulario deja entrar basura por API.
             'scope' => ['required', Rule::in(Expense::scopes())],
             'expense_type_id' => ['nullable', 'integer'],
+
+            // De que local es el gasto. Nulo es legitimo y significa "del
+            // negocio entero": el arriendo de Chapinero no es de Cedritos,
+            // pero la contadora no es de ninguno de los dos.
+            'location_id' => ['nullable', 'integer'],
             'payment_method_id' => ['nullable', 'integer'],
             'receipt' => ImageStorage::rules(),
         ]);

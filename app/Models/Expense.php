@@ -22,13 +22,19 @@ class Expense extends Model
     public const SCOPE_ADMINISTRATIVE = 'administrativo';
 
     protected $fillable = [
-        'business_id', 'expense_type_id', 'date', 'description', 'value',
+        'business_id', 'location_id', 'expense_type_id', 'date', 'description', 'value',
         'scope', 'payment_method_id', 'receipt_path', 'created_by_user_id',
     ];
 
     protected function casts(): array
     {
         return ['date' => 'date', 'value' => 'decimal:2'];
+    }
+
+    /** En que local ocurrio. */
+    public function location(): BelongsTo
+    {
+        return $this->belongsTo(Location::class);
     }
 
     public function type(): BelongsTo

@@ -2,9 +2,11 @@
 
 namespace App\Models;
 
+use App\Support\LocationScope;
 use App\Support\PermissionCatalog;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
@@ -18,7 +20,7 @@ class User extends Authenticatable
 
     protected $fillable = [
         'business_id', 'name', 'last_name', 'email', 'phone',
-        'password', 'is_super_admin', 'is_active',
+        'password', 'is_super_admin', 'is_active', 'is_owner',
     ];
 
     protected $hidden = ['password', 'remember_token'];
@@ -30,6 +32,7 @@ class User extends Authenticatable
             'password' => 'hashed',
             'is_super_admin' => 'boolean',
             'is_active' => 'boolean',
+            'is_owner' => 'boolean',
         ];
     }
 
@@ -45,6 +48,33 @@ class User extends Authenticatable
     public function resource(): HasOne
     {
         return $this->hasOne(Resource::class);
+    }
+
+    /**
+     * Que sedes tiene asignadas.
+     *
+     * Vacio NO es "todas": `LocationScope` lo lee como "la sede donde
+     * trabaja". El dueno ignora esta lista por completo -- ve todo siempre --
+     * y por eso el dueno es una columna y no una fila de esta tabla: una fila
+     * se borra sin querer, y un negocio sin nadie que vea sus dos sedes no
+     * puede administrarse.
+     */
+    public function locations(): BelongsToMany
+    {
+        return $this->belongsToMany(Location::class)->withTimestamps();
+    }
+
+    /**
+     * Los ids de sede que ve, ya resueltos. Null = todas.
+     *
+     * Lo expone `/me` para que el front arme su selector sin reimplementar la
+     * regla -- el mismo criterio que con los feature flags.
+     *
+     * @return list<int>|null
+     */
+    public function locationScope(): ?array
+    {
+        return LocationScope::for($this)->locationIds;
     }
 
     public function fullName(): string

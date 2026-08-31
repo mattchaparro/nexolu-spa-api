@@ -112,6 +112,17 @@ class BusinessesController
                 'email' => $data['owner_email'],
                 'password' => Hash::make($data['owner_password']),
                 'is_active' => true,
+                /*
+                 * El DUENO, y aca es el unico lugar donde nace uno.
+                 *
+                 * Ve todas las sedes siempre, y eso no se le puede quitar. No
+                 * es un permiso -- un permiso se desmarca sin querer desde la
+                 * pantalla de permisos, y un negocio sin nadie que vea sus dos
+                 * locales es un negocio que ya no puede administrarse a si
+                 * mismo. Los administradores que el cree despues ven las sedes
+                 * que el les asigne.
+                 */
+                'is_owner' => true,
             ]);
             PermissionCatalog::applyRole($owner, PermissionCatalog::ROLE_ADMIN);
 

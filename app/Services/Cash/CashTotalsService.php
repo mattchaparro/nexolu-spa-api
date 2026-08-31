@@ -51,17 +51,37 @@ class CashTotalsService
      *   payment_breakdown: list<array{id:int|null, label:string, counts_as_cash:bool, total:float}>,
      * }
      */
+    /**
+     * @param  list<int>|null  $locationIds  null = todas las sedes del negocio.
+     */
     public function between(
         int $businessId,
         CarbonImmutable $from,
         CarbonImmutable $to,
         float $openingCash = 0,
         ?int $userId = null,
+        ?array $locationIds = null,
     ): array {
+        /*
+         * El efectivo es FISICO: hay un cajon en Chapinero y otro en
+         * Cedritos. Un total que sume los dos no se puede cuadrar contra
+         * ninguno, y la diferencia -- el unico dato que importa de un cierre
+         * -- deja de significar nada.
+         *
+         * La cita filtra por SU sede congelada, no por la de quien atendio:
+         * si esa persona se traslado, la caja de ese dia no puede cambiar de
+         * local a posteriori.
+         */
+        $porSede = fn ($q) => $q->when(
+            $locationIds !== null,
+            fn ($qq) => $qq->whereIn('location_id', $locationIds),
+        );
+
         $appointments = Appointment::withoutGlobalScope('business')
             ->where('business_id', $businessId)
             ->whereNotNull('checked_out_at')
             ->whereBetween('checked_out_at', [$from->utc(), $to->utc()])
+            ->tap($porSede)
             // Por quien COBRO, no por quien agendo: el efectivo de un turno es
             // lo que esa persona recibio en su ventana.
             ->when($userId, fn ($q) => $q->where('checked_out_by_user_id', $userId))
@@ -80,6 +100,18 @@ class CashTotalsService
          */
         $expenses = Expense::withoutGlobalScope('business')
             ->where('business_id', $businessId)
+            /*
+             * El gasto SIN sede es del negocio entero -- la contadora, el
+             * dominio -- y por eso entra en cualquier cierre... o en ninguno.
+             *
+             * Entra en ninguno: descontarlo del cajon de Chapinero le dejaria
+             * el cierre corto por una plata que ese cajon nunca tuvo. Se ve en
+             * el reporte general, que es donde ese gasto significa algo.
+             */
+            ->when(
+                $locationIds !== null,
+                fn ($q) => $q->whereIn('location_id', $locationIds),
+            )
             ->where(function ($q) {
                 $q->where('scope', Expense::SCOPE_OPERATIONAL)
                     ->orWhereHas('paymentMethod', fn ($m) => $m->where('counts_as_cash', true))
@@ -108,18 +140,27 @@ class CashTotalsService
                 ->where('business_id', $businessId)
                 ->whereNotNull('deposit_paid_at')
                 ->whereBetween('deposit_paid_at', [$from->utc(), $to->utc()])
+                ->tap($porSede)
                 ->with('depositPaymentMethod')
                 ->get();
 
         return $this->build($businessId, $appointments, $expenses, $openingCash, $deposits);
     }
 
-    /** Totales de un dia completo, en la zona del negocio. */
-    public function forDate(int $businessId, CarbonImmutable $date, float $openingCash = 0): array
-    {
+    /**
+     * Totales de un dia completo, en la zona del negocio.
+     *
+     * @param  list<int>|null  $locationIds  null = todas las sedes.
+     */
+    public function forDate(
+        int $businessId,
+        CarbonImmutable $date,
+        float $openingCash = 0,
+        ?array $locationIds = null,
+    ): array {
         $start = $date->startOfDay();
 
-        return $this->between($businessId, $start, $start->addDay(), $openingCash);
+        return $this->between($businessId, $start, $start->addDay(), $openingCash, null, $locationIds);
     }
 
     /**

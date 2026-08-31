@@ -20,7 +20,7 @@ class CashShiftService
         return CashShift::where('user_id', $user->id)->whereNull('closed_at')->first();
     }
 
-    public function open(User $user, float $openingCash, ?string $note = null): CashShift
+    public function open(User $user, float $openingCash, ?string $note = null, ?int $locationId = null): CashShift
     {
         if ($this->openFor($user) !== null) {
             throw new \DomainException('Ya tienes un turno abierto.');
@@ -32,6 +32,10 @@ class CashShiftService
 
         return CashShift::create([
             'business_id' => $user->business_id,
+            // En que cajon esta parada. Se guarda al ABRIR y ya no cambia: si
+            // manana la trasladan, el turno de hoy siguio siendo el de este
+            // local.
+            'location_id' => $locationId,
             'user_id' => $user->id,
             'opened_at' => now(),
             'opening_cash' => $openingCash,
@@ -59,6 +63,7 @@ class CashShiftService
                 CarbonImmutable::now(),
                 (float) $shift->opening_cash,
                 $shift->user_id,
+                $shift->location_id === null ? null : [$shift->location_id],
             );
 
             $shift->update([
@@ -88,6 +93,7 @@ class CashShiftService
             CarbonImmutable::now(),
             (float) $shift->opening_cash,
             $shift->user_id,
+            $shift->location_id === null ? null : [$shift->location_id],
         );
     }
 }

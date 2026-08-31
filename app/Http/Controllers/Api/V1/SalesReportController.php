@@ -2,8 +2,10 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Models\Location;
 use App\Models\PaymentMethod;
 use App\Services\Reports\SalesReportService;
+use App\Support\LocationScope;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -26,6 +28,7 @@ class SalesReportController
             'to' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:from'],
             'resource_id' => ['nullable', 'integer'],
             'payment_method_id' => ['nullable', 'integer'],
+            'location_id' => ['nullable', 'integer'],
         ]);
 
         $business = $request->user()->business;
@@ -43,6 +46,14 @@ class SalesReportController
             ], 422);
         }
 
+        try {
+            // Sin sede pedida trae TODAS las suyas: quien administra dos
+            // locales abre el reporte esperando ver los dos.
+            $sedes = LocationScope::for($request->user())->filterFor($data['location_id'] ?? null);
+        } catch (\DomainException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
         return response()->json(
             $this->report->build(
                 $business,
@@ -50,10 +61,19 @@ class SalesReportController
                 $to,
                 $data['resource_id'] ?? null,
                 $data['payment_method_id'] ?? null,
+                $sedes,
             )
             + [
                 'filters' => [
                     'resources' => $this->report->filterableResources($business),
+                    // Solo las que esta persona puede mirar: ofrecer en el
+                    // selector una sede que el servidor va a rechazar es una
+                    // trampa con forma de funcion.
+                    'locations' => Location::where('is_active', true)
+                        ->get()
+                        ->filter(fn (Location $l) => LocationScope::for($request->user())->allows($l->id))
+                        ->map(fn (Location $l) => ['id' => $l->id, 'name' => $l->name])
+                        ->values(),
                     'payment_methods' => PaymentMethod::where('is_active', true)
                         ->orderBy('sort_order')
                         ->get()
