@@ -4,10 +4,14 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Models\Appointment;
 use App\Models\Business;
+use App\Models\Client;
 use App\Models\ClientPenalty;
+use App\Models\Location;
 use App\Models\Resource;
 use App\Models\ResourceBreak;
+use App\Models\ResourceSchedule;
 use App\Models\Service;
+use App\Models\ServicePackage;
 use App\Services\ClientResolver;
 use App\Services\Scheduling\AvailabilityService;
 use App\Services\Scheduling\BookingService;
@@ -61,10 +65,49 @@ class PublicBookingController
         private readonly ClientResolver $clients,
     ) {}
 
+    /**
+     * La sede que se esta mirando, si el enlace trae una.
+     *
+     * Un slug que no existe -- o de otro negocio, o apagado -- devuelve null
+     * en vez de 404: el enlace viejo de una sede que cerro tiene que llevar a
+     * la pagina del negocio, no a un error. La clienta que lo guardo en
+     * WhatsApp hace seis meses no tiene por que enterarse de eso.
+     */
+    private function publicLocation(Business $business, ?string $slug): ?Location
+    {
+        if ($slug === null || $slug === '') {
+            return null;
+        }
+
+        return Location::withoutGlobalScopes()
+            ->where('business_id', $business->id)
+            ->where('slug', $slug)
+            ->where('is_active', true)
+            ->first();
+    }
+
     /** Quien es el negocio, sus servicios y su equipo. */
-    public function show(Business $business): JsonResponse
+    public function show(Request $request, Business $business): JsonResponse
     {
         $this->assertOpenToPublic($business);
+
+        $sedes = Location::withoutGlobalScopes()
+            ->where('business_id', $business->id)
+            ->where('is_active', true)
+            ->orderByDesc('is_primary')
+            ->orderBy('sort_order')
+            ->orderBy('name')
+            ->get();
+
+        $sede = $this->publicLocation($business, $request->query('location'));
+
+        /*
+         * Con una sola sede se elige sola. La clienta de un negocio de un
+         * local no tiene por que ver un paso que solo tiene una respuesta.
+         */
+        if ($sede === null && $sedes->count() === 1) {
+            $sede = $sedes->first();
+        }
 
         return response()->json([
             'business' => [
@@ -72,10 +115,38 @@ class PublicBookingController
                 'slug' => $business->slug,
                 'timezone' => $business->businessTimezone(),
                 'currency' => $business->currency,
-                'address' => $business->address,
-                'phone' => $business->phone,
+                // La direccion y el telefono DE LA SEDE, con los del negocio
+                // como respaldo. Es lo unico que evita que alguien llegue al
+                // local equivocado con una cita perfectamente valida.
+                'address' => $sede?->address ?? $business->address,
+                'phone' => $sede?->phone ?? $business->phone,
                 'logo_url' => ImageStorage::url($business->logo_path),
                 'cover_url' => ImageStorage::url($business->cover_path),
+            ],
+
+            /*
+             * Las sedes, y cual se esta mirando.
+             *
+             * Van siempre, tambien cuando hay una sola: la pantalla decide con
+             * `length > 1` si muestra el paso, y no tiene que adivinar por la
+             * ausencia del campo.
+             */
+            'locations' => $sedes->map(fn (Location $l) => [
+                'id' => $l->id,
+                'slug' => $l->slug,
+                'name' => $l->name,
+                'address' => $l->address,
+                'city' => $l->city,
+                'phone' => $l->phone,
+                'maps_url' => $l->maps_url,
+            ])->values(),
+            'location' => $sede === null ? null : [
+                'id' => $sede->id,
+                'slug' => $sede->slug,
+                'name' => $sede->name,
+                'address' => $sede->address,
+                'city' => $sede->city,
+                'maps_url' => $sede->maps_url,
             ],
             // Lo que el negocio dice de si mismo. Cuando llegue el constructor
             // de landings, sus bloques se suman aca sin tocar el resto.
@@ -86,8 +157,8 @@ class PublicBookingController
             'deposit' => $business->depositPolicy(),
             'services' => $this->services($business),
             'packages' => $this->packages($business),
-            'resources' => $this->resources($business),
-            'hours' => $this->hours($business),
+            'resources' => $this->resources($business, $sede?->id),
+            'hours' => $this->hours($business, $sede?->id),
         ]);
     }
 
@@ -104,7 +175,7 @@ class PublicBookingController
     {
         $bookables = collect($this->services($business))->pluck('id')->all();
 
-        return \App\Models\ServicePackage::withoutGlobalScope('business')
+        return ServicePackage::withoutGlobalScope('business')
             ->where('business_id', $business->id)
             ->where('is_active', true)
             ->where('is_bookable_online', true)
@@ -173,6 +244,8 @@ class PublicBookingController
             'service_id' => ['required', 'integer'],
             'date' => ['required', 'date_format:Y-m-d'],
             'resource_id' => ['nullable', 'integer'],
+            // El slug de la sede, el mismo que va en el enlace.
+            'location' => ['nullable', 'string', 'max:120'],
         ]);
 
         $service = $this->bookableService($business, $data['service_id']);
@@ -187,6 +260,7 @@ class PublicBookingController
             $service,
             CarbonImmutable::parse($data['date'], $tz),
             $resource,
+            locationId: $this->publicLocation($business, $data['location'] ?? null)?->id,
         );
 
         return response()->json([
@@ -220,6 +294,9 @@ class PublicBookingController
             'date' => ['required', 'date_format:Y-m-d'],
             // "Todo con la misma persona": preferencia, no filtro.
             'resource_id' => ['nullable', 'integer'],
+            // La sede SI es filtro. Nadie cruza la ciudad entre el manicure y
+            // el pedicure.
+            'location' => ['nullable', 'string', 'max:120'],
         ]);
 
         $package = isset($data['package_id']) ? $this->bookablePackage($business, $data['package_id']) : null;
@@ -244,6 +321,7 @@ class PublicBookingController
             $services,
             CarbonImmutable::parse($data['date'], $tz),
             preferredResourceId: $resource?->id,
+            locationId: $this->publicLocation($business, $data['location'] ?? null)?->id,
         );
 
         return response()->json([
@@ -287,12 +365,17 @@ class PublicBookingController
             // Cuantos dias mirar. El calendario pide el mes visible; la tira de
             // fichas rapidas se conforma con dos semanas.
             'days' => ['nullable', 'integer', 'min:1', 'max:42'],
+            'location' => ['nullable', 'string', 'max:120'],
         ]);
 
         $service = $this->bookableService($business, $data['service_id']);
         $resource = isset($data['resource_id'])
             ? $this->bookableResource($business, $data['resource_id'])
             : null;
+
+        // Sin esto el calendario pinta como disponibles días en los que sólo
+        // abre el otro local, y la clienta descubre el error un paso después.
+        $locationId = $this->publicLocation($business, $data['location'] ?? null)?->id;
 
         $tz = $business->businessTimezone();
         $from = CarbonImmutable::parse($data['from'], $tz)->startOfDay();
@@ -312,7 +395,9 @@ class PublicBookingController
             $days[] = [
                 'date' => $date->toDateString(),
                 'has_slots' => $date->diffInDays(CarbonImmutable::now($tz)->startOfDay()) <= $horizon
-                    && $this->availability->slotsForService($business, $service, $date, $resource) !== [],
+                    && $this->availability->slotsForService(
+                        $business, $service, $date, $resource, locationId: $locationId,
+                    ) !== [],
             ];
         }
 
@@ -508,9 +593,9 @@ class PublicBookingController
      * Se comprueba tambien que cada parte sea reservable: un combo activo con
      * un servicio que se saco de la venta online no puede colarlo de vuelta.
      */
-    private function bookablePackage(Business $business, int $id): \App\Models\ServicePackage
+    private function bookablePackage(Business $business, int $id): ServicePackage
     {
-        $package = \App\Models\ServicePackage::withoutGlobalScope('business')
+        $package = ServicePackage::withoutGlobalScope('business')
             ->where('business_id', $business->id)
             ->where('is_active', true)
             ->where('is_bookable_online', true)
@@ -541,7 +626,7 @@ class PublicBookingController
      */
     private function reasonToRefuse(Business $business, string $phone): ?string
     {
-        $client = \App\Models\Client::withoutGlobalScope('business')
+        $client = Client::withoutGlobalScope('business')
             ->where('business_id', $business->id)
             ->where('phone', $phone)
             ->first();
@@ -574,13 +659,16 @@ class PublicBookingController
     }
 
     /** El equipo que se puede elegir. */
-    private function resources(Business $business): array
+    private function resources(Business $business, ?int $locationId = null): array
     {
         return Resource::withoutGlobalScope('business')
             ->where('business_id', $business->id)
             ->where('type', Resource::TYPE_STAFF)
             ->where('is_active', true)
             ->where('is_bookable_online', true)
+            // Solo los de esta sede: ofrecerle a la clienta a alguien del otro
+            // local es ofrecerle un viaje que nadie pidio.
+            ->when($locationId !== null, fn ($q) => $q->where('location_id', $locationId))
             ->orderBy('sort_order')
             ->orderBy('name')
             ->get()
@@ -603,13 +691,17 @@ class PublicBookingController
      *
      * @return list<array{weekday:int, label:string, opens:?string, closes:?string, breaks:list<array{start:string,end:string,label:string}>}>
      */
-    private function hours(Business $business): array
+    private function hours(Business $business, ?int $locationId = null): array
     {
-        $schedules = \App\Models\ResourceSchedule::withoutGlobalScope('business')
+        $schedules = ResourceSchedule::withoutGlobalScope('business')
             ->where('resource_schedules.business_id', $business->id)
             ->join('resources', 'resources.id', '=', 'resource_schedules.resource_id')
             ->where('resources.is_active', true)
             ->where('resources.is_bookable_online', true)
+            // El horario del LOCAL que se esta mirando. Un negocio cuyo
+            // segundo local abre los domingos no puede anunciar que el
+            // primero tambien.
+            ->when($locationId !== null, fn ($q) => $q->where('resources.location_id', $locationId))
             ->get(['resource_schedules.weekday', 'resource_schedules.start_time', 'resource_schedules.end_time'])
             ->groupBy('weekday');
 

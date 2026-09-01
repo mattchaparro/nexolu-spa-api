@@ -2,10 +2,12 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Models\Location;
 use App\Models\PayrollAdjustment;
 use App\Models\PayrollSettlement;
 use App\Models\Resource;
 use App\Services\Payroll\PayrollService;
+use App\Support\LocationScope;
 use App\Support\Money\CommissionPolicy;
 use App\Support\Payroll\AdjustmentCatalog;
 use App\Support\Payroll\BasePeriod;
@@ -30,20 +32,51 @@ class PayrollController
     /** Lo pendiente de todas, para decidir a quien se le paga hoy. */
     public function pending(Request $request): JsonResponse
     {
-        $data = $request->validate(['until' => ['nullable', 'date_format:Y-m-d']]);
+        $data = $request->validate([
+            'until' => ['nullable', 'date_format:Y-m-d'],
+            'location_id' => ['nullable', 'integer'],
+        ]);
 
         $business = $request->user()->business;
         $until = $this->until($data['until'] ?? null, $business->businessTimezone());
 
+        try {
+            $sedes = LocationScope::for($request->user())->filterFor($data['location_id'] ?? null);
+        } catch (\DomainException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
         return response()->json([
             'until' => $until->toDateString(),
-            'resources' => $this->payroll->pending($business, $until),
+            'resources' => $this->payroll->pending($business, $until, $sedes),
+            'locations' => Location::where('is_active', true)
+                ->get()
+                ->filter(fn (Location $l) => LocationScope::for($request->user())->allows($l->id))
+                ->map(fn (Location $l) => ['id' => $l->id, 'name' => $l->name])
+                ->values(),
         ]);
+    }
+
+    /**
+     * Si esta persona puede mirar la nomina de ese recurso.
+     *
+     * La nomina dice cuanto gana alguien, y eso es tan sensible como la base
+     * de clientes: quien administra un local no tiene por que ver lo que se
+     * gana el equipo del otro.
+     */
+    private function assertVisible(Request $request, Resource $resource): void
+    {
+        abort_unless(
+            LocationScope::for($request->user())->allows($resource->location_id),
+            404,
+        );
     }
 
     /** El detalle de una: servicio por servicio y ajuste por ajuste. */
     public function preview(Request $request, Resource $resource): JsonResponse
     {
+        $this->assertVisible($request, $resource);
+
         $data = $request->validate(['until' => ['nullable', 'date_format:Y-m-d']]);
 
         $business = $request->user()->business;
@@ -57,6 +90,8 @@ class PayrollController
 
     public function settle(Request $request, Resource $resource): JsonResponse
     {
+        $this->assertVisible($request, $resource);
+
         $data = $request->validate([
             'until' => ['nullable', 'date_format:Y-m-d'],
             'payment_method_id' => ['nullable', 'integer', 'exists:payment_methods,id'],
@@ -201,12 +236,18 @@ class PayrollController
     /** Como se le paga a cada profesional: modo, base y vigencia. */
     public function compensation(Request $request): JsonResponse
     {
+        $scope = LocationScope::for($request->user());
+
         $resources = Resource::where('type', Resource::TYPE_STAFF)
+            // Cuanto gana alguien es tan sensible como la base de clientes:
+            // quien administra un local no ve el acuerdo del equipo del otro.
+            ->when(! $scope->seesAll(), fn ($q) => $q->whereIn('location_id', $scope->locationIds ?? []))
             ->orderBy('sort_order')->orderBy('name')->get()
             ->map(fn (Resource $r) => [
                 'id' => $r->id,
                 'name' => $r->name,
                 'is_active' => (bool) $r->is_active,
+                'location_id' => $r->location_id,
                 'payroll_mode' => $r->payroll_mode,
                 'base_amount' => (float) $r->base_amount,
                 'base_period' => $r->base_period,

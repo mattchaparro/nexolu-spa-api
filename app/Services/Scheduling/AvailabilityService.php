@@ -44,6 +44,9 @@ class AvailabilityService
         CarbonImmutable $date,
         ?Resource $onlyResource = null,
         ?CarbonImmutable $now = null,
+        // Solo esta sede. Null = todas, que es lo correcto para el negocio de
+        // un solo local y lo que hacia antes de que existieran las sedes.
+        ?int $locationId = null,
     ): array {
         $tz = $business->businessTimezone();
         $now ??= CarbonImmutable::now($tz);
@@ -58,7 +61,7 @@ class AvailabilityService
         }
 
         $earliest = $now->addMinutes($notice);
-        $resources = $this->candidateResources($business, $service, $onlyResource);
+        $resources = $this->candidateResources($business, $service, $onlyResource, $locationId);
 
         if ($resources->isEmpty()) {
             return [];
@@ -125,6 +128,16 @@ class AvailabilityService
         CarbonImmutable $date,
         ?CarbonImmutable $now = null,
         ?int $preferredResourceId = null,
+        /*
+         * Solo esta sede.
+         *
+         * En una cadena importa el doble: sin filtro, la continuidad podria
+         * "resolverse" mandando el manicure a Chapinero y el pedicure a
+         * Cedritos. Nadie cruza la ciudad entre servicio y servicio, y
+         * `BookingService` lo rechazaria al reservar -- pero recien despues de
+         * que la clienta eligio esa hora.
+         */
+        ?int $locationId = null,
     ): array {
         if ($services === []) {
             return [];
@@ -158,7 +171,7 @@ class AvailabilityService
         $candidatesByService = [];
 
         foreach ($services as $index => $service) {
-            $candidates = $this->candidateResources($business, $service, null);
+            $candidates = $this->candidateResources($business, $service, null, $locationId);
 
             if ($candidates->isEmpty()) {
                 // Un eslabon que nadie presta hace imposible la cadena entera.
@@ -233,8 +246,8 @@ class AvailabilityService
      * que una que a veces reparte de forma menos elegante.
      *
      * @param  list<Service>  $services
-     * @param  array<int, array{resource: Resource, windows: list<TimeWindow>}>  $freeByResource
-     * @return list<array{service: Service, resource: Resource, starts_at: CarbonImmutable, ends_at: CarbonImmutable}>|null
+     * @param  array<int, array{resource: resource, windows: list<TimeWindow>}>  $freeByResource
+     * @return list<array{service: Service, resource: resource, starts_at: CarbonImmutable, ends_at: CarbonImmutable}>|null
      */
     private function fitChain(
         array $services,
@@ -470,8 +483,8 @@ class AvailabilityService
     /**
      * Los candidatos con la persona anterior de primera.
      *
-     * @param  list<Resource>  $candidates
-     * @return list<Resource>
+     * @param  list<resource>  $candidates
+     * @return list<resource>
      */
     private function orderedCandidates(array $candidates, ?int $previousId): array
     {
@@ -493,7 +506,7 @@ class AvailabilityService
         return [...$primero, ...$resto];
     }
 
-    /** @param list<Resource> $candidates */
+    /** @param list<resource> $candidates */
     private function canDo(array $candidates, int $resourceId): bool
     {
         foreach ($candidates as $resource) {
@@ -755,16 +768,33 @@ class AvailabilityService
             ->all();
     }
 
-    /** @return Collection<int, Resource> */
-    private function candidateResources(Business $business, Service $service, ?Resource $onlyResource): Collection
-    {
+    /** @return Collection<int, resource> */
+    /**
+     * Quien puede prestar este servicio, opcionalmente en una sola sede.
+     *
+     * El filtro de sede va ACA y no en cada pantalla porque es el unico punto
+     * por el que pasan las tres formas de preguntar por un hueco -- servicio
+     * suelto, cadena y pagina publica. Repartirlo entre los que llaman
+     * garantiza que una se quede sin filtrar, y esa es justo la que le ofrece
+     * a la clienta una hora en el otro local.
+     */
+    private function candidateResources(
+        Business $business,
+        Service $service,
+        ?Resource $onlyResource,
+        ?int $locationId = null,
+    ): Collection {
         if ($onlyResource !== null) {
-            return collect([$onlyResource])->filter(fn (Resource $r) => $r->is_active)->values();
+            return collect([$onlyResource])
+                ->filter(fn (Resource $r) => $r->is_active
+                    && ($locationId === null || $r->location_id === $locationId))
+                ->values();
         }
 
         return $service->resources()
             ->where('resources.business_id', $business->id)
             ->where('resources.is_active', true)
+            ->when($locationId !== null, fn ($q) => $q->where('resources.location_id', $locationId))
             ->get();
     }
 

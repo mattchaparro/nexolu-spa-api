@@ -237,10 +237,23 @@ class PayrollService
      *
      * @return list<array<string, mixed>>
      */
-    public function pending(Business $business, CarbonImmutable $until): array
+    /**
+     * @param  list<int>|null  $locationIds  null = todas las sedes.
+     */
+    public function pending(Business $business, CarbonImmutable $until, ?array $locationIds = null): array
     {
         return Resource::where('type', Resource::TYPE_STAFF)
             ->where('is_active', true)
+            /*
+             * Por la sede de LA PERSONA, no la de sus citas.
+             *
+             * Es la unica lectura que no descuadra la liquidacion: lo que se
+             * le paga sale de todo lo que atendio, y una persona que se
+             * traslado a mitad de quincena tiene comisiones de los dos
+             * locales. Partirlas por la sede de cada cita dejaria media
+             * liquidacion en cada lista y ninguna de las dos se podria pagar.
+             */
+            ->when($locationIds !== null, fn ($q) => $q->whereIn('location_id', $locationIds))
             ->orderBy('sort_order')
             ->orderBy('name')
             ->get()

@@ -39,6 +39,11 @@ class AvailabilityController
             // ella no presta uno de los servicios o no esta libre, la hora se
             // ofrece igual diciendo quien toma ese tramo.
             'resource_id' => ['nullable', 'integer'],
+            // Toda la cadena en el mismo local. Sin esto la continuidad podria
+            // "resolverse" mandando el manicure a un local y el pedicure al
+            // otro -- algo que nadie hace y que `BookingService` rechaza, pero
+            // recien despues de que la clienta eligio esa hora.
+            'location_id' => ['nullable', 'integer'],
         ]);
 
         $business = $request->user()->business;
@@ -65,6 +70,7 @@ class AvailabilityController
             $services,
             CarbonImmutable::parse($data['date'], $tz),
             preferredResourceId: $preferred?->id,
+            locationId: $data['location_id'] ?? null,
         );
 
         $quote = $package?->quote();
@@ -140,6 +146,15 @@ class AvailabilityController
             'service_id' => ['required', 'integer'],
             'date' => ['required', 'date_format:Y-m-d'],
             'resource_id' => ['nullable', 'integer'],
+            /*
+             * En que local. Se agenda EN una sede, igual que se cobra en una
+             * caja: nadie se hace las manos en Chapinero y los pies en
+             * Cedritos, y ofrecer horas del otro local es ofrecer un viaje.
+             *
+             * Sigue siendo opcional para no romper al negocio de un solo
+             * local, que nunca lo manda.
+             */
+            'location_id' => ['nullable', 'integer'],
         ]);
 
         $business = $request->user()->business;
@@ -157,6 +172,7 @@ class AvailabilityController
             $service,
             CarbonImmutable::parse($data['date'], $tz),
             $resource,
+            locationId: $data['location_id'] ?? null,
         );
 
         return response()->json([
