@@ -2,9 +2,9 @@
 
 namespace App\Services\Scheduling\Actions;
 
-use App\Services\Messaging\Contracts\MessagingChannel;
+use App\Models\Message;
+use App\Services\Messaging\MessageDispatcher;
 use App\Services\Ratings\SurveyService;
-use App\Support\ChannelPhone;
 use App\Support\Scheduling\StageActionCatalog;
 use App\Support\Scheduling\StageMessage;
 
@@ -24,7 +24,7 @@ use App\Support\Scheduling\StageMessage;
 class SendSurveyAction implements StageAction
 {
     public function __construct(
-        private readonly MessagingChannel $channel,
+        private readonly MessageDispatcher $dispatcher,
         private readonly SurveyService $survey,
     ) {}
 
@@ -50,10 +50,6 @@ class SendSurveyAction implements StageAction
             return StageActionResult::skipped('El cliente ya respondió esta encuesta.');
         }
 
-        if (! $this->channel->isConfigured()) {
-            return StageActionResult::skipped('El canal de mensajería no está configurado.');
-        }
-
         $phone = $appointment->client_phone ?? $appointment->client?->phone;
 
         if (! $phone) {
@@ -72,15 +68,27 @@ class SendSurveyAction implements StageAction
             $context->stage,
         );
 
-        $sent = $this->channel->sendText(
-            ChannelPhone::normalize($phone, $business?->country_code ?? 'CO'),
+        $message = $this->dispatcher->queue(
+            $business,
+            Message::KIND_SURVEY,
+            $phone,
             $body,
-            $business?->id,
-            'encuesta',
+            $appointment,
         );
 
-        return $sent
-            ? StageActionResult::ok("Encuesta enviada a {$phone}.")
-            : StageActionResult::failed('El canal rechazó el envío.');
+        if ($message === null) {
+            return StageActionResult::skipped('Ya se le mandó la encuesta de esta cita.');
+        }
+
+        return match ($message->status) {
+            Message::STATUS_SENT => StageActionResult::ok("Encuesta enviada a {$phone}."),
+            Message::STATUS_MANUAL => StageActionResult::ok(
+                "Encuesta lista para enviarle a {$phone}. Está en «Mensajes por enviar»."
+            ),
+            // El motivo, no un "falló" genérico: la diferencia entre un timeout
+            // y un número inválido es la diferencia entre reintentar y
+            // corregir la ficha.
+            default => StageActionResult::failed($message->error ?? 'El canal rechazó el envío.'),
+        };
     }
 }

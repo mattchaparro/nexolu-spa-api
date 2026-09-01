@@ -18,10 +18,23 @@ class Business extends Model
     use HasFactory, SoftDeletes;
 
     protected $fillable = [
-        'name', 'slug', 'vertical', 'timezone', 'country_code', 'currency',
+        'name', 'slug', 'vertical', 'timezone', 'country_code', 'currency', 'messaging_mode',
         'phone', 'email', 'address', 'logo_path', 'cover_path',
         'public_profile', 'feature_flags', 'plan_limits', 'subscription_plan', 'scheduling_settings', 'commission_settings', 'is_active',
         'appointment_workflow_id',
+    ];
+
+    /**
+     * `manual` tambien EN MEMORIA, no solo como default de la columna.
+     *
+     * Sin esto, un negocio recien creado tiene `messaging_mode` null hasta que
+     * alguien lo relee de la base: el default de MySQL no vuelve solo. Cada
+     * camino que preguntara "¿este negocio manda solo?" sobre la instancia
+     * fresca leeria null, y aunque la respuesta segura es la misma, la
+     * pantalla mostraria un modo vacio.
+     */
+    protected $attributes = [
+        'messaging_mode' => 'manual',
     ];
 
     protected function casts(): array

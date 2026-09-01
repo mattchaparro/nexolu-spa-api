@@ -23,6 +23,7 @@ use App\Http\Controllers\Api\V1\Admin\LoyaltyProgramController;
 use App\Http\Controllers\Api\V1\ClientProfileController;
 use App\Http\Controllers\Api\V1\LoyaltyCardController;
 use App\Http\Controllers\Api\V1\ExpenseController;
+use App\Http\Controllers\Api\V1\MessageController;
 use App\Http\Controllers\Api\V1\MyWorkController;
 use App\Http\Controllers\Api\V1\PayrollController;
 use App\Http\Controllers\Api\V1\PublicBookingController;
@@ -351,6 +352,25 @@ Route::prefix('v1')->group(function () {
         | controla es ABRIR la segunda, y eso se defiende en `store()` con el
         | tope del plan.
         */
+        /*
+        |----------------------------------------------------------------------
+        | Mensajes: la bandeja de salida
+        |----------------------------------------------------------------------
+        | Existe sobre todo por el MODO MANUAL -- como opera un negocio mientras
+        | no tenga un numero de WhatsApp aprobado, y como van a querer seguir
+        | operando algunos. Sin esta pantalla, un aviso que el sistema preparo
+        | no lo ve nadie.
+        |
+        | Con `citas.ver` y no con un permiso propio: quien atiende el mostrador
+        | es quien manda estos mensajes, y ya tiene ese permiso.
+        */
+        Route::prefix('messages')->middleware('permission:citas.ver')->group(function () {
+            Route::get('/', [MessageController::class, 'index']);
+            Route::post('/{message}/sent', [MessageController::class, 'markSent']);
+            Route::post('/{message}/retry', [MessageController::class, 'retry']);
+            Route::delete('/{message}', [MessageController::class, 'destroy']);
+        });
+
         Route::prefix('locations')
             ->middleware('permission:negocio.configurar')
             ->group(function () {

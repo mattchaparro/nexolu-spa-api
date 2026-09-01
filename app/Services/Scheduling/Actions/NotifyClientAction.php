@@ -2,9 +2,8 @@
 
 namespace App\Services\Scheduling\Actions;
 
-use App\Models\Business;
-use App\Services\Messaging\Contracts\MessagingChannel;
-use App\Support\ChannelPhone;
+use App\Models\Message;
+use App\Services\Messaging\MessageDispatcher;
 use App\Support\Scheduling\StageActionCatalog;
 use App\Support\Scheduling\StageMessage;
 
@@ -17,7 +16,7 @@ use App\Support\Scheduling\StageMessage;
  */
 class NotifyClientAction implements StageAction
 {
-    public function __construct(private readonly MessagingChannel $channel) {}
+    public function __construct(private readonly MessageDispatcher $dispatcher) {}
 
     public function type(): string
     {
@@ -29,10 +28,6 @@ class NotifyClientAction implements StageAction
         $appointment = $context->appointment;
         $business = $appointment->business;
 
-        if (! $this->channel->isConfigured()) {
-            return StageActionResult::skipped('El canal de mensajería no está configurado.');
-        }
-
         $phone = $appointment->client_phone ?? $appointment->client?->phone;
 
         if (! $phone) {
@@ -41,21 +36,41 @@ class NotifyClientAction implements StageAction
             return StageActionResult::skipped('El cliente no tiene teléfono registrado.');
         }
 
-        $body = StageMessage::render(
-            (string) $context->config('template', ''),
+        /*
+         * Ya NO se pregunta si el canal esta configurado.
+         *
+         * Antes, sin canal, esto no hacia nada: el aviso se perdia y el negocio
+         * ni se enteraba de que existia. Ahora el mensaje se guarda igual y
+         * aparece en "Mensajes por enviar" para que alguien lo mande a mano.
+         * El canal decide COMO sale, no SI existe.
+         */
+        $message = $this->dispatcher->queue(
+            $business,
+            Message::KIND_STAGE,
+            $phone,
+            StageMessage::render(
+                (string) $context->config('template', ''),
+                $appointment,
+                $context->stage,
+            ),
             $appointment,
-            $context->stage,
         );
 
-        $sent = $this->channel->sendText(
-            ChannelPhone::normalize($phone, $business?->country_code ?? 'CO'),
-            $body,
-            $business?->id,
-            'cita_'.$context->stage->key,
-        );
+        if ($message === null) {
+            // Repetido: ya hay un aviso de etapa para esta cita. Volver a
+            // moverla de etapa no le manda un segundo mensaje al cliente.
+            return StageActionResult::skipped('Ya se le avisó al cliente de esta cita.');
+        }
 
-        return $sent
-            ? StageActionResult::ok("Mensaje enviado a {$phone}.")
-            : StageActionResult::failed('El canal rechazó el envío.');
+        return match ($message->status) {
+            Message::STATUS_SENT => StageActionResult::ok("Mensaje enviado a {$phone}."),
+            Message::STATUS_MANUAL => StageActionResult::ok(
+                "Mensaje listo para enviarle a {$phone}. Está en «Mensajes por enviar»."
+            ),
+            // El motivo, no un "falló" genérico: la diferencia entre un timeout
+            // y un número inválido es la diferencia entre reintentar y
+            // corregir la ficha.
+            default => StageActionResult::failed($message->error ?? 'El canal rechazó el envío.'),
+        };
     }
 }

@@ -55,6 +55,14 @@ class StageWorkflowTest extends TestCase
         $this->workflow = DefaultWorkflow::sync();
 
         $this->business = $this->makeBusiness();
+
+        /*
+         * Envío automático. Un negocio nace en `manual` -- nada sale solo, los
+         * mensajes esperan a que una persona los mande -- y estas pruebas son
+         * justamente sobre lo que SÍ sale. El modo manual tiene las suyas en
+         * MessagingTest.
+         */
+        $this->business->update(['messaging_mode' => 'auto']);
         $this->business->update(['appointment_workflow_id' => $this->workflow->id]);
 
         $this->admin = User::create([

@@ -2,8 +2,8 @@
 
 namespace App\Services\Scheduling\Actions;
 
-use App\Services\Messaging\Contracts\MessagingChannel;
-use App\Support\ChannelPhone;
+use App\Models\Message;
+use App\Services\Messaging\MessageDispatcher;
 use App\Support\Scheduling\StageActionCatalog;
 use App\Support\Scheduling\StageMessage;
 
@@ -16,7 +16,7 @@ use App\Support\Scheduling\StageMessage;
  */
 class NotifyStaffAction implements StageAction
 {
-    public function __construct(private readonly MessagingChannel $channel) {}
+    public function __construct(private readonly MessageDispatcher $dispatcher) {}
 
     public function type(): string
     {
@@ -25,10 +25,6 @@ class NotifyStaffAction implements StageAction
 
     public function execute(StageActionContext $context): StageActionResult
     {
-        if (! $this->channel->isConfigured()) {
-            return StageActionResult::skipped('El canal de mensajería no está configurado.');
-        }
-
         $appointment = $context->appointment;
         $business = $appointment->business;
 
@@ -38,21 +34,31 @@ class NotifyStaffAction implements StageAction
             return StageActionResult::skipped('Quien atiende no tiene teléfono registrado.');
         }
 
-        $body = StageMessage::render(
-            (string) $context->config('template', ''),
+        $message = $this->dispatcher->queue(
+            $business,
+            Message::KIND_STAFF,
+            $phone,
+            StageMessage::render(
+                (string) $context->config('template', ''),
+                $appointment,
+                $context->stage,
+            ),
             $appointment,
-            $context->stage,
         );
 
-        $sent = $this->channel->sendText(
-            ChannelPhone::normalize($phone, $business?->country_code ?? 'CO'),
-            $body,
-            $business?->id,
-            'equipo_'.$context->stage->key,
-        );
+        if ($message === null) {
+            return StageActionResult::skipped('Ya se le avisó al equipo de esta cita.');
+        }
 
-        return $sent
-            ? StageActionResult::ok('Aviso enviado al equipo.')
-            : StageActionResult::failed('El canal rechazó el envío.');
+        return match ($message->status) {
+            Message::STATUS_SENT => StageActionResult::ok('Aviso enviado al equipo.'),
+            Message::STATUS_MANUAL => StageActionResult::ok(
+                'Aviso listo en «Mensajes por enviar».'
+            ),
+            // El motivo, no un "falló" genérico: la diferencia entre un timeout
+            // y un número inválido es la diferencia entre reintentar y
+            // corregir la ficha.
+            default => StageActionResult::failed($message->error ?? 'El canal rechazó el envío.'),
+        };
     }
 }

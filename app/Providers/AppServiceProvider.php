@@ -22,12 +22,25 @@ class AppServiceProvider extends ServiceProvider
         // Graph API de Meta -- este producto nace hablando solo con Nexolu
         // Communications. No hay segundo driver a proposito: agregar uno
         // seria reintroducir la deuda que el POS todavia esta pagando.
-        //
-        // LoggingMessagingChannel envuelve el canal para que todo envio quede
-        // registrado sin que el codigo que lo dispara tenga que acordarse.
-        $this->app->bind(MessagingChannel::class, fn () => new LoggingMessagingChannel(
-            $this->app->make(NexoluCommsChannel::class)
-        ));
+        /*
+         * El registro de lo enviado ya NO vive en un decorador.
+         *
+         * Habia uno -- `LoggingMessagingChannel` -- que escribia a un modelo
+         * `WhatsappLog` que en este repo NUNCA EXISTIO: el primer envio real
+         * habria muerto con un class not found. No se noto porque
+         * `isConfigured()` devuelve false sin credenciales y la rama nunca se
+         * ejecuto. Es la clase de bug que espera al dia del lanzamiento.
+         *
+         * Ahora lo lleva `MessageDispatcher`, y en una TABLA con estado en vez
+         * de un log: un mensaje que solo existe en un archivo de texto no se
+         * puede reintentar, ni contar, ni mostrarle a quien administra. Es la
+         * misma leccion de `ratings:reinsert` en Blue Souls, donde hubo que
+         * recuperar calificaciones parseando los logs de Laravel.
+         */
+        $this->app->bind(
+            MessagingChannel::class,
+            fn () => $this->app->make(NexoluCommsChannel::class),
+        );
 
         $this->app->bind(MessagingCostReporter::class, fn () => $this->app->make(NexoluCommsCostReporter::class));
     }
