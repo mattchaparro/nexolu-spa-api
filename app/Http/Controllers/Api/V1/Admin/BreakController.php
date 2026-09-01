@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1\Admin;
 
 use App\Models\Resource;
 use App\Models\ResourceBreak;
+use App\Support\LocationScope;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -109,9 +110,23 @@ class BreakController
 
         // El recurso se resuelve DENTRO del scope del negocio: mandar el id de
         // otra profesional de otro spa tiene que dar 404.
-        $resourceId = isset($data['resource_id'])
-            ? Resource::findOrFail($data['resource_id'])->id
+        $resource = isset($data['resource_id'])
+            ? Resource::findOrFail($data['resource_id'])
             : null;
+
+        /*
+         * Y de una sede que esta persona pueda ver. Mismo 404: quien
+         * administra Cedritos no puede ponerle el almuerzo a alguien de
+         * Chapinero probando numeros -- esa persona perderia horas de agenda
+         * sin que nadie sepa por que. Que ese recurso exista tampoco es
+         * asunto suyo, asi que se responde igual que si no existiera.
+         */
+        abort_if(
+            $resource !== null && ! LocationScope::for($request->user())->allows($resource->location_id),
+            404,
+        );
+
+        $resourceId = $resource?->id;
 
         return [
             'business_id' => $business->id,

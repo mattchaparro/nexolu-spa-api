@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Support\BusinessPlanLimits;
 use App\Support\ChannelPhone;
 use App\Support\ImageStorage;
+use App\Support\LocationScope;
 use App\Support\PermissionCatalog;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -108,6 +109,8 @@ class ResourceAdminController
 
     public function update(Request $request, Resource $resource): JsonResponse
     {
+        $this->assertVisible($request, $resource);
+
         $business = $request->user()->business;
 
         $data = $request->validate([
@@ -194,8 +197,26 @@ class ResourceAdminController
     }
 
     /** @return JsonResponse Horarios recurrentes del recurso. */
-    public function schedules(Resource $resource): JsonResponse
+    /**
+     * Que esta persona pueda mirar -- y tocar -- a ese recurso.
+     *
+     * El id llega por la URL, asi que no basta con que los listados dejen de
+     * mostrar a la gente del otro local: sin esto, quien administra Cedritos
+     * puede cambiarle el horario a alguien de Chapinero con solo probar
+     * numeros. 404 y no 403: que exista o no tampoco es asunto suyo.
+     */
+    private function assertVisible(Request $request, Resource $resource): void
     {
+        abort_unless(
+            LocationScope::for($request->user())->allows($resource->location_id),
+            404,
+        );
+    }
+
+    public function schedules(Request $request, Resource $resource): JsonResponse
+    {
+        $this->assertVisible($request, $resource);
+
         return response()->json(
             $resource->schedules()->orderBy('weekday')->orderBy('start_time')->get()
                 ->map(fn (ResourceSchedule $s) => [
@@ -218,6 +239,8 @@ class ResourceAdminController
      */
     public function saveSchedules(Request $request, Resource $resource): JsonResponse
     {
+        $this->assertVisible($request, $resource);
+
         $data = $request->validate([
             'schedules' => ['present', 'array'],
             'schedules.*.weekday' => ['required', 'integer', 'between:1,7'],
@@ -243,7 +266,7 @@ class ResourceAdminController
             }
         });
 
-        return $this->schedules($resource->fresh());
+        return $this->schedules($request, $resource->fresh());
     }
 
     private function validated(Request $request, int $businessId): array

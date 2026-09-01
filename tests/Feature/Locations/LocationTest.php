@@ -230,6 +230,44 @@ class LocationTest extends TestCase
         $this->assertSame($this->chapinero->id, $maria->fresh()->location_id);
     }
 
+    public function test_no_se_le_toca_el_horario_ni_el_almuerzo_a_alguien_de_otra_sede(): void
+    {
+        /*
+         * El id llega por la URL, así que no basta con que los listados dejen
+         * de mostrar a la gente del otro local: sin esta regla, quien
+         * administra Cedritos le cambia el horario a alguien de Chapinero con
+         * sólo probar números, y esa persona pierde horas de agenda sin que
+         * nadie sepa por qué.
+         */
+        $cedritos = $this->abrirCedritos();
+        $maria = $this->makeResource($this->business, 'Maria', '09:00:00', '18:00:00', [1, 2, 3, 4, 5, 6]);
+
+        $encargada = User::create([
+            'business_id' => $this->business->id, 'name' => 'Encargada',
+            'email' => 'cedritos@prueba.test', 'password' => Hash::make('password123'),
+            'is_active' => true,
+        ]);
+        PermissionCatalog::applyRole($encargada, PermissionCatalog::ROLE_ADMIN);
+        $encargada->locations()->sync([$cedritos->id]);
+        Sanctum::actingAs($encargada->fresh());
+
+        // 404 y no 403: que esa persona exista tampoco es asunto suyo.
+        $this->getJson("/api/v1/resources/{$maria->id}/schedules")->assertStatus(404);
+
+        $this->putJson("/api/v1/resources/{$maria->id}/schedules", [
+            'schedules' => [['weekday' => 1, 'start_time' => '08:00', 'end_time' => '09:00']],
+        ])->assertStatus(404);
+
+        $this->postJson("/api/v1/resources/{$maria->id}", ['name' => 'Renombrada'])->assertStatus(404);
+
+        $this->postJson('/api/v1/breaks', [
+            'resource_id' => $maria->id,
+            'start_time' => '12:00', 'end_time' => '13:00',
+        ])->assertStatus(404);
+
+        $this->assertSame('Maria', $maria->fresh()->name);
+    }
+
     public function test_mi_pagina_muestra_el_enlace_de_cada_sede(): void
     {
         // Sin esto el enlace por sede existe y nadie lo encuentra: quien
