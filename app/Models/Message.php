@@ -35,6 +35,8 @@ class Message extends Model
 
     public const KIND_STAFF = 'equipo';
 
+    public const KIND_WAITLIST = 'lista_espera';
+
     protected $fillable = [
         'business_id', 'location_id', 'kind', 'to', 'client_id', 'appointment_id',
         'body', 'status', 'attempts', 'sent_at', 'failed_at', 'error', 'sent_by_user_id',

@@ -13,9 +13,12 @@ use App\Models\ServicePackage;
 use App\Models\User;
 use App\Services\Scheduling\Exceptions\OutsideWorkingHoursException;
 use App\Services\Scheduling\Exceptions\SlotUnavailableException;
+use App\Services\Waitlist\WaitlistService;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\QueryException;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Crea, reagenda y cancela citas.
@@ -151,6 +154,24 @@ class BookingService
                 }
             }
 
+            /*
+             * Si esta persona esperaba un cupo como este, su espera termino.
+             *
+             * Cierra tambien la satisfaccion ORGANICA -- volvio a mirar la
+             * pagina y encontro hueco sola -- no solo la que vino del aviso.
+             * Sin esto se le seguiria avisando de algo que ya tiene, que es
+             * la forma mas rapida de que pida no recibir nada mas.
+             */
+            try {
+                app(WaitlistService::class)
+                    ->closeSatisfiedBy($appointment->fresh(['items', 'business']));
+            } catch (\Throwable $e) {
+                Log::warning('Fallo el cierre de lista de espera', [
+                    'appointment_id' => $appointment->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+
             return $appointment->load('items');
         });
     }
@@ -188,6 +209,17 @@ class BookingService
             $item = $items->first();
             $resource = $newResource ?? $item->resource;
             $service = $item->service;
+
+            /*
+             * El hueco VIEJO se captura antes de mover, porque despues del
+             * update los items ya tienen la hora nueva y "lo que se libero"
+             * seria mentira. Es lo que alimenta la lista de espera -- y la
+             * cascada: quien toma un cupo mueve su cita, mover libera la
+             * anterior, y eso avisa al siguiente. La cascada no tiene codigo
+             * propio; es este aviso repitiendose.
+             */
+            $freedResource = $item->resource;
+            $freedStart = CarbonImmutable::parse($item->service_starts_at);
 
             /*
              * Cambiar de persona dentro de la misma sede es rutina; cambiarla
@@ -231,8 +263,27 @@ class BookingService
                 'ends_at' => $window['service_ends_at'],
             ]);
 
+            $this->notifyWaitlistSlot($business, $freedResource, $freedStart, $appointment->client_id);
+
             return $appointment->fresh('items');
         });
+    }
+
+    /** Como notifyWaitlist(), pero para un hueco suelto que quedo libre al mover. */
+    private function notifyWaitlistSlot(
+        Business $business,
+        Resource $resource,
+        CarbonImmutable $freedStart,
+        ?int $excludeClientId,
+    ): void {
+        try {
+            app(WaitlistService::class)
+                ->slotFreed($business, $resource, $freedStart, $excludeClientId);
+        } catch (\Throwable $e) {
+            Log::warning('Fallo el aviso a la lista de espera', [
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     /**
@@ -242,7 +293,7 @@ class BookingService
      * las lineas por igual. Asi la separacion entre los servicios se mantiene:
      * si el pedicure empezaba 15 minutos despues del manicure, sigue haciendolo.
      *
-     * @param  \Illuminate\Support\Collection<int, AppointmentItem>  $items
+     * @param  Collection<int, AppointmentItem>  $items
      */
     private function shiftChain(
         Appointment $appointment,
@@ -304,8 +355,31 @@ class BookingService
                 $byUserId ? User::find($byUserId) : null,
             );
 
+            $this->notifyWaitlist($appointment);
+
             return $appointment->refresh();
         });
+    }
+
+    /**
+     * Avisarle a la lista de espera que esta cita solto su horario.
+     *
+     * Blindado a proposito: la lista de espera es una oportunidad, no una
+     * garantia del nucleo. Que falle el aviso no puede impedir cancelar una
+     * cita -- seria dejar el mostrador atascado por la funcion accesoria.
+     * Mismo criterio que un canal de mensajeria caido.
+     */
+    private function notifyWaitlist(Appointment $appointment): void
+    {
+        try {
+            app(WaitlistService::class)
+                ->appointmentFreed($appointment->fresh(['items.resource', 'business']));
+        } catch (\Throwable $e) {
+            Log::warning('Fallo el aviso a la lista de espera', [
+                'appointment_id' => $appointment->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     /**
@@ -353,7 +427,7 @@ class BookingService
      * trabajo hecho en la otra, que es exactamente lo que la sede viene a
      * ordenar.
      *
-     * @param  list<array{resource:Resource}>  $resolved
+     * @param  list<array{resource:resource}>  $resolved
      */
     private function assertSingleLocation(array $resolved): void
     {
@@ -371,7 +445,7 @@ class BookingService
 
     /**
      * @param  list<array{service_id:int, resource_id:int, starts_at:string|CarbonImmutable}>  $items
-     * @return list<array{service:Service, resource:Resource, starts_at:CarbonImmutable, ends_at:CarbonImmutable, service_starts_at:CarbonImmutable, service_ends_at:CarbonImmutable}>
+     * @return list<array{service:Service, resource:resource, starts_at:CarbonImmutable, ends_at:CarbonImmutable, service_starts_at:CarbonImmutable, service_ends_at:CarbonImmutable}>
      */
     private function resolveItems(Business $business, array $items, string $tz, bool $enforceSchedule = true): array
     {

@@ -32,6 +32,7 @@ use App\Http\Controllers\Api\V1\ResourceController;
 use App\Http\Controllers\Api\V1\SalesReportController;
 use App\Http\Controllers\Api\V1\ServiceController;
 use App\Http\Controllers\Api\V1\StageController;
+use App\Http\Controllers\Api\V1\WaitlistController;
 use App\Http\Controllers\Api\V1\WalkInController;
 use Illuminate\Support\Facades\Route;
 
@@ -468,6 +469,23 @@ Route::prefix('v1')->group(function () {
             // de lectura: mirar la pagina es gratis, llenar la agenda no.
             Route::post('/appointments', [PublicBookingController::class, 'store'])
                 ->middleware('throttle:reserva-publica');
+
+            /*
+             * Lista de espera: "avisame si se libera algo". El cupo liberado
+             * se anuncia a todos los que encajan y es de quien lo tome primero
+             * — el arbitro es el indice unico de resource_occupancy.
+             */
+            Route::post('/waitlist', [WaitlistController::class, 'store'])
+                ->middleware('throttle:reserva-publica');
+
+            Route::prefix('cupo/{token}')->group(function () {
+                Route::get('/', [WaitlistController::class, 'show']);
+
+                Route::middleware('throttle:reserva-publica')->group(function () {
+                    Route::post('/take', [WaitlistController::class, 'take']);
+                    Route::post('/stop', [WaitlistController::class, 'stop']);
+                });
+            });
         });
 });
 
