@@ -100,6 +100,12 @@ class Appointment extends Model
         return $this->belongsTo(Location::class);
     }
 
+    /** Los avisos que se le prepararon a esta cita. */
+    public function messages(): HasMany
+    {
+        return $this->hasMany(Message::class);
+    }
+
     public function items(): HasMany
     {
         return $this->hasMany(AppointmentItem::class)->orderBy('sort_order');

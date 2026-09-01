@@ -124,6 +124,25 @@ final class StageMessage
     }
 
     /**
+     * El recordatorio de la cita.
+     *
+     * Lleva el enlace de "mis citas" a proposito, y ahi esta la diferencia
+     * entre un recordatorio que sirve y uno que no: si la persona no va a
+     * poder, tiene que poder MOVERLA en ese momento, no acordarse de llamar
+     * mañana. Un recordatorio sin salida solo consigue que la inasistencia
+     * llegue avisada.
+     *
+     * Sin token de cliente el marcador queda vacio -- una cita a nombre suelto
+     * no tiene ficha a la que pertenecer -- y el mensaje se lee igual.
+     */
+    public static function defaultReminderTemplate(): string
+    {
+        return 'Hola {cliente}, te recordamos tu cita en {negocio} '
+            .'el {fecha} a las {hora} con {profesional}. '
+            .'Si necesitas cambiarla: {mis_citas}';
+    }
+
+    /**
      * Que decir cuando el negocio no escribio nada.
      *
      * Un mensaje generico y correcto es mejor que no mandar: el negocio marco

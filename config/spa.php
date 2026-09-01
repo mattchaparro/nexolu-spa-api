@@ -26,6 +26,16 @@ return [
         // Anticipacion minima para cancelar sin penalizacion.
         'min_cancellation_notice_min' => 180,
 
+        /*
+         * Cuantas horas antes se le recuerda la cita al cliente.
+         *
+         * 24 y no 2: el recordatorio sirve para que quien no va a poder avise
+         * A TIEMPO, no para que se acuerde de correr. Dos horas antes ya no
+         * alcanza a vender ese hueco otra vez, que es de lo que se trata bajar
+         * las inasistencias.
+         */
+        'reminder_hours_before' => 24,
+
         // Cuanto hacia adelante se puede reservar.
         'max_booking_horizon_days' => 60,
 
