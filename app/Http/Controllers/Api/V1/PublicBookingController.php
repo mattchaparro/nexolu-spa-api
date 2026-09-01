@@ -12,6 +12,7 @@ use App\Models\ResourceBreak;
 use App\Models\ResourceSchedule;
 use App\Models\Service;
 use App\Models\ServicePackage;
+use App\Models\ServiceRating;
 use App\Services\ClientPortalService;
 use App\Services\ClientResolver;
 use App\Services\Scheduling\AvailabilityService;
@@ -21,6 +22,7 @@ use App\Services\Scheduling\Exceptions\SlotUnavailableException;
 use App\Support\ChannelPhone;
 use App\Support\ImageStorage;
 use App\Support\PublicProfile;
+use App\Support\StaffRating;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -123,6 +125,7 @@ class PublicBookingController
             ->orderBy('name')
             ->get();
 
+        $perfil = PublicProfile::resolve($business);
         $sede = $this->publicLocation($business, $request->query('location'));
 
         /*
@@ -189,7 +192,7 @@ class PublicBookingController
             ],
             // Lo que el negocio dice de si mismo. Cuando llegue el constructor
             // de landings, sus bloques se suman aca sin tocar el resto.
-            'profile' => PublicProfile::resolve($business),
+            'profile' => $perfil,
             // Cuanto hay que abonar para separar, si el negocio lo pide. Va en
             // la carga inicial para que el paso de datos pueda decirlo ANTES de
             // que la persona llene el formulario, y no despues de confirmar.
@@ -197,6 +200,9 @@ class PublicBookingController
             'services' => $this->services($business),
             'packages' => $this->packages($business),
             'resources' => $this->resources($business, $sede?->id),
+            // Quien te atiende: foto, reseña y puntuación. Es la sección de
+            // colaboradores, distinta del selector de "con quién reservar".
+            'team' => $this->team($business, $sede?->id, (bool) $perfil['show_staff_ratings']),
             'hours' => $this->hours($business, $sede?->id),
         ]);
     }
@@ -719,6 +725,65 @@ class PublicBookingController
             ])
             ->values()
             ->all();
+    }
+
+    /**
+     * El equipo para la seccion de colaboradores: foto, resena y puntuacion.
+     *
+     * Separado de `resources()` a proposito, porque responden preguntas
+     * distintas. Aquel dice CON QUIEN SE PUEDE RESERVAR -- lo usa el selector
+     * del formulario y por eso filtra por `is_bookable_online`. Este dice A
+     * QUIEN VAS A ENCONTRAR, y son conjuntos que no coinciden: una manicurista
+     * cuya agenda maneja el mostrador no acepta reservas por internet y aun
+     * asi merece estar en la vitrina.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function team(Business $business, ?int $locationId, bool $showRatings): array
+    {
+        $staff = Resource::withoutGlobalScope('business')
+            ->where('business_id', $business->id)
+            ->where('type', Resource::TYPE_STAFF)
+            ->where('is_active', true)
+            ->where('is_public', true)
+            ->when($locationId !== null, fn ($q) => $q->where('location_id', $locationId))
+            ->orderBy('sort_order')
+            ->orderBy('name')
+            ->get();
+
+        /*
+         * Las notas de todo el equipo en UNA consulta.
+         *
+         * Pedirlas por persona serian tantas consultas como gente tenga el
+         * negocio, en la pagina que mas se abre y desde el navegador de
+         * WhatsApp. El promedio se calcula en `StaffRating`, sin base de
+         * datos, porque la regla que importa no es la division sino cuando se
+         * puede publicar.
+         */
+        $notas = $showRatings && $staff->isNotEmpty()
+            ? ServiceRating::withoutGlobalScopes()
+                ->where('business_id', $business->id)
+                ->whereIn('resource_id', $staff->pluck('id'))
+                ->get(['resource_id', 'staff_rating'])
+                ->groupBy('resource_id')
+            : collect();
+
+        return $staff->map(function (Resource $r) use ($notas, $showRatings) {
+            $suyas = $notas->get($r->id, collect())->pluck('staff_rating')->all();
+
+            return [
+                'id' => $r->id,
+                'name' => $r->name,
+                'photo_url' => ImageStorage::url($r->photo_path),
+                'bio' => $r->bio,
+                // Null cuando el negocio no publica notas O cuando todavia no
+                // hay suficientes. La pagina no muestra estrellas en ninguno
+                // de los dos casos, que es lo correcto: un 0.0 al lado de una
+                // foto lee como "pesimo", no como "todavia no sabemos".
+                'rating' => $showRatings ? StaffRating::average($suyas) : null,
+                'ratings_count' => $showRatings ? StaffRating::count($suyas) : 0,
+            ];
+        })->values()->all();
     }
 
     /**

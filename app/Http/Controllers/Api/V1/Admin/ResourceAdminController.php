@@ -87,6 +87,10 @@ class ResourceAdminController
                 'user_id' => $userId,
                 'name' => trim($data['name'].' '.($data['last_name'] ?? '')),
                 'color' => $data['color'] ?? null,
+                'bio' => $data['bio'] ?? null,
+                // Sale en la vitrina salvo que digan que no. Un equipo que hay
+                // que publicar uno por uno termina siendo una pagina vacia.
+                'is_public' => $data['is_public'] ?? true,
                 'is_bookable_online' => $data['is_bookable_online'] ?? true,
                 'is_active' => true,
                 'sort_order' => $data['sort_order'] ?? 0,
@@ -124,6 +128,10 @@ class ResourceAdminController
             // que "no lo mandaste" y no habria forma de quitarle el porcentaje
             // a alguien una vez puesto.
             'commission_rate' => ['sometimes', 'present', 'nullable', 'numeric', 'min:0', 'max:1'],
+            // `present` para poder BORRARLA: sin eso no habria forma de
+            // quitarle la resena a alguien una vez escrita.
+            'bio' => ['sometimes', 'present', 'nullable', 'string', 'max:280'],
+            'is_public' => ['nullable', 'boolean'],
             'location_id' => [
                 'sometimes', 'integer',
                 Rule::exists('locations', 'id')->where('business_id', $business->id),
@@ -286,6 +294,12 @@ class ResourceAdminController
             'is_bookable_online' => ['nullable', 'boolean'],
             'sort_order' => ['nullable', 'integer', 'min:0'],
             'photo' => ImageStorage::rules(),
+
+            // La resena corta de la pagina publica, y si sale ahi. Son dos
+            // preguntas distintas de `is_bookable_online`: alguien puede no
+            // aceptar reservas por internet y aun asi estar en la vitrina.
+            'bio' => ['nullable', 'string', 'max:280'],
+            'is_public' => ['nullable', 'boolean'],
 
             // Su porcentaje general. Manda sobre el del servicio: es parte de
             // su acuerdo, y un servicio nuevo no puede cambiarselo en silencio.

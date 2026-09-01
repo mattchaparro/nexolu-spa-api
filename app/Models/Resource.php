@@ -55,6 +55,7 @@ class Resource extends Model
 
     protected $fillable = [
         'business_id', 'location_id', 'type', 'user_id', 'name', 'color', 'photo_path',
+        'bio', 'is_public',
         'is_bookable_online', 'is_active', 'sort_order',
         'payroll_mode', 'commission_rate', 'base_amount', 'base_period', 'base_until', 'payroll_started_on',
     ];

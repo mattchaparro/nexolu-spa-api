@@ -21,6 +21,11 @@ class ResourceResource extends JsonResource
             'name' => $this->name,
             'color' => $this->color,
             'photo_url' => ImageStorage::url($this->photo_path),
+            // La reseña corta de la página pública, y si sale ahí. Distinto de
+            // `is_bookable_online`: alguien puede no aceptar reservas por
+            // internet y aun así merecer estar en la vitrina del local.
+            'bio' => $this->bio,
+            'is_public' => (bool) $this->is_public,
             'user_id' => $this->user_id,
             'is_bookable_online' => (bool) $this->is_bookable_online,
             'is_active' => (bool) $this->is_active,

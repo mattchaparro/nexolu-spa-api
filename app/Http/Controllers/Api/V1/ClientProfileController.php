@@ -4,13 +4,15 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Models\Appointment;
 use App\Models\AppointmentItem;
+use App\Models\Business;
 use App\Models\Client;
 use App\Models\ClientPhoto;
+use App\Services\ClientPortalService;
 use App\Support\ChannelPhone;
 use App\Support\ImageStorage;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Validation\Rule;
+use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -61,6 +63,29 @@ class ClientProfileController
         ]);
     }
 
+    /**
+     * "Mis citas" y el enlace de reserva con sus datos ya puestos.
+     *
+     * Se arman aca y no en el front porque el token no viaja en ningun otro
+     * lado: es el mismo que iria en el mensaje de WhatsApp cuando ese canal
+     * exista. Mientras tanto, quien atiende lo copia y lo manda desde su
+     * propio telefono, que es exactamente lo que hace hoy con todo.
+     *
+     * @return array<string, string|null>
+     */
+    private function links(Client $client, Business $business): array
+    {
+        $base = rtrim((string) config('app.frontend_url', ''), '/');
+        $token = app(ClientPortalService::class)->tokenFor($client);
+
+        return [
+            'portal' => "{$base}/mis-citas/{$business->slug}/{$token}",
+            // Reservar con el formulario ya lleno con su nombre, telefono y
+            // correo. Es el enlace que se le manda a quien pide cita por chat.
+            'booking' => "{$base}/reservar/{$business->slug}?c={$token}",
+        ];
+    }
+
     public function show(Request $request, Client $client): JsonResponse
     {
         $tz = $request->user()->business->businessTimezone();
@@ -80,6 +105,20 @@ class ClientProfileController
             'accepts_marketing' => (bool) $client->accepts_marketing,
             'is_active' => (bool) $client->is_active,
             'created_at' => $client->created_at?->setTimezone($tz)->toDateString(),
+
+            /*
+             * Los enlaces personales de esta persona, para copiarlos y
+             * mandarlos A MANO.
+             *
+             * Existen porque WhatsApp todavia no envia nada. Sin esto, "mis
+             * citas" y el prellenado del formulario son pantallas a las que
+             * nadie puede entrar hasta que Meta apruebe un numero -- y eso
+             * bloquea probar el producto entero, no solo la mensajeria.
+             *
+             * El token se genera al pedir la ficha, no antes: uno que nunca se
+             * abrio es superficie de ataque sin ninguna ventaja.
+             */
+            'links' => $this->links($client, $request->user()->business),
             'stats' => $this->stats($client, $tz),
             'history' => $this->history($client, $tz),
             'photos' => $this->photos($client, $tz),
@@ -270,7 +309,7 @@ class ClientProfileController
             ->all();
     }
 
-    /** @param  \Illuminate\Support\Collection<int, string>  $values */
+    /** @param  Collection<int, string>  $values */
     private function mostCommon($values): ?string
     {
         if ($values->isEmpty()) {

@@ -23,7 +23,15 @@ final class PublicProfile
         'whatsapp' => 'WhatsApp',
         'maps_url' => 'Enlace de Google Maps',
         'google_review_url' => 'Enlace para dejar reseña en Google',
+        'show_staff_ratings' => 'Mostrar la puntuación de cada persona',
     ];
+
+    /**
+     * Los que NO son texto. Se guardan y se leen como booleanos.
+     *
+     * @var list<string>
+     */
+    private const FLAGS = ['show_staff_ratings'];
 
     /** @return list<string> */
     public static function fields(): array
@@ -45,7 +53,7 @@ final class PublicProfile
      * Una pagina publica a medio llenar es peor que ninguna -- el cliente la
      * abre, ve huecos, y decide que el local no existe.
      *
-     * @return array<string, string|null>
+     * @return array<string, string|bool|null>
      */
     public static function resolve(Business $business): array
     {
@@ -67,6 +75,17 @@ final class PublicProfile
              * notas bajas sirven para llamar a esa persona, no para esconderla.
              */
             'google_review_url' => self::clean($stored['google_review_url'] ?? null),
+
+            /*
+             * Si la puntuacion de cada persona sale en la pagina.
+             *
+             * APAGADO por defecto, y no por timidez: publicar la nota de
+             * alguien es una decision sobre una persona real, no una
+             * preferencia de diseño. Una manicurista con 4.1 al lado de una
+             * con 4.9 en la vitrina del local es una conversacion que el dueño
+             * tiene que querer tener. Se enciende en un clic desde Mi pagina.
+             */
+            'show_staff_ratings' => (bool) ($stored['show_staff_ratings'] ?? false),
         ];
     }
 
@@ -74,13 +93,30 @@ final class PublicProfile
      * Guarda solo los campos conocidos, recortados.
      *
      * @param  array<string, mixed>  $input
-     * @return array<string, string>
+     * @return array<string, string|bool>
      */
     public static function sanitize(array $input): array
     {
         $result = [];
 
         foreach (self::fields() as $field) {
+            if (in_array($field, self::FLAGS, true)) {
+                /*
+                 * Un booleano se guarda SIEMPRE, tambien en false.
+                 *
+                 * Los de texto se omiten cuando vienen vacios -- asi el
+                 * titular puede caer al nombre del negocio -- pero con un
+                 * interruptor eso significaria que apagarlo no lo apaga: al
+                 * releer, el ausente vuelve a caer al default.
+                 */
+                $result[$field] = filter_var(
+                    $input[$field] ?? false,
+                    FILTER_VALIDATE_BOOLEAN,
+                );
+
+                continue;
+            }
+
             $value = self::clean($input[$field] ?? null);
 
             if ($value !== null) {
