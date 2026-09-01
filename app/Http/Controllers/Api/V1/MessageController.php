@@ -117,10 +117,21 @@ class MessageController
             ], 422);
         }
 
+        /*
+         * Directo y no por la cola, a propósito.
+         *
+         * Acá hay una persona mirando la pantalla que acaba de tocar
+         * "reintentar": necesita saber AHORA si funcionó. Encolarlo devolvería
+         * "listo" sin saber nada, y si vuelve a fallar se entera cuando vuelva
+         * a mirar la lista — o nunca.
+         *
+         * Es al revés que el envío automático, donde nadie espera la respuesta
+         * y lo que importa es no congelar el mostrador.
+         */
         return response()->json(
             $this->dispatcher->send($message)
                 ? ['message' => 'Enviado.']
-                : ['message' => 'Volvió a fallar. Queda guardado para reintentar.'],
+                : ['message' => 'Volvió a fallar: '.($message->fresh()->error ?? 'el canal lo rechazó.')],
         );
     }
 

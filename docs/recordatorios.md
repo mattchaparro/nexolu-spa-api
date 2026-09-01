@@ -102,11 +102,53 @@ recordatorio que sirve y uno que no: si la persona no va a poder, tiene que
 poder MOVERLA en ese momento, no acordarse de llamar mañana. Un recordatorio sin
 salida sólo consigue que la inasistencia llegue avisada.
 
+## El worker de colas
+
+El envío **no** ocurre en la petición que lo dispara. Lo que dispara un mensaje
+casi siempre es alguien esperando en el mostrador —mover una cita de etapa,
+cobrar, marcar una inasistencia— y hablar con el proveedor ahí dentro le suma a
+esa pantalla la latencia de una llamada HTTP a un servicio que no controlamos.
+Con un timeout de treinta segundos eso es la pantalla congelada mientras la
+clienta mira.
+
+Así que el mensaje se guarda, se encola, y un worker lo manda.
+
+```bash
+* * * * * cd /ruta/al/proyecto && php artisan schedule:run >> /dev/null 2>&1
+```
+
+Y el worker, que es un proceso permanente — con supervisor, systemd o lo que
+use el servidor:
+
+```bash
+php artisan queue:work --queue=default --sleep=3 --tries=3 --max-time=3600
+```
+
+`--max-time=3600` para que se reinicie cada hora: un worker de PHP que vive días
+acumula memoria y se queda con el código viejo después de un despliegue.
+
+**Sin worker, el sistema sigue funcionando.** Con `QUEUE_CONNECTION=sync` los
+jobs corren en el acto — es lo que pasa en las pruebas y en una instalación sin
+worker — así que no encender el worker no rompe nada, sólo devuelve la latencia
+al mostrador. Lo que NO hay que hacer es dejar `QUEUE_CONNECTION=database` sin
+worker: los jobs se acumulan en la tabla y nadie los procesa, que se ve igual
+que mensajes perdidos.
+
+### Reintentos
+
+Tres intentos, con espera de 1, 5 y 15 minutos. Casi todo lo que falla al mandar
+un mensaje es temporal —un timeout, el proveedor saturado— y reintentar de
+inmediato contra un servicio caído gasta los tres intentos en cinco segundos.
+
+Un número inválido, en cambio, va a fallar las tres veces. Para eso está el
+motivo guardado en la fila: para que una persona lo lea en la bandeja y corrija
+la ficha, en vez de esperar que la máquina adivine.
+
+El botón de «Reintentar» de la bandeja **sí** envía directo, sin cola: ahí hay
+alguien mirando que necesita saber ahora si funcionó.
+
 ## Lo que falta
 
-- **El envío es síncrono.** No hay worker de colas; un job encolado que nadie
-  procesa se ve igual que un mensaje perdido. Cuando exista el worker, cambia
-  una línea de `MessageDispatcher::queue()`.
 - **Un solo recordatorio por cita.** Dos (día antes + dos horas antes) chocarían
   con el índice único: haría falta que el `kind` lleve el desfase. Nadie lo ha
   pedido todavía.

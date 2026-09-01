@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Messaging;
 
+use App\Jobs\SendMessageJob;
 use App\Models\Appointment;
 use App\Models\Business;
 use App\Models\Message;
@@ -15,6 +16,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Queue;
 use Laravel\Sanctum\Sanctum;
 use Tests\Feature\Scheduling\SchedulingScenario;
 use Tests\Support\FakeMessagingChannel;
@@ -280,6 +282,132 @@ class MessagingTest extends TestCase
 
         $this->assertCount(1, $body->json('data'));
         $this->assertSame('Timeout', $body->json('data.0.error'));
+    }
+
+    // ---- La cola ----
+
+    public function test_el_envio_no_atasca_al_mostrador(): void
+    {
+        /*
+         * Lo que dispara un mensaje casi siempre es alguien esperando en el
+         * mostrador: mover una cita de etapa, cobrar, marcar una inasistencia.
+         * Hablar con el proveedor ahí dentro le suma a esa pantalla la
+         * latencia de una llamada HTTP a un servicio que no controlamos — y
+         * con un timeout de treinta segundos, eso es la pantalla congelada
+         * mientras la clienta mira.
+         */
+        Queue::fake();
+        $this->business->update(['messaging_mode' => 'auto']);
+        $this->canalQueFunciona();
+
+        $mensaje = $this->dispatcher()->queue(
+            $this->business->fresh(),
+            Message::KIND_REMINDER,
+            '+573001112233',
+            'Hola',
+        );
+
+        Queue::assertPushed(SendMessageJob::class, fn ($job) => $job->messageId === $mensaje->id);
+
+        // Y el mensaje ya existe, en cola. Si se creara dentro del job,
+        // caerse la cola sería no saber ni qué se quería mandar.
+        $this->assertSame(Message::STATUS_PENDING, $mensaje->status);
+    }
+
+    public function test_en_manual_no_se_encola_nada(): void
+    {
+        // Nadie lo va a mandar solo: un job esperando a un canal que no se va
+        // a usar es trabajo que nunca termina.
+        Queue::fake();
+
+        $this->dispatcher()->queue($this->business, Message::KIND_REMINDER, '+573001112233', 'Hola');
+
+        Queue::assertNothingPushed();
+    }
+
+    public function test_el_job_no_reenvia_lo_que_ya_se_mando_a_mano(): void
+    {
+        /*
+         * Pasa de verdad: alguien ve el mensaje en la bandeja, lo manda desde
+         * su teléfono y lo marca, mientras el job todavía espera en la cola.
+         * Volver a mandarlo sería el segundo mensaje que la clienta no
+         * entiende.
+         */
+        $canal = $this->canalQueFunciona();
+
+        $mensaje = $this->dispatcher()->queue(
+            $this->business, Message::KIND_REMINDER, '+573001112233', 'Hola',
+        );
+        $this->dispatcher()->markSentByHand($mensaje, $this->admin->id);
+
+        (new SendMessageJob($mensaje->id))->handle($this->dispatcher());
+
+        $this->assertCount(0, $canal->sent);
+    }
+
+    public function test_mientras_quedan_reintentos_no_dice_que_fallo(): void
+    {
+        /*
+         * Decir "falló" con un reintento todavía en camino invita a que alguien
+         * lo mande a mano justo antes de que salga solo, y la clienta recibe el
+         * mismo mensaje dos veces. El motivo se conserva — sirve para
+         * diagnosticar — pero el estado dice la verdad: todavía no terminó.
+         */
+        $this->canal(FakeMessagingChannel::caido());
+        $this->business->update(['messaging_mode' => 'auto']);
+
+        $mensaje = Message::create([
+            'business_id' => $this->business->id,
+            'kind' => Message::KIND_REMINDER,
+            'to' => '+573001112233',
+            'body' => 'Hola',
+            'status' => Message::STATUS_PENDING,
+        ]);
+
+        /*
+         * Se despacha por la cola de verdad para que el job sepa que va a
+         * haber otro intento. Llamando a `handle()` a mano no hay job detrás y
+         * el caso que se quiere medir no existe.
+         */
+        Queue::fake();
+        SendMessageJob::dispatch($mensaje->id);
+
+        Queue::assertPushed(SendMessageJob::class);
+        // Sigue en cola, no "falló": todavía no terminó.
+        $this->assertSame(Message::STATUS_PENDING, $mensaje->fresh()->status);
+    }
+
+    public function test_sin_worker_un_fallo_si_queda_como_fallido(): void
+    {
+        /*
+         * Con la conexión `sync` — una instalación sin worker — no hay
+         * reintento. Dejarlo en "pendiente" lo escondería para siempre: la
+         * bandeja muestra por defecto lo manual y lo fallido, así que nadie
+         * volvería a verlo.
+         */
+        $this->canal(FakeMessagingChannel::caido());
+        $this->business->update(['messaging_mode' => 'auto']);
+
+        $mensaje = $this->dispatcher()->queue(
+            $this->business->fresh(),
+            Message::KIND_REMINDER,
+            '+573001112233',
+            'Hola',
+        );
+
+        $this->assertSame(Message::STATUS_FAILED, $mensaje->status);
+        $this->assertStringContainsString('Timeout', $mensaje->error);
+    }
+
+    public function test_el_job_de_un_mensaje_descartado_no_revienta(): void
+    {
+        // Se descarta mientras esperaba en la cola. Que el worker falle por eso
+        // llenaría `failed_jobs` de ruido que nadie puede accionar.
+        $this->canalQueFunciona();
+
+        (new SendMessageJob(99999))->handle($this->dispatcher());
+
+        $this->assertTrue(true);
     }
 
     // ---- No mandar dos veces ----

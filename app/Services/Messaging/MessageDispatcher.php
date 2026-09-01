@@ -2,6 +2,7 @@
 
 namespace App\Services\Messaging;
 
+use App\Jobs\SendMessageJob;
 use App\Models\Appointment;
 use App\Models\Business;
 use App\Models\Client;
@@ -90,7 +91,21 @@ class MessageDispatcher
         }
 
         if ($message->status === Message::STATUS_PENDING) {
-            $this->send($message);
+            /*
+             * A la COLA, no aca mismo.
+             *
+             * Lo que dispara esto casi siempre es alguien esperando en el
+             * mostrador: mover una cita de etapa, cobrar, marcar una
+             * inasistencia. Hablar con el proveedor de mensajeria ahi dentro
+             * le suma al mostrador la latencia de una llamada HTTP a un
+             * servicio que no controlamos, y con un timeout de treinta
+             * segundos eso es la pantalla congelada mientras la clienta mira.
+             *
+             * Con la conexion `sync` -- pruebas, y una instalacion sin worker
+             * -- el job corre en el acto y el comportamiento es el de antes.
+             * Por eso esto no rompe nada si el worker todavia no existe.
+             */
+            SendMessageJob::dispatch($message->id);
         }
 
         return $message->fresh();
