@@ -4,6 +4,7 @@ namespace App\Support\Scheduling;
 
 use App\Models\Appointment;
 use App\Models\AppointmentWorkflowStage;
+use App\Services\ClientPortalService;
 use Carbon\CarbonImmutable;
 
 /**
@@ -75,6 +76,23 @@ final class StageMessage
                 ? rtrim((string) config('app.frontend_url', ''), '/')
                     .'/encuesta/'.$appointment->survey_token
                 : '',
+
+            /*
+             * El enlace a "mis citas": ver, mover la hora y cancelar.
+             *
+             * Es la UNICA via por la que ese token llega a alguien, y por eso
+             * este marcador existe. Sin el, el portal seria una pantalla a la
+             * que nadie puede entrar.
+             *
+             * Solo para citas con ficha de cliente: una reserva a nombre
+             * suelto no tiene a quien pertenecer, y generarle token a una
+             * ficha inexistente no significa nada.
+             */
+            'mis_citas' => $appointment->client_id !== null && $business !== null
+                ? rtrim((string) config('app.frontend_url', ''), '/')
+                    .'/mis-citas/'.$business->slug
+                    .'/'.app(ClientPortalService::class)->tokenFor($appointment->client)
+                : '',
         ];
     }
 
@@ -88,7 +106,10 @@ final class StageMessage
      */
     public static function placeholders(): array
     {
-        return ['cliente', 'fecha', 'hora', 'servicio', 'profesional', 'negocio', 'encuesta'];
+        return [
+            'cliente', 'fecha', 'hora', 'servicio', 'profesional', 'negocio',
+            'encuesta', 'mis_citas',
+        ];
     }
 
     /**

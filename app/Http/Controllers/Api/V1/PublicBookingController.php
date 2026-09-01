@@ -12,6 +12,7 @@ use App\Models\ResourceBreak;
 use App\Models\ResourceSchedule;
 use App\Models\Service;
 use App\Models\ServicePackage;
+use App\Services\ClientPortalService;
 use App\Services\ClientResolver;
 use App\Services\Scheduling\AvailabilityService;
 use App\Services\Scheduling\BookingService;
@@ -86,6 +87,29 @@ class PublicBookingController
             ->first();
     }
 
+    /**
+     * Los datos con los que llenar el formulario, si el enlace trae token.
+     *
+     * Devuelve null ante un token invalido en vez de fallar: un enlace viejo o
+     * mal copiado tiene que llevar a reservar normalmente, no a un error.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function prefill(Business $business, mixed $token): ?array
+    {
+        $client = app(ClientPortalService::class)->resolve(is_string($token) ? $token : null);
+
+        if ($client === null || $client->business_id !== $business->id) {
+            return null;
+        }
+
+        return [
+            'name' => $client->fullName(),
+            'phone' => $client->phone,
+            'email' => $client->email,
+        ];
+    }
+
     /** Quien es el negocio, sus servicios y su equipo. */
     public function show(Request $request, Business $business): JsonResponse
     {
@@ -140,6 +164,21 @@ class PublicBookingController
                 'phone' => $l->phone,
                 'maps_url' => $l->maps_url,
             ])->values(),
+            /*
+             * Con que prellenar el formulario, si el enlace trae token.
+             *
+             * Es la unica respuesta honesta a "que el enlace traiga su
+             * numero": el navegador NO conoce el telefono de quien lo abre, y
+             * no hay forma de que lo conozca. Lo conoce el negocio, porque ya
+             * estaba en su ficha, y viaja porque el token dice de quien es esa
+             * ficha.
+             *
+             * Sin token no se prellena nada. Adivinar por IP o por cookie
+             * seria ponerle a alguien el telefono de otro en el formulario, y
+             * ese error solo se descubre cuando la confirmacion no llega.
+             */
+            'client' => $this->prefill($business, $request->query('c')),
+
             'location' => $sede === null ? null : [
                 'id' => $sede->id,
                 'slug' => $sede->slug,

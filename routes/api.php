@@ -16,6 +16,7 @@ use App\Http\Controllers\Api\V1\CashController;
 use App\Http\Controllers\Api\V1\CheckoutController;
 use App\Http\Controllers\Api\V1\DepositController;
 use App\Http\Controllers\Api\V1\ClientController;
+use App\Http\Controllers\Api\V1\ClientPortalController;
 use App\Http\Controllers\Api\V1\Admin\CampaignController;
 use App\Http\Controllers\Api\V1\Admin\LocationController;
 use App\Http\Controllers\Api\V1\Admin\LoyaltyProgramController;
@@ -406,6 +407,31 @@ Route::prefix('v1')->group(function () {
         ->group(function () {
             Route::get('/', [SurveyController::class, 'show']);
             Route::post('/', [SurveyController::class, 'store']);
+        });
+
+    /*
+    |--------------------------------------------------------------------------
+    | "Mis citas": el cliente, sin cuenta
+    |--------------------------------------------------------------------------
+    | Se entra por un TOKEN, nunca por telefono. Un telefono no es un secreto
+    | -- esta en la vitrina, en Instagram, en un grupo de WhatsApp -- y dejar
+    | consultar por el convierte esto en un directorio: se prueban numeros y
+    | salen nombres, servicios y horarios de clientas ajenas. Es exactamente lo
+    | que hacia `/api/external/*` en Blue Souls.
+    |
+    | El limite de escritura es el mismo de la reserva publica: mirar es
+    | barato, mover la agenda del negocio no.
+    */
+    Route::prefix('public/{business:slug}/mis-citas/{token}')
+        ->middleware('throttle:pagina-publica')
+        ->group(function () {
+            Route::get('/', [ClientPortalController::class, 'show']);
+            Route::get('/{appointment}/slots', [ClientPortalController::class, 'slots']);
+
+            Route::middleware('throttle:reserva-publica')->group(function () {
+                Route::post('/{appointment}/reschedule', [ClientPortalController::class, 'reschedule']);
+                Route::post('/{appointment}/cancel', [ClientPortalController::class, 'cancel']);
+            });
         });
 
     Route::prefix('public/{business:slug}')

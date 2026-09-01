@@ -18,6 +18,16 @@ class Client extends Model
         'gender', 'notes', 'care_notes', 'preferred_resource_id', 'accepts_marketing', 'is_active',
     ];
 
+    /**
+     * El token de "mis citas" NUNCA sale en una respuesta.
+     *
+     * Fuera de `$fillable` a proposito -- se escribe con `forceFill` desde
+     * `ClientPortalService` -- y oculto aca para que ningun listado de
+     * clientes lo filtre por descuido. Quien lo tenga puede ver y mover las
+     * citas de esa persona, asi que vale tanto como una contrasena.
+     */
+    protected $hidden = ['portal_token'];
+
     protected function casts(): array
     {
         return [
