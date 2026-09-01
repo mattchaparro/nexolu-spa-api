@@ -9,6 +9,7 @@ use App\Models\ResourceBreak;
 use App\Services\Scheduling\AvailabilityService;
 use App\Services\Scheduling\TimeWindow;
 use App\Support\AgendaScope;
+use App\Support\LocationScope;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -60,15 +61,23 @@ class AgendaController
         // Sin `citas.ver_todas` la rejilla trae una sola columna: la suya.
         $scope = AgendaScope::for($request->user());
 
+        /*
+         * La sede LIMITA, no solo filtra.
+         *
+         * Sin sede pedida no vienen todas: vienen las que esta persona puede
+         * ver. Es la diferencia entre un filtro y un limite, y confundirlos es
+         * como la administradora de Cedritos termina leyendo la clientela de
+         * Chapinero simplemente por no mandar un parametro.
+         */
+        try {
+            $sedes = LocationScope::for($request->user())->filterFor($data['location_id'] ?? null);
+        } catch (\DomainException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
         $resources = Resource::where('type', Resource::TYPE_STAFF)
             ->where('is_active', true)
-            // El id ajeno no hace falta filtrarlo a mano: el scope de negocio
-            // ya deja fuera las sedes de otros, asi que un id prestado
-            // devuelve una rejilla vacia, no la de otro local.
-            ->when(
-                ! empty($data['location_id']),
-                fn ($q) => $q->where('location_id', (int) $data['location_id']),
-            )
+            ->when($sedes !== null, fn ($q) => $q->whereIn('location_id', $sedes))
             ->when($scope->resourceId !== null, fn ($q) => $q->whereKey($scope->resourceId))
             ->when($scope->seesNothing(), fn ($q) => $q->whereRaw('1 = 0'))
             ->orderBy('sort_order')

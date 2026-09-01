@@ -2,8 +2,8 @@
 
 namespace App\Http\Controllers\Api\V1\Admin;
 
-use App\Models\Appointment;
 use App\Http\Resources\ResourceResource;
+use App\Models\Appointment;
 use App\Models\Resource;
 use App\Models\ResourceSchedule;
 use App\Models\User;
@@ -141,13 +141,35 @@ class ResourceAdminController
                 ->whereHas('appointment', fn ($q) => $q->whereNotIn('status', [
                     Appointment::STATUS_CANCELLED, Appointment::STATUS_NO_SHOW,
                 ]))
-                ->count();
+                ->with(['appointment', 'service'])
+                ->orderBy('starts_at')
+                ->get();
 
-            if ($pendientes > 0) {
+            if ($pendientes->isNotEmpty()) {
+                $tz = $business->businessTimezone();
+
                 return response()->json([
-                    'message' => "{$resource->name} tiene {$pendientes} cita(s) pendiente(s) en su sede actual. "
+                    'message' => "{$resource->name} tiene {$pendientes->count()} cita(s) pendiente(s) en su sede actual. "
                         .'Reagéndalas o cancélalas antes de trasladarla, para que ningún cliente '
                         .'llegue al local equivocado.',
+
+                    /*
+                     * CUALES son.
+                     *
+                     * Un "no puedes" a secas obliga a ir a buscarlas a la
+                     * agenda, día por día, sin saber cuántas faltan. El
+                     * traslado no puede reagendarlas solo -- no hay forma de
+                     * saber si hay hueco en el otro local, ni de avisarle a
+                     * cada clienta -- pero sí puede decir exactamente qué hay
+                     * que resolver.
+                     */
+                    'blocking' => $pendientes->take(20)->map(fn ($item) => [
+                        'appointment_id' => $item->appointment_id,
+                        'date' => $item->starts_at?->setTimezone($tz)->toDateString(),
+                        'time' => $item->starts_at?->setTimezone($tz)->format('H:i'),
+                        'client_name' => $item->appointment?->client_name,
+                        'service_name' => $item->service?->name,
+                    ])->values(),
                 ], 422);
             }
         }

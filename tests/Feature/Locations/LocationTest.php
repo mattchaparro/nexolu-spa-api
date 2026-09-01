@@ -52,6 +52,10 @@ class LocationTest extends TestCase
         $this->admin = User::create([
             'business_id' => $this->business->id, 'name' => 'Dueña',
             'email' => 'admin@prueba.test', 'password' => Hash::make('password123'), 'is_active' => true,
+            // La dueña: ve todas las sedes. Es lo que pasa en la realidad -- el
+            // primer administrador de un negocio lo es -- y sin marcarlo estas
+            // pruebas medirían a una administradora acotada a un local.
+            'is_owner' => true,
         ]);
         PermissionCatalog::applyRole($this->admin, PermissionCatalog::ROLE_ADMIN);
 
@@ -209,10 +213,41 @@ class LocationTest extends TestCase
             'client_name' => 'Carolina',
         ])->assertCreated();
 
-        $this->postJson("/api/v1/resources/{$maria->id}", ['location_id' => $cedritos->id])
+        /*
+         * Y dice CUÁLES. Un "no puedes" a secas obliga a ir a buscarlas a la
+         * agenda, día por día, sin saber cuántas faltan. El traslado no puede
+         * reagendarlas solo -- no hay forma de saber si hay hueco en el otro
+         * local, ni de avisarle a cada clienta -- pero sí puede decir qué hay
+         * que resolver.
+         */
+        $rechazo = $this->postJson("/api/v1/resources/{$maria->id}", ['location_id' => $cedritos->id])
             ->assertStatus(422);
 
+        $this->assertCount(1, $rechazo->json('blocking'));
+        $this->assertSame('Carolina', $rechazo->json('blocking.0.client_name'));
+        $this->assertSame('10:00', $rechazo->json('blocking.0.time'));
+
         $this->assertSame($this->chapinero->id, $maria->fresh()->location_id);
+    }
+
+    public function test_mi_pagina_muestra_el_enlace_de_cada_sede(): void
+    {
+        // Sin esto el enlace por sede existe y nadie lo encuentra: quien
+        // administra el negocio no tiene por qué deducir que a la URL se le
+        // pega el slug del local.
+        $this->abrirCedritos();
+
+        $this->assertSame(
+            ['principal', 'cedritos'],
+            array_column($this->getJson('/api/v1/public-page')->assertOk()->json('locations'), 'slug'),
+        );
+    }
+
+    public function test_con_una_sola_sede_no_hay_enlaces_que_mostrar(): void
+    {
+        // El enlace del negocio ya es el de esa sede: dos enlaces que llevan
+        // al mismo sitio sólo generan la duda de cuál mandar.
+        $this->assertSame([], $this->getJson('/api/v1/public-page')->assertOk()->json('locations'));
     }
 
     public function test_la_rejilla_muestra_una_sola_sede(): void
@@ -229,7 +264,7 @@ class LocationTest extends TestCase
         $this->assertSame('Ana', $columnas[0]['name']);
     }
 
-    public function test_sin_sede_la_rejilla_las_trae_todas(): void
+    public function test_sin_sede_la_duena_ve_todas(): void
     {
         // Es lo que hacía antes de que existieran las sedes, y lo correcto
         // para el negocio de un solo local.
@@ -239,6 +274,45 @@ class LocationTest extends TestCase
 
         $this->assertCount(2, $this->getJson('/api/v1/agenda?from='.$this->hoy()->toDateString())
             ->assertOk()->json('days.0.resources'));
+    }
+
+    public function test_la_sede_limita_la_rejilla_no_solo_la_filtra(): void
+    {
+        /*
+         * Sin sede pedida NO vienen todas: vienen las que esa persona puede
+         * ver. Es la diferencia entre un filtro y un límite, y confundirlos es
+         * como la administradora de Cedritos termina leyendo la clientela de
+         * Chapinero simplemente por no mandar un parámetro.
+         */
+        $cedritos = $this->abrirCedritos();
+        $this->makeResource($this->business, 'Maria', '09:00:00', '18:00:00', [1, 2, 3, 4, 5, 6]);
+        $this->makeResource($this->business, 'Ana', '09:00:00', '18:00:00', [1, 2, 3, 4, 5, 6], $cedritos->id);
+
+        $encargada = User::create([
+            'business_id' => $this->business->id, 'name' => 'Encargada',
+            'email' => 'cedritos@prueba.test', 'password' => Hash::make('password123'),
+            'is_active' => true,
+        ]);
+        PermissionCatalog::applyRole($encargada, PermissionCatalog::ROLE_ADMIN);
+        $encargada->locations()->sync([$cedritos->id]);
+        Sanctum::actingAs($encargada->fresh());
+
+        $columnas = $this->getJson('/api/v1/agenda?from='.$this->hoy()->toDateString())
+            ->assertOk()->json('days.0.resources');
+
+        $this->assertCount(1, $columnas);
+        $this->assertSame('Ana', $columnas[0]['name']);
+
+        // Y pedir la ajena a mano tampoco la abre.
+        $this->getJson('/api/v1/agenda?from='.$this->hoy()->toDateString()
+            .'&location_id='.$this->chapinero->id)->assertStatus(422);
+
+        // Ni el equipo: quien administra un local no tiene por qué conocer al
+        // equipo del otro.
+        $this->assertSame(
+            ['Ana'],
+            array_column($this->getJson('/api/v1/resources')->assertOk()->json(), 'name'),
+        );
     }
 
     public function test_el_plan_no_deja_abrir_mas_sedes_de_las_contratadas(): void

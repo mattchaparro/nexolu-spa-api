@@ -10,6 +10,7 @@ use App\Services\Scheduling\BookingService;
 use App\Services\Scheduling\Exceptions\SlotUnavailableException;
 use App\Support\AgendaScope;
 use App\Support\ChannelPhone;
+use App\Support\LocationScope;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -46,6 +47,7 @@ class AppointmentController
         $data = $request->validate([
             'date' => ['required', 'date_format:Y-m-d'],
             'resource_id' => ['nullable', 'integer'],
+            'location_id' => ['nullable', 'integer'],
         ]);
 
         $business = $request->user()->business;
@@ -66,8 +68,25 @@ class AppointmentController
             return AppointmentResource::collection(collect());
         }
 
+        /*
+         * La sede LIMITA, no solo filtra.
+         *
+         * Sin sede pedida no vienen todas: vienen las que esta persona puede
+         * ver. Es la diferencia entre un filtro y un limite, y confundirlos es
+         * como la administradora de Cedritos termina leyendo la clientela de
+         * Chapinero simplemente por no mandar un parametro.
+         */
+        try {
+            $sedes = LocationScope::for($request->user())->filterFor($data['location_id'] ?? null);
+        } catch (\DomainException) {
+            // Una sede que no le toca no devuelve un error util para tantear:
+            // se responde lo mismo que si no hubiera citas.
+            return AppointmentResource::collection(collect());
+        }
+
         $appointments = Appointment::query()
             ->with(['items.service', 'items.resource', 'client'])
+            ->when($sedes !== null, fn ($q) => $q->whereIn('location_id', $sedes))
             ->where('starts_at', '>=', $from)
             ->where('starts_at', '<', $to)
             ->when(

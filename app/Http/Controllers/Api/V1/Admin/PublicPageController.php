@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1\Admin;
 
-use App\Models\Business;
+use App\Models\Location;
 use App\Models\Service;
 use App\Support\ImageStorage;
 use App\Support\PublicProfile;
@@ -33,6 +33,28 @@ class PublicPageController
             'labels' => PublicProfile::labels(),
             'logo_url' => ImageStorage::url($business->logo_path),
             'cover_url' => ImageStorage::url($business->cover_path),
+
+            /*
+             * Las sedes, para que la pantalla arme el enlace de cada una.
+             *
+             * Sin esto el enlace por sede existe y nadie lo encuentra: quien
+             * administra el negocio no tiene por que deducir que a la URL se
+             * le pega el slug del local. Van solo cuando hay mas de una -- con
+             * un solo local, el enlace del negocio ya es el de esa sede.
+             */
+            'locations' => $business->locations()->where('is_active', true)->count() > 1
+                // La principal primero, igual que en la pagina publica: es la
+                // que quien administra espera ver arriba.
+                ? $business->locations()->where('is_active', true)
+                    ->reorder()->orderByDesc('is_primary')->orderBy('sort_order')->orderBy('name')
+                    ->get()
+                    ->map(fn (Location $l) => [
+                        'id' => $l->id,
+                        'slug' => $l->slug,
+                        'name' => $l->name,
+                        'city' => $l->city,
+                    ])->values()
+                : [],
 
             // Que se ofrece por internet y que no. Es la decision que mas se
             // olvida: un servicio nuevo entra al catalogo y nadie se acuerda
