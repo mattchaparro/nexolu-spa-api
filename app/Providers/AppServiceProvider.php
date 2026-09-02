@@ -4,7 +4,6 @@ namespace App\Providers;
 
 use App\Services\Messaging\Contracts\MessagingChannel;
 use App\Services\Messaging\Contracts\MessagingCostReporter;
-use App\Services\WhatsApp\LoggingMessagingChannel;
 use App\Services\WhatsApp\NexoluCommsChannel;
 use App\Services\WhatsApp\NexoluCommsCostReporter;
 use Illuminate\Cache\RateLimiting\Limit;
