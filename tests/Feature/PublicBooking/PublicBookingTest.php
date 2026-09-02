@@ -9,14 +9,16 @@ use App\Models\ClientPenalty;
 use App\Models\Resource;
 use App\Models\ResourceBreak;
 use App\Models\Service;
+use App\Models\ServiceCategory;
 use App\Models\ServicePackage;
 use App\Models\User;
 use App\Support\Money\PackagePricing;
 use App\Support\PermissionCatalog;
-use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Testing\TestResponse;
 use Laravel\Sanctum\Sanctum;
 use Tests\Feature\Scheduling\SchedulingScenario;
 use Tests\TestCase;
@@ -53,7 +55,7 @@ class PublicBookingTest extends TestCase
          * la sexta reserva de la CLASE daba 429 aunque fuera la primera de su
          * test. Se limpia aca y el throttle tiene su prueba propia mas abajo.
          */
-        \Illuminate\Support\Facades\Cache::flush();
+        Cache::flush();
 
         PermissionCatalog::sync();
 
@@ -79,7 +81,7 @@ class PublicBookingTest extends TestCase
         return '/api/v1/public/luxury-nails'.$path;
     }
 
-    private function reservar(array $overrides = []): \Illuminate\Testing\TestResponse
+    private function reservar(array $overrides = []): TestResponse
     {
         return $this->postJson($this->url('/appointments'), array_merge([
             'service_id' => $this->service->id,
@@ -243,12 +245,92 @@ class PublicBookingTest extends TestCase
         ]);
     }
 
-    public function test_el_correo_es_obligatorio_y_tiene_que_ser_valido(): void
+    /**
+     * El correo es OPCIONAL, pero si lo escriben tiene que ser un correo.
+     *
+     * Quien reserva lo hace desde el navegador de WhatsApp, con el pulgar, y
+     * el negocio le va a escribir por ahi mismo -- el telefono ya lo tiene.
+     * Exigir un correo que nadie va a usar solo produce reservas abandonadas.
+     */
+    /*
+    |--------------------------------------------------------------------------
+    | Los mas pedidos
+    |--------------------------------------------------------------------------
+    | Sirven para cortar un catalogo largo por donde la gente ya piensa. Lo que
+    | se defiende aca es que sea un dato REAL y no un adorno, y que no filtre
+    | cuanto factura el negocio.
+    */
+
+    public function test_los_mas_pedidos_salen_de_las_reservas_reales(): void
     {
-        $this->reservar(['client_email' => null])->assertStatus(422);
+        $otro = $this->makeService($this->business, 30, [$this->maria]);
+        $otro->update(['name' => 'Retoque', 'is_bookable_online' => true]);
+
+        // Tres reservas del manicure; ninguna del retoque.
+        foreach (['10:00', '11:30', '13:00'] as $hora) {
+            $this->reservar(['starts_at' => $this->wednesday()->format('Y-m-d')." {$hora}:00"])
+                ->assertCreated();
+        }
+
+        $servicios = collect($this->getJson($this->url())->assertOk()->json('services'));
+
+        $this->assertTrue($servicios->firstWhere('id', $this->service->id)['is_popular']);
+        $this->assertFalse($servicios->firstWhere('id', $otro->id)['is_popular']);
+    }
+
+    public function test_dos_reservas_no_hacen_popular_a_nadie(): void
+    {
+        // Con menos de tres, "el mas pedido" seria ruido con aire de dato.
+        foreach (['10:00', '11:30'] as $hora) {
+            $this->reservar(['starts_at' => $this->wednesday()->format('Y-m-d')." {$hora}:00"])
+                ->assertCreated();
+        }
+
+        $servicios = collect($this->getJson($this->url())->assertOk()->json('services'));
+
+        $this->assertFalse($servicios->firstWhere('id', $this->service->id)['is_popular']);
+    }
+
+    public function test_la_pagina_no_dice_cuantas_citas_hace_el_negocio(): void
+    {
+        foreach (['10:00', '11:30', '13:00'] as $hora) {
+            $this->reservar(['starts_at' => $this->wednesday()->format('Y-m-d')." {$hora}:00"])
+                ->assertCreated();
+        }
+
+        $servicio = collect($this->getJson($this->url())->assertOk()->json('services'))
+            ->firstWhere('id', $this->service->id);
+
+        // Solo la bandera. Un conteo publico le diria a la competencia el
+        // volumen del local.
+        $this->assertArrayNotHasKey('bookings_count', $servicio);
+        $this->assertArrayNotHasKey('popularity', $servicio);
+        $this->assertIsBool($servicio['is_popular']);
+    }
+
+    public function test_la_pagina_dice_la_categoria_de_cada_servicio(): void
+    {
+        $categoria = ServiceCategory::create([
+            'business_id' => $this->business->id,
+            'name' => 'Manos',
+        ]);
+        $this->service->update(['service_category_id' => $categoria->id]);
+
+        $servicio = collect($this->getJson($this->url())->assertOk()->json('services'))
+            ->firstWhere('id', $this->service->id);
+
+        $this->assertSame('Manos', $servicio['category']);
+        $this->assertSame($categoria->id, $servicio['category_id']);
+    }
+
+    public function test_el_correo_es_opcional_pero_si_lo_ponen_tiene_que_ser_valido(): void
+    {
+        $this->reservar(['client_email' => null])->assertCreated();
+
         $this->reservar(['client_email' => 'esto no es un correo'])->assertStatus(422);
 
-        $this->assertSame(0, Appointment::withoutGlobalScope('business')->count());
+        // La reserva sin correo entro; la del correo roto, no.
+        $this->assertSame(1, Appointment::withoutGlobalScope('business')->count());
     }
 
     public function test_el_correo_completa_la_ficha_pero_no_pisa_el_que_ya_tenia(): void

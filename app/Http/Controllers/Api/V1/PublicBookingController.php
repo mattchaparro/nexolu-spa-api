@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Models\Appointment;
+use App\Models\AppointmentItem;
 use App\Models\Business;
 use App\Models\Client;
 use App\Models\ClientPenalty;
@@ -252,13 +253,15 @@ class PublicBookingController
     {
         $this->assertOpenToPublic($business);
 
+        $populares = $this->popularServiceIds($business);
+
         return Service::withoutGlobalScope('business')
             ->where('business_id', $business->id)
             ->where('is_active', true)
             // Un servicio puede existir en el catalogo interno y no ofrecerse
             // por internet: los que se cotizan, los que exigen valoracion.
             ->where('is_bookable_online', true)
-            ->with('resources')
+            ->with(['resources', 'category'])
             ->orderBy('sort_order')
             ->orderBy('name')
             ->get()
@@ -269,6 +272,11 @@ class PublicBookingController
                 'duration_min' => $s->duration_min,
                 'price' => (float) $s->price,
                 'image_url' => ImageStorage::url($s->image_path),
+                // Para agrupar la lista cuando hay muchos servicios. Un salon
+                // con cuatro no necesita filtros; uno con treinta, si.
+                'category_id' => $s->service_category_id,
+                'category' => $s->category?->name,
+                'is_popular' => in_array($s->id, $populares, true),
                 // Con quien se puede: la pagina deja elegir profesional, y sin
                 // esto ofreceria a alguien que no presta ese servicio.
                 'resource_ids' => $s->resources
@@ -277,6 +285,36 @@ class PublicBookingController
                     ->pluck('id')->values(),
             ])
             ->values()
+            ->all();
+    }
+
+    /**
+     * Los mas pedidos de verdad, no los que el negocio puso primero.
+     *
+     * Devuelve SOLO ids: cuantas citas hace un negocio es asunto suyo, y esta
+     * respuesta es publica. Un conteo aqui le diria a la competencia el volumen
+     * del local.
+     *
+     * Pide un minimo de tres reservas para contar: llamar "el mas pedido" a
+     * algo que una persona reservo una vez es ruido con aire de dato.
+     *
+     * @return list<int>
+     */
+    private function popularServiceIds(Business $business): array
+    {
+        return AppointmentItem::query()
+            ->join('appointments', 'appointments.id', '=', 'appointment_items.appointment_id')
+            ->where('appointments.business_id', $business->id)
+            ->where('appointments.starts_at', '>=', CarbonImmutable::now()->subDays(90))
+            // Una cita cancelada o a la que nadie llego no dice que el servicio
+            // se pida: dice lo contrario.
+            ->whereNotIn('appointments.status', [Appointment::STATUS_CANCELLED, Appointment::STATUS_NO_SHOW])
+            ->groupBy('appointment_items.service_id')
+            ->havingRaw('COUNT(*) >= 3')
+            ->orderByRaw('COUNT(*) desc')
+            ->limit(4)
+            ->pluck('appointment_items.service_id')
+            ->map(fn ($id) => (int) $id)
             ->all();
     }
 
@@ -468,7 +506,13 @@ class PublicBookingController
 
             'client_name' => ['required', 'string', 'min:2', 'max:255'],
             'client_phone' => ['required', 'string', 'max:32'],
-            'client_email' => ['required', 'email:rfc', 'max:255'],
+            /*
+             * El correo es OPCIONAL. Quien reserva lo hace desde el navegador
+             * de WhatsApp, con el pulgar: exigirle un correo que el negocio no
+             * va a usar -- le escribe por WhatsApp, y el telefono ya lo tiene
+             * -- es friccion que solo produce reservas abandonadas.
+             */
+            'client_email' => ['nullable', 'email:rfc', 'max:255'],
             'notes' => ['nullable', 'string', 'max:500'],
         ]);
 
@@ -529,7 +573,7 @@ class PublicBookingController
             null,
             $data['client_name'],
             $phone,
-            $data['client_email'],
+            $data['client_email'] ?? null,
         );
 
         try {

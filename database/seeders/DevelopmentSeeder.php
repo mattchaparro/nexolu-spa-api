@@ -81,11 +81,17 @@ class DevelopmentSeeder extends Seeder
             ]);
         }
 
-        $category = ServiceCategory::create([
-            'business_id' => $business->id,
-            'name' => 'Manos y pies',
-            'sort_order' => 1,
-        ]);
+        /*
+         * Tres categorias y no una: un spa real separa manos de pestañas, y
+         * la pagina publica agrupa por esto cuando el catalogo es largo. Con
+         * una sola categoria ese filtro no se puede ni ver.
+         */
+        $categorias = collect(['Manos', 'Pies', 'Pestañas y cejas'])
+            ->mapWithKeys(fn (string $nombre, int $i) => [$nombre => ServiceCategory::create([
+                'business_id' => $business->id,
+                'name' => $nombre,
+                'sort_order' => $i + 1,
+            ])]);
 
         // Tres profesionales, cada una con su color en la agenda.
         $staff = collect([
@@ -144,21 +150,31 @@ class DevelopmentSeeder extends Seeder
         // cada profesional maneja lo suyo, y el modelo tiene que poder
         // representarlo. Lucia no hace acrilicas; Ana tarda menos en
         // semipermanente porque es en lo que mas trabaja.
+        // [nombre, categoria, duracion, buffer antes, buffer despues, precio, quien lo presta]
+        //
+        // Nueve servicios y no cuatro: por debajo de siete la pagina publica no
+        // muestra filtros -- con pocos, una fila de chips es un paso extra para
+        // leer lo mismo -- asi que un catalogo corto esconderia esa pantalla.
         $services = [
-            ['Retoque de esmalte', 20, 0, 5, 25000, ['Maria', 'Ana', 'Lucia']],
-            ['Manicure clasico', 45, 0, 10, 45000, ['Maria', 'Ana', 'Lucia']],
-            ['Manicure semipermanente', 90, 5, 15, 85000, ['Maria', 'Ana']],
-            ['Uñas acrilicas', 180, 10, 20, 180000, ['Maria']],
+            ['Retoque de esmalte', 'Manos', 20, 0, 5, 25000, ['Maria', 'Ana', 'Lucia']],
+            ['Manicure clasico', 'Manos', 45, 0, 10, 45000, ['Maria', 'Ana', 'Lucia']],
+            ['Manicure semipermanente', 'Manos', 90, 5, 15, 85000, ['Maria', 'Ana']],
+            ['Uñas acrilicas', 'Manos', 180, 10, 20, 180000, ['Maria']],
+            ['Pedicure express', 'Pies', 30, 0, 5, 40000, ['Ana', 'Lucia']],
+            ['Pedicure spa', 'Pies', 60, 5, 10, 70000, ['Ana', 'Lucia']],
+            ['Diseño de cejas', 'Pestañas y cejas', 30, 0, 5, 35000, ['Ana']],
+            ['Laminado de cejas', 'Pestañas y cejas', 60, 5, 10, 90000, ['Ana']],
+            ['Lifting de pestañas', 'Pestañas y cejas', 75, 5, 10, 120000, ['Ana']],
         ];
 
         $porNombre = $staff->keyBy('name');
 
-        foreach ($services as $i => [$name, $duration, $before, $after, $price, $quienes]) {
+        foreach ($services as $i => [$name, $categoria, $duration, $before, $after, $price, $quienes]) {
             $service = Service::create([
                 'business_id' => $business->id,
                 'name' => $name,
                 'slug' => str($name)->slug()->value(),
-                'service_category_id' => $category->id,
+                'service_category_id' => $categorias[$categoria]->id,
                 'duration_min' => $duration,
                 'buffer_before_min' => $before,
                 'buffer_after_min' => $after,
