@@ -32,5 +32,14 @@
         <env name="PULSE_ENABLED" value="false"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="NIGHTWATCH_ENABLED" value="false"/>
+        <!--
+            Las pruebas NUNCA hablan con Nexolu Communications, y no pueden
+            depender del .env de quien las corre: en cuanto alguien configura
+            el canal para probar WhatsApp de verdad, `isConfigured()` empieza a
+            devolver true y las pruebas que asumen "sin canal" cambian de
+            resultado sin que nadie haya tocado el codigo.
+        -->
+        <env name="COMMS_CORE_API_KEY" value=""/>
+        <env name="COMMS_CORE_BASE_URL" value=""/>
     </php>
 </phpunit>

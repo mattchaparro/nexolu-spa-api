@@ -31,7 +31,12 @@ class NexoluCommsChannel implements MessagingChannel
 
     public function sendText(string $to, string $body, ?int $businessId = null, string $type = 'generico'): bool
     {
-        return $this->send($to, ['text' => $body]);
+        /*
+         * Texto libre = mensaje de SERVICIO para Meta: solo se entrega dentro
+         * de la ventana de 24h y no se cobra. Marcarlo como utility inflaria
+         * el costo reportado con conversaciones que fueron gratis.
+         */
+        return $this->send($to, ['text' => $body], $businessId, 'service');
     }
 
     /**
@@ -45,13 +50,15 @@ class NexoluCommsChannel implements MessagingChannel
         ?int $businessId = null,
         string $type = 'generico',
     ): bool {
+        // Una plantilla es un mensaje que INICIA el negocio: Meta lo cobra, y
+        // las nuestras son de utilidad (recordatorios, cupos), no publicidad.
         return $this->send($to, [
             'whatsapp_template' => [
                 'name' => $name,
                 'language' => $languageCode,
                 'components' => $components,
             ],
-        ]);
+        ], $businessId, 'utility');
     }
 
     /**
@@ -75,7 +82,7 @@ class NexoluCommsChannel implements MessagingChannel
                 'filename' => $filename,
                 'caption' => $caption,
             ],
-        ]);
+        ], $businessId, 'service');
     }
 
     /**
@@ -101,7 +108,7 @@ class NexoluCommsChannel implements MessagingChannel
                 'flow_token' => $flowToken,
                 'data' => $data,
             ],
-        ]);
+        ], $businessId, 'service');
     }
 
     public function markAsReadWithTyping(string $to, string $messageId): bool
@@ -127,7 +134,7 @@ class NexoluCommsChannel implements MessagingChannel
     /**
      * @param  array<string, mixed>  $extra  campos propios de este envio (text, whatsapp_template, whatsapp_flow)
      */
-    private function send(string $to, array $extra): bool
+    private function send(string $to, array $extra, ?int $businessId = null, ?string $category = null): bool
     {
         if (! $this->isConfigured()) {
             $this->logSafe('warning', 'Nexolu Communications: intento de envio sin credenciales', ['to' => $to]);
@@ -136,10 +143,18 @@ class NexoluCommsChannel implements MessagingChannel
         }
 
         try {
-            $response = $this->client()->post('/v1/notifications/send', array_merge([
+            /*
+             * El negocio viaja SIEMPRE. Sin el, Communications archiva todo
+             * bajo la app -- "spa" -- y el gasto de WhatsApp queda en un solo
+             * balde: justo el dato que hace falta para cobrarle a cada local
+             * lo suyo, y que no se puede reconstruir despues.
+             */
+            $response = $this->client()->post('/v1/notifications/send', array_filter(array_merge([
                 'channels' => ['whatsapp'],
                 'to' => ['whatsapp' => $to],
-            ], $extra));
+                'business_id' => $businessId === null ? null : (string) $businessId,
+                'category' => $category,
+            ], $extra), fn ($v) => $v !== null));
         } catch (ConnectionException $e) {
             $this->logSafe('error', 'Nexolu Communications: error de red al enviar', ['to' => $to, 'error' => $e->getMessage()]);
 
