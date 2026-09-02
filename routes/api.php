@@ -2,6 +2,9 @@
 
 use App\Http\Controllers\Api\V1\Admin\BreakController;
 use App\Http\Controllers\Api\V1\Admin\BusinessPaymentMethodController;
+use App\Http\Controllers\Api\V1\Admin\CampaignController;
+use App\Http\Controllers\Api\V1\Admin\LocationController;
+use App\Http\Controllers\Api\V1\Admin\LoyaltyProgramController;
 use App\Http\Controllers\Api\V1\Admin\PermissionController;
 use App\Http\Controllers\Api\V1\Admin\PublicPageController;
 use App\Http\Controllers\Api\V1\Admin\ResourceAdminController;
@@ -14,24 +17,22 @@ use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\AvailabilityController;
 use App\Http\Controllers\Api\V1\CashController;
 use App\Http\Controllers\Api\V1\CheckoutController;
-use App\Http\Controllers\Api\V1\DepositController;
 use App\Http\Controllers\Api\V1\ClientController;
 use App\Http\Controllers\Api\V1\ClientPortalController;
-use App\Http\Controllers\Api\V1\Admin\CampaignController;
-use App\Http\Controllers\Api\V1\Admin\LocationController;
-use App\Http\Controllers\Api\V1\Admin\LoyaltyProgramController;
 use App\Http\Controllers\Api\V1\ClientProfileController;
-use App\Http\Controllers\Api\V1\LoyaltyCardController;
+use App\Http\Controllers\Api\V1\DepositController;
 use App\Http\Controllers\Api\V1\ExpenseController;
+use App\Http\Controllers\Api\V1\LoyaltyCardController;
 use App\Http\Controllers\Api\V1\MessageController;
 use App\Http\Controllers\Api\V1\MyWorkController;
 use App\Http\Controllers\Api\V1\PayrollController;
 use App\Http\Controllers\Api\V1\PublicBookingController;
-use App\Http\Controllers\Api\V1\SurveyController;
 use App\Http\Controllers\Api\V1\ResourceController;
 use App\Http\Controllers\Api\V1\SalesReportController;
 use App\Http\Controllers\Api\V1\ServiceController;
 use App\Http\Controllers\Api\V1\StageController;
+use App\Http\Controllers\Api\V1\SurveyController;
+use App\Http\Controllers\Api\V1\WaitlistAdminController;
 use App\Http\Controllers\Api\V1\WaitlistController;
 use App\Http\Controllers\Api\V1\WalkInController;
 use Illuminate\Support\Facades\Route;
@@ -140,7 +141,7 @@ Route::prefix('v1')->group(function () {
 
         Route::prefix('availability')->group(function () {
             Route::get('/', [AvailabilityController::class, 'index'])->middleware('permission:citas.ver');
-            
+
             // Donde cabe una visita de varios servicios, uno detras de otro.
             Route::get('/chain', [AvailabilityController::class, 'chain'])
                 ->middleware('permission:citas.ver');
@@ -370,6 +371,13 @@ Route::prefix('v1')->group(function () {
             Route::post('/{message}/sent', [MessageController::class, 'markSent']);
             Route::post('/{message}/retry', [MessageController::class, 'retry']);
             Route::delete('/{message}', [MessageController::class, 'destroy']);
+        });
+
+        // Quien espera cupo, visto desde el mostrador. Mismo criterio que los
+        // mensajes: lo maneja quien atiende, y ya tiene citas.ver.
+        Route::prefix('waitlist')->middleware('permission:citas.ver')->group(function () {
+            Route::get('/', [WaitlistAdminController::class, 'index']);
+            Route::post('/{entry}/stop', [WaitlistAdminController::class, 'stop']);
         });
 
         Route::prefix('locations')
