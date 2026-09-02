@@ -80,6 +80,11 @@ class WaitlistAdminController
      */
     public function stop(Request $request, WaitlistEntry $entry): JsonResponse
     {
+        // Mismo guardia que los mensajes: la espera de la sede ajena no
+        // existe para quien no la ve. Sin esto, el listado la esconde pero
+        // el id directo la cierra igual.
+        abort_unless(LocationScope::for($request->user())->allows($entry->location_id), 404);
+
         if ($entry->status === WaitlistEntry::STATUS_OPEN) {
             $entry->forceFill(['status' => WaitlistEntry::STATUS_STOPPED])->save();
         }

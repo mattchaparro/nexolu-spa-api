@@ -180,6 +180,17 @@ class WaitlistAdminTest extends TestCase
         $this->assertSame(WaitlistEntry::STATUS_OPEN, $entry->fresh()->status);
     }
 
+    public function test_cerrar_la_espera_de_la_sede_ajena_es_404(): void
+    {
+        $entry = $this->espera('Carolina', $this->chapinero->id);
+
+        Sanctum::actingAs($this->usuaria(false, $this->cedritos)->fresh());
+
+        // El listado la esconde; el id directo tampoco puede tocarla.
+        $this->postJson("/api/v1/waitlist/{$entry->id}/stop")->assertNotFound();
+        $this->assertSame(WaitlistEntry::STATUS_OPEN, $entry->fresh()->status);
+    }
+
     public function test_el_filtro_por_estado_muestra_las_cerradas(): void
     {
         $abierta = $this->espera('Carolina', null);
