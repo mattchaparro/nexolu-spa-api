@@ -22,6 +22,8 @@ use Illuminate\Support\Facades\Log;
  */
 class IaCoreClient
 {
+    public function __construct(private readonly BusinessProfile $profile) {}
+
     public function isConfigured(): bool
     {
         return ! empty(config('services.ia_core.api_key'))
@@ -62,6 +64,14 @@ class IaCoreClient
                         'permissions' => [],
                         'features' => array_keys(array_filter($business->feature_flags ?? [])),
                         'channel' => 'whatsapp',
+                        /*
+                         * Quien es este negocio. El Core no puede saberlo --
+                         * no tiene la base de datos del negocio -- y sin esto
+                         * el agente contesta "consulta con el
+                         * establecimiento" a preguntas que el sistema si sabe
+                         * responder.
+                         */
+                        'business_profile' => $this->profile->for($business),
                         'timezone' => $business->businessTimezone(),
                         'locale' => 'es',
                     ],
