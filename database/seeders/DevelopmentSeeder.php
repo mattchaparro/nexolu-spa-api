@@ -27,6 +27,13 @@ class DevelopmentSeeder extends Seeder
     {
         PermissionCatalog::sync();
 
+        /*
+         * El catalogo global de medios de pago tambien: sin el, la pantalla
+         * de medios de pago sale vacia y no hay nada que marcar. Se descubrio
+         * probando en el navegador, no en las pruebas -- que siembran lo suyo.
+         */
+        $this->call(PlatformPaymentMethodSeeder::class);
+
         $business = Business::create([
             'name' => 'Luxury Nails Spa',
             'slug' => 'luxury-nails',

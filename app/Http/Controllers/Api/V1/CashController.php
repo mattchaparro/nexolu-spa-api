@@ -240,11 +240,22 @@ class CashController
             ->whereBetween('starts_at', [$date->startOfDay()->utc(), $date->addDay()->startOfDay()->utc()])
             ->get();
 
-        // Por profesional: lo que atendio y lo que se gano. Es la pregunta que
-        // sigue inmediatamente a "cuanto se hizo hoy".
+        /*
+         * Por profesional: lo que COBRO hoy, en la misma base que los totales
+         * de arriba -- fecha de cobro, igual que la caja y la nomina. Con la
+         * fecha de la cita, cobrar hoy una cita de manana hacia que "entro
+         * 25.000" conviviera con una tabla por persona en ceros.
+         */
+        $cobradas = Appointment::query()
+            ->with(['items.resource'])
+            ->when($sedes !== null, fn ($q) => $q->whereIn('location_id', $sedes))
+            ->whereNotNull('checked_out_at')
+            ->whereBetween('checked_out_at', [$date->startOfDay()->utc(), $date->addDay()->startOfDay()->utc()])
+            ->get();
+
         $byResource = [];
 
-        foreach ($appointments as $appointment) {
+        foreach ($cobradas as $appointment) {
             foreach ($appointment->items as $item) {
                 $name = $item->resource?->name ?? 'Sin asignar';
 
