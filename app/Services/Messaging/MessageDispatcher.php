@@ -52,6 +52,7 @@ class MessageDispatcher
         string $body,
         ?Appointment $appointment = null,
         ?Client $client = null,
+        ?MessageTemplate $template = null,
     ): ?Message {
         $phone = $to === null ? null : ChannelPhone::normalize($to, $business->country_code);
 
@@ -67,7 +68,19 @@ class MessageDispatcher
                 'to' => $phone,
                 'client_id' => $client?->id ?? $appointment?->client_id,
                 'appointment_id' => $appointment?->id,
+                /*
+                 * El texto y la plantilla conviven a proposito.
+                 *
+                 * `body` es lo que una persona manda desde su propio WhatsApp
+                 * en modo manual, y lo que se lee en la bandeja de salida. La
+                 * plantilla es como sale SOLO. No se puede tener solo el
+                 * texto: de "Hola Carolina, tu cita del jueves..." no se
+                 * sacan de vuelta las variables sin adivinar.
+                 */
                 'body' => $body,
+                'template_name' => $template?->name,
+                'template_language' => $template?->language,
+                'template_params' => $template?->params,
                 /*
                  * El modo decide el estado, y el estado decide quien lo manda.
                  * Sin canal configurado tampoco se promete un envio: quedaria
@@ -125,12 +138,29 @@ class MessageDispatcher
         $error = null;
 
         try {
-            $ok = $this->channel->sendText(
-                $message->to,
-                $message->body,
-                $message->business_id,
-                $message->kind,
-            );
+            /*
+             * Plantilla o texto libre, y no es una preferencia de estilo:
+             * WhatsApp solo entrega texto libre dentro de las 24 horas
+             * siguientes a que la clienta escribio. Un recordatorio de la cita
+             * de manana llega mucho despues de eso, asi que mandarlo como
+             * texto es que Meta lo rechace -- silenciosamente, salvo por el
+             * motivo que queda en la bandeja.
+             */
+            $ok = $message->usesTemplate()
+                ? $this->channel->sendTemplate(
+                    $message->to,
+                    (string) $message->template_name,
+                    (string) ($message->template_language ?? 'es'),
+                    $this->bodyComponents($message->template_params ?? []),
+                    $message->business_id,
+                    $message->kind,
+                )
+                : $this->channel->sendText(
+                    $message->to,
+                    $message->body,
+                    $message->business_id,
+                    $message->kind,
+                );
 
             if (! $ok) {
                 $error = 'El canal rechazó el envío.';
@@ -195,5 +225,26 @@ class MessageDispatcher
     public function sendsByItself(Business $business): bool
     {
         return $business->messaging_mode === 'auto' && $this->channel->isConfigured();
+    }
+
+    /**
+     * Las variables, en la forma que espera la Cloud API.
+     *
+     * @param  list<string>  $params
+     * @return list<array<string, mixed>>
+     */
+    private function bodyComponents(array $params): array
+    {
+        if ($params === []) {
+            return [];
+        }
+
+        return [[
+            'type' => 'body',
+            'parameters' => array_map(
+                fn ($valor) => ['type' => 'text', 'text' => (string) $valor],
+                $params,
+            ),
+        ]];
     }
 }

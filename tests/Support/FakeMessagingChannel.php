@@ -17,7 +17,15 @@ use App\Services\Messaging\Contracts\MessagingChannel;
  */
 class FakeMessagingChannel implements MessagingChannel
 {
-    /** @var list<array{to: string, body: string, type: string}> */
+    /**
+     * Lo enviado, sea texto o plantilla.
+     *
+     * Las plantillas entran aca tambien: un recordatorio que sale como
+     * plantilla SE ENVIO igual, y una prueba que solo mirara el texto libre
+     * diria que no salio nada.
+     *
+     * @var list<array{to: string, body: string, type: string, template: ?string, params: list<string>}>
+     */
     public array $sent = [];
 
     public function __construct(
@@ -58,7 +66,7 @@ class FakeMessagingChannel implements MessagingChannel
             return false;
         }
 
-        $this->sent[] = ['to' => $to, 'body' => $body, 'type' => $type];
+        $this->sent[] = ['to' => $to, 'body' => $body, 'type' => $type, 'template' => null, 'params' => []];
 
         return true;
     }
@@ -71,7 +79,28 @@ class FakeMessagingChannel implements MessagingChannel
         ?int $businessId = null,
         string $type = 'generico',
     ): bool {
-        return ! $this->rejects;
+        if ($this->throws !== null) {
+            throw new RuntimeException($this->throws);
+        }
+
+        if ($this->rejects) {
+            return false;
+        }
+
+        $this->sent[] = [
+            'to' => $to,
+            'body' => '',
+            'type' => $type,
+            'template' => $name,
+            // Aplanadas: lo que importa afirmar es QUE variables se mandaron
+            // y en que orden, no la forma del sobre de Meta.
+            'params' => array_map(
+                fn (array $p) => (string) ($p['text'] ?? ''),
+                $components[0]['parameters'] ?? [],
+            ),
+        ];
+
+        return true;
     }
 
     public function sendDocument(

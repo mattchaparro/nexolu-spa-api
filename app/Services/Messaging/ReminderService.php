@@ -71,6 +71,19 @@ class ReminderService
                 $phone,
                 StageMessage::render($this->template($business), $appointment),
                 $appointment,
+                null,
+                /*
+                 * Ademas del texto, la PLANTILLA. Un recordatorio lo inicia
+                 * el negocio horas despues de cualquier conversacion, asi que
+                 * fuera de la ventana de 24h Meta rechaza el texto libre. El
+                 * texto sigue existiendo para el modo manual y la bandeja.
+                 */
+                MessageTemplate::recordatorio(
+                    $appointment->client?->fullName() ?? $appointment->client_name ?? 'Hola',
+                    $business->name,
+                    $appointment->starts_at?->setTimezone($tz)->locale('es')->isoFormat('dddd D [de] MMMM') ?? '',
+                    $appointment->starts_at?->setTimezone($tz)->format('g:i a') ?? '',
+                ),
             );
 
             $message === null ? $skipped++ : $queued++;

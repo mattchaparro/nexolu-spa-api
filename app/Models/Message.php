@@ -49,7 +49,8 @@ class Message extends Model
 
     protected $fillable = [
         'business_id', 'location_id', 'kind', 'to', 'client_id', 'appointment_id',
-        'body', 'status', 'attempts', 'sent_at', 'failed_at', 'error', 'sent_by_user_id',
+        'body', 'template_name', 'template_language', 'template_params',
+        'status', 'attempts', 'sent_at', 'failed_at', 'error', 'sent_by_user_id',
     ];
 
     protected function casts(): array
@@ -57,7 +58,21 @@ class Message extends Model
         return [
             'sent_at' => 'datetime',
             'failed_at' => 'datetime',
+            'template_params' => 'array',
         ];
+    }
+
+    /**
+     * Si este mensaje sale como plantilla en vez de texto libre.
+     *
+     * Lo llevan los que INICIA el negocio -- recordatorios, cupos liberados,
+     * encuestas -- porque fuera de la ventana de 24h Meta rechaza el texto.
+     * La respuesta del agente no la lleva: esa contesta dentro de una
+     * conversacion que abrio la clienta.
+     */
+    public function usesTemplate(): bool
+    {
+        return $this->template_name !== null;
     }
 
     public function client(): BelongsTo

@@ -280,6 +280,47 @@ class ReminderTest extends TestCase
         $this->assertSame(Message::STATUS_SENT, Message::withoutGlobalScopes()->first()->status);
     }
 
+    public function test_el_recordatorio_sale_como_plantilla_no_como_texto_libre(): void
+    {
+        /*
+         * WhatsApp solo entrega texto libre dentro de las 24h siguientes a que
+         * la clienta escribio. Un recordatorio de la cita de manana llega
+         * mucho despues, asi que como texto Meta lo RECHAZA.
+         *
+         * Y falla de la peor forma: probandolo uno mismo funciona -- porque
+         * uno le escribio al bot primero -- y se rompe el dia que se le manda
+         * a una clienta de verdad.
+         */
+        $canal = new FakeMessagingChannel;
+        $this->app->instance(MessagingChannel::class, $canal);
+        $this->business->update(['messaging_mode' => 'auto']);
+
+        $this->agendar(enHoras: 20);
+        $this->reminders()->run($this->business->fresh());
+
+        $enviado = $canal->sent[0];
+
+        $this->assertSame('recordatorio_cita', $enviado['template']);
+        // El NOMBRE DEL NEGOCIO adentro: con numero compartido el mensaje no
+        // llega del telefono del spa, asi que el texto tiene que decir de
+        // quien es.
+        $this->assertContains($this->business->name, $enviado['params']);
+    }
+
+    public function test_el_texto_sigue_existiendo_para_el_modo_manual(): void
+    {
+        // Quien manda a mano desde su propio WhatsApp no usa plantillas: copia
+        // el texto. Si el mensaje solo llevara la plantilla, la bandeja de
+        // salida quedaria vacia de contenido.
+        $this->agendar(enHoras: 20);
+        $this->reminders()->run($this->business->fresh());
+
+        $mensaje = Message::withoutGlobalScopes()->first();
+
+        $this->assertNotEmpty($mensaje->body);
+        $this->assertSame('recordatorio_cita', $mensaje->template_name);
+    }
+
     // ---- El comando ----
 
     public function test_el_comando_prepara_los_de_todos_los_negocios(): void
