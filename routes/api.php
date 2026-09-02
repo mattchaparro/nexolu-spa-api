@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\AiToolInvokeController;
 use App\Http\Controllers\Api\V1\Admin\BreakController;
 use App\Http\Controllers\Api\V1\Admin\BusinessPaymentMethodController;
 use App\Http\Controllers\Api\V1\Admin\CampaignController;
@@ -506,8 +507,8 @@ Route::prefix('v1')->group(function () {
 | contra la base y nunca confia en el context que llega en el cuerpo.
 */
 Route::prefix('ai')->middleware('ia-core.key')->group(function () {
-    Route::get('/tools/catalog', fn () => abort(501, 'Pendiente: fase 05'));
-    Route::post('/tools/invoke', fn () => abort(501, 'Pendiente: fase 05'));
+    Route::get('/tools/catalog', [AiToolInvokeController::class, 'catalog']);
+    Route::post('/tools/invoke', [AiToolInvokeController::class, 'invoke']);
 });
 
 /*

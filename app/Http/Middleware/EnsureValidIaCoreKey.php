@@ -7,11 +7,12 @@ use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * Autentica al Nexolu IA Core (servicio Python externo, repo aparte) contra
- * el endpoint de despacho de herramientas: una API key fija de aplicacion,
- * no un token de usuario Sanctum. El IA Core no tiene sesion de usuario
- * propia - confia en el bloque "context" del body, que este controlador
- * vuelve a validar contra la base de datos (ver AiToolInvokeController).
+ * Autentica al Nexolu IA Core: una API key fija de APLICACION, no un token de
+ * usuario.
+ *
+ * El Core no tiene sesion propia -- solo afirma quien pregunta en el bloque
+ * `context` del cuerpo. Por eso pasar por aca no autoriza nada todavia: el
+ * controlador vuelve a resolver ese contexto contra la base de datos.
  */
 class EnsureValidIaCoreKey
 {
@@ -20,7 +21,9 @@ class EnsureValidIaCoreKey
         $expected = config('services.ia_core.api_key');
         $provided = $request->bearerToken();
 
-        if (! $expected || ! $provided || ! hash_equals($expected, $provided)) {
+        // Sin llave configurada el endpoint no existe: un despliegue a medio
+        // configurar no puede quedar abierto de par en par.
+        if (! $expected || ! $provided || ! hash_equals((string) $expected, $provided)) {
             return response()->json(['error' => 'No autorizado.'], 401);
         }
 
