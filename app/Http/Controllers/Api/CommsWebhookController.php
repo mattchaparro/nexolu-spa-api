@@ -39,7 +39,7 @@ class CommsWebhookController
             return response()->json(['error' => 'invalid_signature'], 401);
         }
 
-        $entrante = $this->firstTextMessage($request->json()->all());
+        $entrante = $this->firstIncomingMessage($request->json()->all());
 
         /*
          * Siempre 200, incluso cuando no hay nada que hacer.
@@ -106,16 +106,23 @@ class CommsWebhookController
     }
 
     /**
-     * El primer mensaje de TEXTO del cuerpo de Meta, si lo hay.
+     * Lo primero que dijo una persona en este sobre, si dijo algo.
      *
-     * Meta manda lotes y mete de todo en el mismo sobre: estados de entrega,
-     * recibos de lectura, adjuntos. Aca solo interesa lo que una persona
-     * escribio.
+     * Meta manda lotes y mete de todo junto: estados de entrega, recibos de
+     * lectura, adjuntos. Aca solo interesa lo que alguien EXPRESO, y eso
+     * tiene tres formas: lo escribio, toco un boton de una plantilla, o toco
+     * un boton u opcion de una lista.
+     *
+     * Los botones importan tanto como el texto: la plantilla de confirmacion
+     * ofrece "Cambiar la hora" y "Cancelar la cita", y si el agente solo
+     * escuchara texto, tocarlos no haria absolutamente nada. Se traducen a
+     * texto porque para el modelo "Cancelar la cita" tocado y escrito
+     * significan lo mismo.
      *
      * @param  array<string, mixed>  $payload
      * @return array{0: ?string, 1: string, 2: string}|null [phone_number_id, de, texto]
      */
-    private function firstTextMessage(array $payload): ?array
+    private function firstIncomingMessage(array $payload): ?array
     {
         foreach ($payload['entry'] ?? [] as $entry) {
             foreach ($entry['changes'] ?? [] as $change) {
@@ -123,14 +130,10 @@ class CommsWebhookController
                 $phoneNumberId = $value['metadata']['phone_number_id'] ?? null;
 
                 foreach ($value['messages'] ?? [] as $message) {
-                    if (($message['type'] ?? null) !== 'text') {
-                        continue;
-                    }
-
-                    $texto = trim((string) ($message['text']['body'] ?? ''));
+                    $texto = $this->textOf($message);
                     $from = (string) ($message['from'] ?? '');
 
-                    if ($texto === '' || $from === '') {
+                    if ($texto === null || $from === '') {
                         continue;
                     }
 
@@ -143,6 +146,30 @@ class CommsWebhookController
         }
 
         return null;
+    }
+
+    /**
+     * Lo que dijo la persona, venga escrito o tocado.
+     *
+     * @param  array<string, mixed>  $message
+     */
+    private function textOf(array $message): ?string
+    {
+        $crudo = match ($message['type'] ?? null) {
+            'text' => $message['text']['body'] ?? null,
+            // El payload de un boton lo definimos nosotros al crear la
+            // plantilla; el TEXTO es lo que la persona vio y toco, que es lo
+            // que hay que contarle al modelo.
+            'button' => $message['button']['text'] ?? $message['button']['payload'] ?? null,
+            'interactive' => $message['interactive']['button_reply']['title']
+                ?? $message['interactive']['list_reply']['title']
+                ?? null,
+            default => null,
+        };
+
+        $texto = trim((string) $crudo);
+
+        return $texto === '' ? null : $texto;
     }
 
     private function hasValidSignature(Request $request): bool

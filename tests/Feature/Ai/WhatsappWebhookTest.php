@@ -100,6 +100,31 @@ class WhatsappWebhookTest extends TestCase
         );
     }
 
+    /** Un mensaje entrante con la forma cruda que se quiera (boton, lista...). */
+    private function entraCrudo(array $message, string $phoneNumberId = '111222333'): TestResponse
+    {
+        $body = json_encode([
+            'entry' => [['changes' => [['value' => [
+                'metadata' => ['phone_number_id' => $phoneNumberId],
+                'messages' => [$message],
+            ]]]]],
+        ]);
+        $timestamp = (string) now()->timestamp;
+
+        return $this->call(
+            'POST',
+            '/api/webhooks/nexolu-comms/whatsapp',
+            [], [], [],
+            [
+                'CONTENT_TYPE' => 'application/json',
+                'HTTP_ACCEPT' => 'application/json',
+                'HTTP_X_NEXOLU_TIMESTAMP' => $timestamp,
+                'HTTP_X_NEXOLU_SIGNATURE' => hash_hmac('sha256', $timestamp.'.'.$body, self::SECRET),
+            ],
+            $body,
+        );
+    }
+
     /** El IA Core contesta siempre lo mismo, sin salir a la red. */
     private function ncoreResponde(string $texto = 'Con gusto, ¿para qué día?'): void
     {
@@ -298,6 +323,39 @@ class WhatsappWebhookTest extends TestCase
             $carolina->id,
             WhatsappConversation::withoutGlobalScopes()->first()->client_id,
         );
+    }
+
+    public function test_tocar_un_boton_de_plantilla_le_llega_al_agente(): void
+    {
+        /*
+         * La plantilla de confirmacion ofrece "Cambiar la hora" y "Cancelar la
+         * cita". Meta NO los manda como texto sino como type=button: si el
+         * webhook solo escuchara texto, tocarlos no haria absolutamente nada
+         * y la clienta se quedaria esperando.
+         */
+        $this->ncoreResponde('Claro, ¿para cuándo la movemos?');
+
+        $this->entraCrudo([
+            'from' => '573001112233',
+            'type' => 'button',
+            'button' => ['text' => 'Cambiar la hora', 'payload' => 'cambiar'],
+        ])->assertOk()->assertJsonPath('handled', true);
+
+        $this->assertSame(1, Message::withoutGlobalScopes()->count());
+    }
+
+    public function test_tocar_un_boton_interactivo_tambien_llega(): void
+    {
+        $this->ncoreResponde();
+
+        $this->entraCrudo([
+            'from' => '573001112233',
+            'type' => 'interactive',
+            'interactive' => [
+                'type' => 'button_reply',
+                'button_reply' => ['id' => 'cancelar', 'title' => 'Cancelar la cita'],
+            ],
+        ])->assertOk()->assertJsonPath('handled', true);
     }
 
     public function test_lo_que_no_es_texto_se_ignora_sin_error(): void
