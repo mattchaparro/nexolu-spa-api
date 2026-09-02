@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AiToolInvokeController;
+use App\Http\Controllers\Api\CommsWebhookController;
 use App\Http\Controllers\Api\V1\Admin\BreakController;
 use App\Http\Controllers\Api\V1\Admin\BusinessPaymentMethodController;
 use App\Http\Controllers\Api\V1\Admin\CampaignController;
@@ -519,5 +520,5 @@ Route::prefix('ai')->middleware('ia-core.key')->group(function () {
 | aca un webhook de Meta directo.
 */
 Route::prefix('webhooks')->group(function () {
-    Route::post('/nexolu-comms/whatsapp', fn () => abort(501, 'Pendiente: fase 05'));
+    Route::post('/nexolu-comms/whatsapp', [CommsWebhookController::class, 'whatsapp']);
 });

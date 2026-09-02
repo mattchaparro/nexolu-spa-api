@@ -37,6 +37,16 @@ class Message extends Model
 
     public const KIND_WAITLIST = 'lista_espera';
 
+    /**
+     * Lo que contesta el agente de WhatsApp.
+     *
+     * Sale por el outbox como todo lo demas: queda escrito, se puede auditar
+     * y en modo manual alguien lo manda a mano en vez de perderse. Sin cita
+     * asociada, asi que el indice unico (appointment_id, kind) no lo limita
+     * -- una conversacion son muchos mensajes.
+     */
+    public const KIND_AGENT = 'agente';
+
     protected $fillable = [
         'business_id', 'location_id', 'kind', 'to', 'client_id', 'appointment_id',
         'body', 'status', 'attempts', 'sent_at', 'failed_at', 'error', 'sent_by_user_id',
