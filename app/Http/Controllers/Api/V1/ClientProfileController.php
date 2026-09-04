@@ -7,6 +7,7 @@ use App\Models\AppointmentItem;
 use App\Models\Business;
 use App\Models\Client;
 use App\Models\ClientPhoto;
+use App\Models\SocialPost;
 use App\Services\ClientPortalService;
 use App\Support\ChannelPhone;
 use App\Support\ImageStorage;
@@ -173,6 +174,16 @@ class ClientProfileController
             'caption' => ['nullable', 'string', 'max:255'],
             'appointment_item_id' => ['nullable', 'integer'],
             'taken_at' => ['nullable', 'date'],
+
+            /*
+             * "¿Te puedo publicar esta foto?" -- y este es el momento de
+             * preguntarlo: la clienta esta ahi mirandose las manos. Volver a
+             * buscarla dos semanas despues, cuando alguien quiera armar la
+             * publicacion, es como se termina publicando sin preguntar.
+             *
+             * Ausente = NO. El silencio no es un permiso.
+             */
+            'marketing_consent' => ['nullable', 'boolean'],
         ]);
 
         $business = $request->user()->business;
@@ -196,13 +207,63 @@ class ClientProfileController
             'caption' => $data['caption'] ?? null,
             'taken_at' => $data['taken_at'] ?? now(),
             'uploaded_by_user_id' => $request->user()->id,
+            'marketing_consent_at' => ($data['marketing_consent'] ?? false) ? now() : null,
+            'marketing_consent_by_user_id' => ($data['marketing_consent'] ?? false) ? $request->user()->id : null,
         ]);
 
         return response()->json([
             'id' => $photo->id,
             'url' => ImageStorage::url($photo->image_path),
             'caption' => $photo->caption,
+            'marketing_consent' => $photo->allowsMarketing(),
         ], 201);
+    }
+
+    /**
+     * La clienta autoriza -- o retira -- que su foto salga en las redes.
+     *
+     * Es un verbo aparte y no un campo mas de la ficha porque es una decision
+     * de OTRA persona, no del negocio. Se puede retirar en cualquier momento
+     * y sin explicaciones: quien dijo que si en marzo puede no querer en
+     * junio, y la unica forma de que eso sea cierto es que quitarlo sea tan
+     * facil como ponerlo.
+     *
+     * Retirarlo NO despublica lo que ya salio -- eso no esta en nuestras
+     * manos -- pero saca la foto de todo lo que este por salir. Por eso
+     * tambien limpia las publicaciones que todavia no se publicaron.
+     */
+    public function updatePhotoConsent(Request $request, ClientPhoto $photo): JsonResponse
+    {
+        $data = $request->validate(['allowed' => ['required', 'boolean']]);
+
+        $photo->forceFill([
+            'marketing_consent_at' => $data['allowed'] ? now() : null,
+            'marketing_consent_by_user_id' => $data['allowed'] ? $request->user()->id : null,
+        ])->save();
+
+        if (! $data['allowed']) {
+            /*
+             * Se descartan, no se les quita la foto: una publicacion sin foto
+             * volveria a la bandeja como si fuera un error del sistema, y
+             * alguien le pondria otra imagen y la sacaria igual. Descartada
+             * dice lo que paso.
+             */
+            SocialPost::where('client_photo_id', $photo->id)
+                ->whereIn('status', [
+                    SocialPost::STATUS_DRAFT,
+                    SocialPost::STATUS_SCHEDULED,
+                    SocialPost::STATUS_READY,
+                ])
+                ->update([
+                    'status' => SocialPost::STATUS_DISCARDED,
+                    'error' => 'La clienta retiró el permiso para publicar esta foto.',
+                ]);
+        }
+
+        return response()->json([
+            'id' => $photo->id,
+            'marketing_consent' => $photo->allowsMarketing(),
+        ]);
     }
 
     public function destroyPhoto(ClientPhoto $photo): JsonResponse
@@ -304,6 +365,9 @@ class ClientProfileController
                 'caption' => $p->caption,
                 'date' => $p->taken_at?->setTimezone($tz)->format('d/m/Y'),
                 'service_name' => $p->appointmentItem?->service?->name,
+                // Lo ve quien mira la ficha, no solo quien arma las
+                // publicaciones: es la fila donde se pregunta y se anota.
+                'marketing_consent' => $p->allowsMarketing(),
             ])
             ->values()
             ->all();
