@@ -49,6 +49,7 @@ class BusinessFeaturePresets
             'product_sales',         // venta simple de producto
             'loyalty',               // sellos y recompensas
             'promotions',
+            'social_posts',          // calendario y redaccion de publicaciones
             'no_show_penalties',
             'booking_deposit',       // abono para separar la cita
             'permissions_management',
@@ -84,6 +85,7 @@ class BusinessFeaturePresets
             'client_history' => ['group' => 'Clientes', 'label' => 'Historial y fotos', 'help' => 'Qué se le hizo, cuánto gastó y fotos del trabajo.'],
             'loyalty' => ['group' => 'Clientes', 'label' => 'Fidelización', 'help' => 'Tarjetas de sellos y recompensas.'],
             'promotions' => ['group' => 'Clientes', 'label' => 'Promociones', 'help' => 'Descuentos y cupones.'],
+            'social_posts' => ['group' => 'Clientes', 'label' => 'Publicaciones', 'help' => 'Calendario de redes que se llena solo con lo que pasa en la agenda, y redacta el texto. Publicar sigue siendo manual.'],
 
             'cash_closing' => ['group' => 'Dinero', 'label' => 'Cierre del día', 'help' => 'Cuadrar lo que hay en caja contra lo que se cobró.'],
             'cash_shift' => ['group' => 'Dinero', 'label' => 'Turnos de caja', 'help' => 'Abrir y cerrar caja por persona. En un spa casi nunca se usa: viene apagado.'],
@@ -182,6 +184,10 @@ class BusinessFeaturePresets
 
     /**
      * @return array<string, bool>
+     *
+     * `social_posts` entra SOLO aca, mismo criterio que `whatsapp_agent`: las
+     * dos le pagan tokens al IA Core cada vez que se usan. Un flag que
+     * consume plata de la plataforma no se regala con un plan intermedio.
      *
      * Full tampoco enciende `cash_shift` ni `booking_deposit`. Ninguna de las
      * dos es una funcion "avanzada":

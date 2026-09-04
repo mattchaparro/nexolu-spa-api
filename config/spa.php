@@ -87,4 +87,51 @@ return [
         'commission_base_campaign' => 'list',
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Publicaciones en redes
+    |--------------------------------------------------------------------------
+    | Los numeros con que el planificador decide QUE proponer. Son de
+    | plataforma y no del negocio a proposito: el control real que tiene el
+    | negocio no es cuantas propuestas recibe -- son propuestas, no salen
+    | solas -- sino cuales aprueba. Cuando algun negocio pida afinar esto se
+    | agrega una columna, no antes.
+    */
+    'social' => [
+
+        /*
+         * Cuantas propuestas sin revisar se toleran antes de dejar de
+         * proponer.
+         *
+         * Una bandeja con cuarenta ideas que nadie miro no se arregla
+         * agregando la cuarenta y uno: se deja de abrir. El planificador se
+         * calla y espera a que alguien vacie lo que hay.
+         */
+        'max_open_drafts' => 12,
+
+        // Una propuesta automatica que nadie toco en este tiempo se descarta
+        // sola. La de una persona no se descarta nunca.
+        'draft_stale_days' => 10,
+
+        // Que tan reciente tiene que ser una foto para valer como noticia.
+        // Un trabajo de hace un mes ya no es "miren lo de ayer".
+        'work_photo_days' => 14,
+        'work_photos_per_run' => 2,
+
+        /*
+         * El hueco. Se mira desde manana -- hoy ya no da tiempo de aprobar,
+         * publicar y que alguien reaccione -- hasta el horizonte.
+         */
+        'gap_horizon_days' => 5,
+
+        // Cuantos minutos libres tiene que sumar un dia para que valga la
+        // pena anunciarlo. Menos de tres horas es un dia normal, no un hueco.
+        'gap_min_free_min' => 180,
+        'gaps_per_run' => 2,
+
+        // Un servicio que no se vende hace tanto merece que le recuerden al
+        // barrio que existe.
+        'service_quiet_weeks' => 6,
+    ],
+
 ];

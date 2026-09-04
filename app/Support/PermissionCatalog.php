@@ -64,6 +64,15 @@ class PermissionCatalog
             ['name' => 'clientes.gestionar', 'category' => 'clientes', 'label' => 'Gestionar clientes', 'description' => 'Crear y editar clientes.'],
             ['name' => 'clientes.historial', 'category' => 'clientes', 'label' => 'Ver historial', 'description' => 'Consultar el historial de servicios de un cliente.', 'feature' => 'client_history'],
 
+            /*
+             * Las redes del negocio. Va aparte de `clientes.gestionar` a
+             * proposito: quien atiende el mostrador necesita la ficha de la
+             * clienta, y eso no lo convierte en la voz publica del spa. Al
+             * reves tambien -- quien maneja el Instagram no necesita los
+             * telefonos de nadie.
+             */
+            ['name' => 'publicaciones.gestionar', 'category' => 'clientes', 'label' => 'Gestionar publicaciones', 'description' => 'Preparar, programar y marcar como publicado el contenido de las redes.', 'feature' => 'social_posts'],
+
             // Catalogo
             ['name' => 'servicios.gestionar', 'category' => 'catalogo', 'label' => 'Gestionar servicios', 'description' => 'Crear y editar el catalogo, precios y duraciones.'],
             ['name' => 'recursos.gestionar', 'category' => 'catalogo', 'label' => 'Gestionar equipo y recursos', 'description' => 'Administrar al equipo, sillas y cabinas.'],
