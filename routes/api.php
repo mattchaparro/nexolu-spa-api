@@ -32,6 +32,7 @@ use App\Http\Controllers\Api\V1\PayrollController;
 use App\Http\Controllers\Api\V1\PublicBookingController;
 use App\Http\Controllers\Api\V1\ResourceController;
 use App\Http\Controllers\Api\V1\SalesReportController;
+use App\Http\Controllers\Api\V1\ServiceClosingController;
 use App\Http\Controllers\Api\V1\ServiceController;
 use App\Http\Controllers\Api\V1\StageController;
 use App\Http\Controllers\Api\V1\SurveyController;
@@ -175,6 +176,23 @@ Route::prefix('v1')->group(function () {
                 ->middleware('permission:citas.editar');
             Route::get('/{appointment}/history', [StageController::class, 'history'])
                 ->middleware('permission:citas.ver');
+
+            /*
+             * Lo que se sube al cerrar el servicio.
+             *
+             * NO piden `clientes.gestionar`, y esa es toda la razon por la que
+             * viven aca y no colgadas de la ficha: el rol de profesional no
+             * tiene acceso a la base de clientes -- a proposito, es el activo
+             * del negocio -- pero fotografiar el trabajo que uno acaba de
+             * hacer no es administrar la ficha de nadie. Quien puede subir se
+             * limita por la AGENDA (es tu cita), no por la ficha.
+             */
+            Route::post('/{appointment}/work-photo', [ServiceClosingController::class, 'storePhoto'])
+                ->middleware(['feature:client_history', 'permission:servicios.registrar,caja.cobrar']);
+
+            // El comprobante es plata: mismo permiso que cobrar.
+            Route::post('/{appointment}/payment-proof', [ServiceClosingController::class, 'storePaymentProof'])
+                ->middleware('permission:caja.cobrar');
         });
 
         // El flujo del negocio, para pintar el selector.

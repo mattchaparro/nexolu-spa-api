@@ -2,11 +2,13 @@
 
 namespace App\Http\Resources;
 
+use App\Models\Appointment;
+use App\Support\ImageStorage;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 /**
- * @mixin \App\Models\Appointment
+ * @mixin Appointment
  */
 class AppointmentResource extends JsonResource
 {
@@ -42,6 +44,13 @@ class AppointmentResource extends JsonResource
             // cobrado -- distinto de cero, que significaria "se cobro $0".
             'is_paid' => $this->checked_out_at !== null,
             'payment_method' => $this->whenLoaded('paymentMethod', fn () => $this->paymentMethod?->name),
+
+            /*
+             * El comprobante de la transferencia. Es lo que hoy viaja por el
+             * grupo de WhatsApp, y tenerlo colgado de la cita es lo que hace
+             * que el cierre del dia cuadre contra algo que se puede mirar.
+             */
+            'payment_proof_url' => ImageStorage::url($this->payment_proof_path),
             'subtotal' => $this->subtotal === null ? null : (float) $this->subtotal,
             'discount_amount' => (float) $this->discount_amount,
             // Por que se descontó. En pantalla es la diferencia entre "le
