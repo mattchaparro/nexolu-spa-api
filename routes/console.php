@@ -27,3 +27,32 @@ Schedule::command('recordatorios:preparar')
     ->everyFifteenMinutes()
     ->withoutOverlapping()
     ->runInBackground();
+
+/*
+ * Publicaciones: buscar de que publicar.
+ *
+ * Una vez al dia y temprano. Temprano porque la noticia mas util que
+ * encuentra es el hueco de manana, y para que sirva alguien tiene que
+ * aprobarla y publicarla HOY -- una propuesta que aparece a las seis de la
+ * tarde llega tarde a su propio dia.
+ *
+ * Es cara: calcular los huecos de la semana recorre el horario de cada
+ * persona del equipo, dia por dia. Por eso corre una vez y no cada quince
+ * minutos, y por eso `withoutOverlapping`.
+ */
+Schedule::command('publicaciones:proponer')
+    ->dailyAt('07:00')
+    ->withoutOverlapping()
+    ->runInBackground();
+
+/*
+ * Publicaciones: liberar lo que ya cumplio su hora.
+ *
+ * Cada quince minutos y barato: una consulta por negocio. Es lo que hace que
+ * "programada para el jueves a las 10" signifique algo en pantalla. No
+ * publica nada -- ver PostDispatcher.
+ */
+Schedule::command('publicaciones:despachar')
+    ->everyFifteenMinutes()
+    ->withoutOverlapping()
+    ->runInBackground();

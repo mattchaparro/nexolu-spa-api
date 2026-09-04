@@ -13,6 +13,7 @@ use App\Http\Controllers\Api\V1\Admin\ResourceAdminController;
 use App\Http\Controllers\Api\V1\Admin\ServiceAdminController;
 use App\Http\Controllers\Api\V1\Admin\ServiceCategoryController;
 use App\Http\Controllers\Api\V1\Admin\ServicePackageController;
+use App\Http\Controllers\Api\V1\Admin\SocialPostController;
 use App\Http\Controllers\Api\V1\AgendaController;
 use App\Http\Controllers\Api\V1\AppointmentController;
 use App\Http\Controllers\Api\V1\AuthController;
@@ -319,6 +320,19 @@ Route::prefix('v1')->group(function () {
             Route::delete('/photos/{photo}', [ClientProfileController::class, 'destroyPhoto'])
                 ->middleware('permission:clientes.gestionar');
 
+            /*
+             * El permiso de la clienta para que su foto salga en las redes.
+             *
+             * Vive en la ficha y NO en el modulo de publicaciones, aunque sea
+             * ese el que lo usa. El permiso se pide donde esta la clienta --
+             * en el mostrador, mirandose las manos -- y no dos semanas
+             * despues, cuando alguien arma el calendario y ya no tiene a
+             * quien preguntarle. Sin bandera de `social_posts`: anotar que
+             * alguien dijo que si es cierto tenga o no el negocio el modulo.
+             */
+            Route::post('/photos/{photo}/marketing-consent', [ClientProfileController::class, 'updatePhotoConsent'])
+                ->middleware('permission:clientes.gestionar');
+
             // La tarjeta de sellos de esa persona. Mismo permiso que el
             // historial: cuantas veces vino es exactamente eso.
             Route::get('/{client}/loyalty', [LoyaltyCardController::class, 'show'])
@@ -391,6 +405,42 @@ Route::prefix('v1')->group(function () {
                 Route::post('/{location}', [LocationController::class, 'update']);
                 Route::post('/{location}/primary', [LocationController::class, 'makePrimary']);
                 Route::delete('/{location}', [LocationController::class, 'disable']);
+            });
+
+        /*
+        |----------------------------------------------------------------------
+        | Publicaciones en redes
+        |----------------------------------------------------------------------
+        | Un permiso solo para todo el modulo: quien puede preparar el
+        | contenido puede programarlo y marcarlo publicado. Partirlo en ver y
+        | gestionar seria inventar una separacion que ningun spa pidio -- lo
+        | maneja una persona, casi siempre la duena.
+        |
+        | NO HAY RUTA QUE PUBLIQUE. No es un olvido: ver PostDispatcher.
+        */
+        Route::prefix('social-posts')
+            ->middleware(['feature:social_posts', 'permission:publicaciones.gestionar'])
+            ->group(function () {
+                Route::get('/', [SocialPostController::class, 'index']);
+
+                // Las fotos de la ficha que SI se pueden publicar. Filtra por
+                // consentimiento y no acepta un parametro para saltarselo.
+                Route::get('/photo-pool', [SocialPostController::class, 'photoPool']);
+
+                // "Busca ideas ahora", para quien abre la pantalla y la
+                // encuentra vacia. Idempotente.
+                Route::post('/plan', [SocialPostController::class, 'plan']);
+
+                Route::post('/', [SocialPostController::class, 'store']);
+
+                // POST y no PUT tambien al editar: el formulario manda
+                // multipart por la imagen y PHP no puebla $_FILES en un PUT.
+                Route::post('/{post}', [SocialPostController::class, 'update']);
+
+                Route::post('/{post}/compose', [SocialPostController::class, 'compose']);
+                Route::post('/{post}/schedule', [SocialPostController::class, 'schedule']);
+                Route::post('/{post}/published', [SocialPostController::class, 'markPublished']);
+                Route::delete('/{post}', [SocialPostController::class, 'discard']);
             });
 
         Route::prefix('loyalty')->middleware('feature:loyalty')->group(function () {
