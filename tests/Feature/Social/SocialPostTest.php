@@ -1,0 +1,490 @@
+<?php
+
+namespace Tests\Feature\Social;
+
+use App\Models\Business;
+use App\Models\Client;
+use App\Models\ClientPhoto;
+use App\Models\Location;
+use App\Models\Service;
+use App\Models\SocialPost;
+use App\Models\User;
+use App\Support\BusinessFeaturePresets;
+use App\Support\PermissionCatalog;
+use Carbon\CarbonImmutable;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Http;
+use Laravel\Sanctum\Sanctum;
+use Tests\Feature\Scheduling\SchedulingScenario;
+use Tests\TestCase;
+
+/**
+ * El calendario de publicaciones, desde el panel.
+ *
+ * LO QUE MAS SE DEFIENDE ACA ES EL CONSENTIMIENTO. Un modulo de
+ * publicaciones montado sobre una base que ya tiene fotos de las manos de
+ * doscientas clientas es, sin cuidado, una maquina de publicar fotos que
+ * nadie autorizo -- y el error no se ve, porque las fotos quedan preciosas.
+ * Media docena de las pruebas de abajo existen solo para que esa puerta no se
+ * abra por descuido en un refactor.
+ *
+ * LO SEGUNDO: que el reloj NO PUBLIQUE. Es la clase de linea que alguien
+ * agrega con la mejor intencion -- "ya que esta programada, mandala" -- y hay
+ * una prueba que falla si aparece.
+ */
+class SocialPostTest extends TestCase
+{
+    use RefreshDatabase, SchedulingScenario;
+
+    private Business $business;
+
+    private Service $manicure;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->travelTo(CarbonImmutable::parse('2026-09-14 08:00', 'America/Bogota'));
+
+        PermissionCatalog::sync();
+
+        $this->business = $this->makeBusiness();
+        $this->manicure = $this->makeService($this->business, 60, [], name: 'Manicure semipermanente');
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | El consentimiento
+    |--------------------------------------------------------------------------
+    */
+
+    public function test_una_foto_sin_permiso_de_la_clienta_no_entra_a_una_publicacion(): void
+    {
+        Sanctum::actingAs($this->duena());
+
+        $foto = $this->foto(consentida: false);
+
+        $this->postJson('/api/v1/social-posts', [
+            'angle' => SocialPost::ANGLE_WORK,
+            'client_photo_id' => $foto->id,
+        ])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Esa foto no se puede publicar. Falta el permiso de la clienta.');
+
+        $this->assertSame(0, SocialPost::withoutGlobalScopes()->count());
+    }
+
+    public function test_con_el_permiso_anotado_la_foto_si_entra(): void
+    {
+        Sanctum::actingAs($this->duena());
+
+        $foto = $this->foto(consentida: true);
+
+        $this->postJson('/api/v1/social-posts', [
+            'angle' => SocialPost::ANGLE_WORK,
+            'client_photo_id' => $foto->id,
+        ])
+            ->assertCreated()
+            ->assertJsonPath('post.from_client_photo', true);
+    }
+
+    public function test_la_foto_de_otro_negocio_se_rechaza_igual_que_una_sin_permiso(): void
+    {
+        // Mismo mensaje a proposito: decir "esa foto existe pero no es tuya"
+        // ya es contar algo del otro negocio.
+        $otro = $this->makeBusiness();
+        $ajena = $this->foto(consentida: true, business: $otro);
+
+        Sanctum::actingAs($this->duena());
+
+        $this->postJson('/api/v1/social-posts', [
+            'angle' => SocialPost::ANGLE_WORK,
+            'client_photo_id' => $ajena->id,
+        ])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Esa foto no se puede publicar. Falta el permiso de la clienta.');
+    }
+
+    public function test_el_listado_de_fotos_publicables_solo_trae_las_consentidas(): void
+    {
+        $this->foto(consentida: false);
+        $consentida = $this->foto(consentida: true);
+
+        Sanctum::actingAs($this->duena());
+
+        $r = $this->getJson('/api/v1/social-posts/photo-pool')->assertOk();
+
+        $this->assertCount(1, $r->json('photos'));
+        $this->assertSame($consentida->id, $r->json('photos.0.id'));
+    }
+
+    public function test_el_listado_de_fotos_publicables_no_dice_de_quien_son(): void
+    {
+        $this->foto(consentida: true, nombre: 'Carolina');
+
+        Sanctum::actingAs($this->duena());
+
+        $r = $this->getJson('/api/v1/social-posts/photo-pool')->assertOk();
+
+        // Quien arma la publicacion no necesita el nombre, y no darlo es mas
+        // barato que confiar en que no se use.
+        $this->assertStringNotContainsString('Carolina', $r->getContent());
+    }
+
+    public function test_retirar_el_permiso_descarta_lo_que_todavia_no_ha_salido(): void
+    {
+        Sanctum::actingAs($this->duena());
+
+        $foto = $this->foto(consentida: true);
+
+        $programada = $this->publicacion([
+            'client_photo_id' => $foto->id,
+            'caption' => 'Mira este degradado.',
+            'status' => SocialPost::STATUS_SCHEDULED,
+            'scheduled_for' => now()->addDay(),
+        ]);
+
+        $publicada = $this->publicacion([
+            'client_photo_id' => $foto->id,
+            'caption' => 'La de la semana pasada.',
+            'status' => SocialPost::STATUS_PUBLISHED,
+            'published_at' => now()->subWeek(),
+        ]);
+
+        $this->postJson("/api/v1/clients/photos/{$foto->id}/marketing-consent", ['allowed' => false])
+            ->assertOk()
+            ->assertJsonPath('marketing_consent', false);
+
+        $this->assertSame(SocialPost::STATUS_DISCARDED, $programada->fresh()->status);
+
+        // Lo que ya salio no se puede despublicar desde aca, y decir lo
+        // contrario en la base seria mentirle al negocio.
+        $this->assertSame(SocialPost::STATUS_PUBLISHED, $publicada->fresh()->status);
+    }
+
+    public function test_el_permiso_se_puede_anotar_al_subir_la_foto(): void
+    {
+        Sanctum::actingAs($this->duena());
+
+        $clienta = $this->clienta('Valentina');
+
+        $r = $this->postJson("/api/v1/clients/{$clienta->id}/photos", [
+            'photo' => UploadedFile::fake()->image('unas.jpg'),
+            'marketing_consent' => true,
+        ])->assertCreated();
+
+        $this->assertTrue($r->json('marketing_consent'));
+    }
+
+    public function test_sin_decir_nada_la_foto_queda_sin_permiso(): void
+    {
+        // El silencio no es un permiso.
+        Sanctum::actingAs($this->duena());
+
+        $clienta = $this->clienta('Valentina');
+
+        $r = $this->postJson("/api/v1/clients/{$clienta->id}/photos", [
+            'photo' => UploadedFile::fake()->image('unas.jpg'),
+        ])->assertCreated();
+
+        $this->assertFalse($r->json('marketing_consent'));
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Aprobar y publicar
+    |--------------------------------------------------------------------------
+    */
+
+    public function test_no_se_programa_algo_a_lo_que_le_falta_el_texto_o_la_imagen(): void
+    {
+        Sanctum::actingAs($this->duena());
+
+        $sinNada = $this->publicacion(['angle' => SocialPost::ANGLE_GAP]);
+
+        $this->postJson("/api/v1/social-posts/{$sinNada->id}/schedule", [
+            'scheduled_for' => now()->addDay()->toIso8601String(),
+        ])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Le falta el texto o la imagen.');
+
+        $this->assertSame(SocialPost::STATUS_DRAFT, $sinNada->fresh()->status);
+    }
+
+    public function test_programar_deja_escrito_quien_aprobo(): void
+    {
+        $duena = $this->duena();
+        Sanctum::actingAs($duena);
+
+        $post = $this->completa();
+
+        $this->postJson("/api/v1/social-posts/{$post->id}/schedule", [
+            'scheduled_for' => now()->addDay()->toIso8601String(),
+        ])
+            ->assertOk()
+            ->assertJsonPath('post.status', SocialPost::STATUS_SCHEDULED)
+            ->assertJsonPath('post.approved_by', $duena->name);
+
+        $this->assertSame($duena->id, $post->fresh()->approved_by_user_id);
+    }
+
+    public function test_una_publicacion_que_ya_salio_no_se_reescribe(): void
+    {
+        Sanctum::actingAs($this->duena());
+
+        $post = $this->completa(['status' => SocialPost::STATUS_PUBLISHED, 'published_at' => now()]);
+
+        $this->postJson("/api/v1/social-posts/{$post->id}", ['caption' => 'Otro texto.'])
+            ->assertStatus(422);
+
+        $this->assertNotSame('Otro texto.', $post->fresh()->caption);
+    }
+
+    public function test_una_publicacion_que_ya_salio_no_se_descarta(): void
+    {
+        Sanctum::actingAs($this->duena());
+
+        $post = $this->completa(['status' => SocialPost::STATUS_PUBLISHED, 'published_at' => now()]);
+
+        $this->deleteJson("/api/v1/social-posts/{$post->id}")->assertStatus(422);
+
+        $this->assertSame(SocialPost::STATUS_PUBLISHED, $post->fresh()->status);
+    }
+
+    public function test_descartar_no_borra(): void
+    {
+        // Que una idea se haya descartado es justo lo que impide que el
+        // planificador la vuelva a proponer manana.
+        Sanctum::actingAs($this->duena());
+
+        $post = $this->publicacion([]);
+
+        $this->deleteJson("/api/v1/social-posts/{$post->id}")->assertOk();
+
+        $this->assertSame(SocialPost::STATUS_DISCARDED, $post->fresh()->status);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | El asistente
+    |--------------------------------------------------------------------------
+    */
+
+    public function test_el_asistente_escribe_el_texto_y_los_hashtags_quedan_aparte(): void
+    {
+        config()->set('services.ia_core.api_key', 'llave-ia');
+        config()->set('services.ia_core.base_url', 'http://ia-core.test');
+
+        Http::fake(['ia-core.test/*' => Http::response([
+            'text' => "Este degradado se hizo esta mañana.\nEscríbenos y te contamos.\n\n#unas #manicure #bogota",
+        ])]);
+
+        Sanctum::actingAs($this->duena());
+
+        $post = $this->publicacion(['angle' => SocialPost::ANGLE_WORK]);
+
+        $r = $this->postJson("/api/v1/social-posts/{$post->id}/compose")->assertOk();
+
+        $this->assertStringContainsString('degradado', $r->json('post.caption'));
+        $this->assertStringNotContainsString('#unas', $r->json('post.caption'));
+        $this->assertSame(['#unas', '#manicure', '#bogota'], $r->json('post.hashtags'));
+        $this->assertTrue($r->json('post.written_by_assistant'));
+    }
+
+    public function test_el_encargo_al_asistente_no_lleva_el_nombre_de_la_clienta(): void
+    {
+        config()->set('services.ia_core.api_key', 'llave-ia');
+        config()->set('services.ia_core.base_url', 'http://ia-core.test');
+
+        Http::fake(['ia-core.test/*' => Http::response(['text' => "Quedó lindo.\n\n#unas"])]);
+
+        Sanctum::actingAs($this->duena());
+
+        $foto = $this->foto(consentida: true, nombre: 'Carolina');
+        $post = $this->publicacion(['angle' => SocialPost::ANGLE_WORK, 'client_photo_id' => $foto->id]);
+
+        $this->postJson("/api/v1/social-posts/{$post->id}/compose")->assertOk();
+
+        /*
+         * El permiso fue para la foto de sus unas, no para que su nombre
+         * viaje a un servicio de IA. Un dato que no se manda no se puede
+         * filtrar despues, y por eso se prueba el CUERPO de la llamada y no
+         * el texto que vuelve.
+         */
+        Http::assertSent(function ($request) {
+            return ! str_contains(json_encode($request->data()), 'Carolina');
+        });
+    }
+
+    public function test_reescribir_el_texto_a_mano_le_quita_la_etiqueta_del_asistente(): void
+    {
+        Sanctum::actingAs($this->duena());
+
+        $post = $this->publicacion(['caption' => 'Lo del modelo.', 'composed_at' => now()]);
+
+        $r = $this->postJson("/api/v1/social-posts/{$post->id}", ['caption' => 'Lo que quiero decir yo.'])
+            ->assertOk();
+
+        // "Lo escribió el asistente" al lado de un texto que la duena
+        // reescribio entera es una etiqueta que miente.
+        $this->assertFalse($r->json('post.written_by_assistant'));
+    }
+
+    public function test_si_el_asistente_no_contesta_el_modulo_sigue_sirviendo(): void
+    {
+        config()->set('services.ia_core.api_key', 'llave-ia');
+        config()->set('services.ia_core.base_url', 'http://ia-core.test');
+
+        Http::fake(['ia-core.test/*' => Http::response([], 500)]);
+
+        Sanctum::actingAs($this->duena());
+
+        $post = $this->publicacion([]);
+
+        $this->postJson("/api/v1/social-posts/{$post->id}/compose")
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'El asistente no está disponible ahora. Puedes escribir el texto a mano.');
+
+        // Y a mano si se puede: un modulo que se cae porque un servicio de IA
+        // esta caido no es un modulo.
+        $this->postJson("/api/v1/social-posts/{$post->id}", ['caption' => 'Lo escribo yo.'])
+            ->assertOk()
+            ->assertJsonPath('post.caption', 'Lo escribo yo.');
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Quien entra
+    |--------------------------------------------------------------------------
+    */
+
+    public function test_recepcion_no_maneja_las_redes_del_negocio(): void
+    {
+        // Necesita la ficha de la clienta para su trabajo, y eso no la
+        // convierte en la voz publica del spa.
+        Sanctum::actingAs($this->empleada());
+
+        $this->getJson('/api/v1/social-posts')->assertForbidden();
+    }
+
+    public function test_sin_la_bandera_el_modulo_no_existe(): void
+    {
+        $this->business->update([
+            'feature_flags' => array_merge(BusinessFeaturePresets::full(), ['social_posts' => false]),
+        ]);
+
+        Sanctum::actingAs($this->duena());
+
+        $this->getJson('/api/v1/social-posts')->assertForbidden();
+    }
+
+    public function test_la_publicacion_de_la_sede_ajena_no_se_edita_por_id(): void
+    {
+        $cedritos = Location::create([
+            'business_id' => $this->business->id,
+            'name' => 'Cedritos', 'slug' => 'cedritos-'.uniqid(),
+            'is_primary' => false, 'is_active' => true,
+        ]);
+
+        $ajena = $this->publicacion(['location_id' => $cedritos->id]);
+
+        // Una encargada de Chapinero con el permiso del modulo: el listado se
+        // la esconde, y sin este guardia el id directo la editaria igual.
+        $encargada = $this->empleada();
+        $encargada->givePermissionTo('publicaciones.gestionar');
+        $encargada->locations()->sync([$this->business->primaryLocation()->id]);
+
+        Sanctum::actingAs($encargada->fresh());
+
+        $this->postJson("/api/v1/social-posts/{$ajena->id}", ['caption' => 'Mia ahora.'])
+            ->assertNotFound();
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Ayudas
+    |--------------------------------------------------------------------------
+    */
+
+    private function duena(): User
+    {
+        $user = User::create([
+            'business_id' => $this->business->id,
+            'name' => 'Dueña',
+            'email' => uniqid().'@prueba.test',
+            'password' => Hash::make('password123'),
+            'is_active' => true,
+            'is_owner' => true,
+        ]);
+
+        PermissionCatalog::applyRole($user, PermissionCatalog::ROLE_ADMIN);
+
+        return $user->fresh();
+    }
+
+    private function empleada(): User
+    {
+        $user = User::create([
+            'business_id' => $this->business->id,
+            'name' => 'Encargada',
+            'email' => uniqid().'@prueba.test',
+            'password' => Hash::make('password123'),
+            'is_active' => true,
+            'is_owner' => false,
+        ]);
+
+        PermissionCatalog::applyRole($user, PermissionCatalog::ROLE_RECEPTION);
+
+        return $user->fresh();
+    }
+
+    private function clienta(string $nombre, ?Business $business = null): Client
+    {
+        return Client::create([
+            'business_id' => ($business ?? $this->business)->id,
+            'name' => $nombre,
+            'phone' => '+57300'.random_int(1000000, 9999999),
+            'is_active' => true,
+        ]);
+    }
+
+    private function foto(bool $consentida, string $nombre = 'Clienta', ?Business $business = null): ClientPhoto
+    {
+        $business ??= $this->business;
+
+        return ClientPhoto::withoutGlobalScopes()->create([
+            'business_id' => $business->id,
+            'client_id' => $this->clienta($nombre, $business)->id,
+            'image_path' => 'negocios/'.$business->id.'/trabajos/'.uniqid().'.jpg',
+            'taken_at' => now()->subDay(),
+            'marketing_consent_at' => $consentida ? now()->subDay() : null,
+        ]);
+    }
+
+    /** @param array<string, mixed> $attributes */
+    private function publicacion(array $attributes): SocialPost
+    {
+        return SocialPost::withoutGlobalScopes()->create($attributes + [
+            'business_id' => $this->business->id,
+            'status' => SocialPost::STATUS_DRAFT,
+            'source' => SocialPost::SOURCE_MANUAL,
+            'angle' => SocialPost::ANGLE_FREE,
+        ]);
+    }
+
+    /**
+     * Una con texto e imagen: lo minimo para poder programarse.
+     *
+     * @param  array<string, mixed>  $attributes
+     */
+    private function completa(array $attributes = []): SocialPost
+    {
+        return $this->publicacion($attributes + [
+            'caption' => 'Quedan horas el jueves.',
+            'image_path' => 'negocios/'.$this->business->id.'/publicaciones/'.uniqid().'.jpg',
+            'service_id' => $this->manicure->id,
+        ]);
+    }
+}
