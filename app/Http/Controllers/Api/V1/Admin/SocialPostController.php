@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1\Admin;
 use App\Models\ClientPhoto;
 use App\Models\Service;
 use App\Models\SocialPost;
+use App\Models\SocialPostImage;
 use App\Services\Social\PostComposer;
 use App\Services\Social\PostPlanner;
 use App\Support\ImageStorage;
@@ -56,7 +57,7 @@ class SocialPostController
         $to = CarbonImmutable::parse($data['to'] ?? now($tz)->addDays(30), $tz)->endOfDay();
 
         $base = fn () => SocialPost::query()
-            ->with(['service:id,name', 'clientPhoto:id,image_path', 'location:id,name', 'approvedBy:id,name'])
+            ->with(['service:id,name', 'images.clientPhoto:id,image_path', 'location:id,name', 'approvedBy:id,name'])
             /*
              * Sin sede entra siempre: una publicacion que habla del negocio
              * entero es de todos. Mismo criterio que los mensajes, los gastos
@@ -120,6 +121,71 @@ class SocialPostController
                 ? 'Por ahora no hay nada nuevo que contar.'
                 : 'Se agregaron '.$result['proposed'].' ideas a la bandeja.',
         ]);
+    }
+
+    /**
+     * "Crear publicacion" desde las fotos de un servicio.
+     *
+     * Es el atajo que cierra el circulo del modulo: la manicurista fotografio
+     * su trabajo al cerrar el servicio, la clienta dijo que si, y desde esa
+     * misma foto sale la publicacion sin que nadie tenga que ir a buscarla
+     * entre doscientas.
+     *
+     * Hereda el servicio y la sede DE LA CITA que produjo la foto. Es lo que
+     * este modulo sabe y un calendario suelto no: quien escriba el texto ya
+     * sabe de que servicio habla y en que local fue.
+     */
+    public function fromPhotos(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'client_photo_ids' => ['required', 'array', 'min:1', 'max:'.SocialPostImage::MAX_PER_POST],
+            'client_photo_ids.*' => ['integer'],
+        ]);
+
+        $ids = $this->consentedPhotoIds($data['client_photo_ids']);
+
+        if (count($ids) !== count($data['client_photo_ids'])) {
+            return response()->json([
+                'message' => 'Alguna de esas fotos no se puede publicar. Falta el permiso de la clienta.',
+            ], 422);
+        }
+
+        // La primera manda: es la portada, y es de su cita de la que se
+        // heredan el servicio y la sede.
+        $primera = ClientPhoto::with('appointmentItem.appointment')->find($ids[0]);
+        $cita = $primera?->appointmentItem?->appointment;
+
+        $locationId = $cita?->location_id;
+
+        // Una sede que esta persona no ve no se hereda en silencio: la
+        // publicacion quedaria fuera de su propio listado.
+        if (! LocationScope::for($request->user())->allows($locationId)) {
+            $locationId = null;
+        }
+
+        $post = SocialPost::create([
+            'business_id' => $request->user()->business_id,
+            'status' => SocialPost::STATUS_DRAFT,
+            'source' => SocialPost::SOURCE_MANUAL,
+            'angle' => SocialPost::ANGLE_WORK,
+            'service_id' => $primera?->appointmentItem?->service_id,
+            'location_id' => $locationId,
+            'created_by_user_id' => $request->user()->id,
+        ]);
+
+        foreach ($ids as $position => $photoId) {
+            SocialPostImage::create([
+                'business_id' => $post->business_id,
+                'social_post_id' => $post->id,
+                'client_photo_id' => $photoId,
+                'position' => $position,
+            ]);
+        }
+
+        return response()->json(
+            ['post' => $this->detail($post->fresh($this->relations()), $this->tz($request))],
+            201,
+        );
     }
 
     /** Una publicacion que se le ocurrio a una persona. */
@@ -320,23 +386,6 @@ class SocialPostController
     {
         $business = $request->user()->business;
 
-        if (array_key_exists('client_photo_id', $data)) {
-            $photoId = $this->consentedPhotoId($data['client_photo_id']);
-
-            if ($data['client_photo_id'] !== null && $photoId === null) {
-                /*
-                 * O no es de este negocio, o no tiene permiso. Se contesta lo
-                 * mismo en los dos casos: decir "esa foto existe pero no
-                 * puedes" ya es contar algo de otro negocio.
-                 */
-                return response()->json([
-                    'message' => 'Esa foto no se puede publicar. Falta el permiso de la clienta.',
-                ], 422);
-            }
-
-            $post->client_photo_id = $photoId;
-        }
-
         if (array_key_exists('service_id', $data)) {
             $post->service_id = $data['service_id'] === null
                 ? null
@@ -361,13 +410,6 @@ class SocialPostController
             $post->hashtags = $this->normalizeHashtags($data['hashtags']);
         }
 
-        if ($request->hasFile('image')) {
-            // La anterior se borra: una imagen reemplazada que sigue en el
-            // bucket es basura que nadie va a ir a buscar.
-            ImageStorage::delete($post->image_path);
-            $post->image_path = ImageStorage::store($request->file('image'), $business->id, 'publicaciones');
-        }
-
         /*
          * Si la escribio una persona, deja de ser texto del modelo. Importa
          * para la pantalla: "lo escribió el asistente" al lado de un texto
@@ -379,10 +421,121 @@ class SocialPostController
 
         $post->save();
 
+        /*
+         * Las imagenes DESPUES de guardar: una publicacion nueva todavia no
+         * tiene id al que colgarlas.
+         */
+        if (($error = $this->syncImages($request, $post, $data)) !== null) {
+            return response()->json(['message' => $error], 422);
+        }
+
         return response()->json(
             ['post' => $this->detail($post->fresh($this->relations()), $this->tz($request))],
             $status,
         );
+    }
+
+    /**
+     * Deja la lista de imagenes como la pantalla la dejo.
+     *
+     * TRES ENTRADAS Y UN ORDEN. `keep_image_ids` son las que ya estaban, en el
+     * orden en que van; `client_photo_ids` y los archivos de `images` se
+     * agregan al final. Reordenar es volver a guardar con `keep_image_ids`
+     * distinto, que es como funciona cualquier lista que se edita.
+     *
+     * Se manda la lista COMPLETA en vez de parchear imagen por imagen: con
+     * endpoints separados para agregar, quitar y mover, quitar la del medio y
+     * reordenar las otras dos son tres llamadas, cualquiera puede fallar a
+     * mitad, y queda un carrusel que nadie pidio.
+     *
+     * @param  array<string, mixed>  $data
+     * @return string|null El motivo del rechazo, o null si quedo bien
+     */
+    private function syncImages(Request $request, SocialPost $post, array $data): ?string
+    {
+        $subidas = array_values($request->file('images', []) ?: []);
+        $nuevasFotos = $data['client_photo_ids'] ?? [];
+        $conservar = $data['keep_image_ids'] ?? null;
+
+        /*
+         * Sin decir nada de las imagenes, se dejan como estaban: guardar solo
+         * el texto no deberia vaciar el carrusel.
+         */
+        if ($conservar === null && $nuevasFotos === [] && $subidas === []) {
+            return null;
+        }
+
+        $actuales = $post->images()->get();
+
+        // Ausente = conservarlas todas. Vacia = quitarlas todas, que es una
+        // instruccion distinta y tiene que poder darse.
+        $conservar ??= $actuales->pluck('id')->all();
+
+        $validas = $this->consentedPhotoIds($nuevasFotos);
+
+        if (count($validas) !== count($nuevasFotos)) {
+            /*
+             * Alguna no es de este negocio, o no tiene permiso. Se contesta lo
+             * mismo en los dos casos: decir "esa foto existe pero no puedes"
+             * ya es contar algo de otro negocio.
+             */
+            return 'Alguna de esas fotos no se puede publicar. Falta el permiso de la clienta.';
+        }
+
+        $kept = collect($conservar)
+            ->map(fn ($id) => $actuales->firstWhere('id', (int) $id))
+            ->filter()
+            ->values();
+
+        if ($kept->count() + count($validas) + count($subidas) > SocialPostImage::MAX_PER_POST) {
+            return 'Un carrusel de Instagram admite hasta '.SocialPostImage::MAX_PER_POST.' imágenes.';
+        }
+
+        foreach ($actuales as $image) {
+            if ($kept->contains('id', $image->id)) {
+                continue;
+            }
+
+            /*
+             * La imagen SUELTA se borra del disco -- nadie mas la usa. La foto
+             * de la ficha NO: esa es de la clienta y sigue en su historial.
+             * Borrarla desde aca seria que quitar una imagen de una
+             * publicacion le vacie el historial a alguien.
+             */
+            if ($image->image_path !== null) {
+                ImageStorage::delete($image->image_path);
+            }
+
+            $image->delete();
+        }
+
+        // El ORDEN es este: la primera imagen es la portada, la unica que se
+        // ve en la cuadricula del perfil.
+        $position = 0;
+
+        foreach ($kept as $image) {
+            $image->forceFill(['position' => $position++])->save();
+        }
+
+        foreach ($validas as $photoId) {
+            SocialPostImage::create([
+                'business_id' => $post->business_id,
+                'social_post_id' => $post->id,
+                'client_photo_id' => $photoId,
+                'position' => $position++,
+            ]);
+        }
+
+        foreach ($subidas as $file) {
+            SocialPostImage::create([
+                'business_id' => $post->business_id,
+                'social_post_id' => $post->id,
+                'image_path' => ImageStorage::store($file, $post->business_id, 'publicaciones'),
+                'position' => $position++,
+            ]);
+        }
+
+        return null;
     }
 
     /** @return array<string, mixed> */
@@ -395,28 +548,54 @@ class SocialPostController
             'hashtags.*' => ['string', 'max:60'],
             'service_id' => ['nullable', 'integer'],
             'location_id' => ['nullable', 'integer'],
-            'client_photo_id' => ['nullable', 'integer'],
+            /*
+             * Las imagenes se mandan como LISTA COMPLETA, no se parchean una
+             * por una: ver syncImages para por que.
+             */
+            // Las que ya estaban y siguen, EN ORDEN. Ausente = todas.
+            'keep_image_ids' => ['nullable', 'array', 'max:'.SocialPostImage::MAX_PER_POST],
+            'keep_image_ids.*' => ['integer'],
+
+            // Fotos de la ficha que se agregan al final.
+            'client_photo_ids' => ['nullable', 'array', 'max:'.SocialPostImage::MAX_PER_POST],
+            'client_photo_ids.*' => ['integer'],
             'subject_date' => ['nullable', 'date'],
-            'image' => ImageStorage::rules(),
+
+            // Imagenes sueltas que se suben en este mismo guardado.
+            'images' => ['nullable', 'array', 'max:'.SocialPostImage::MAX_PER_POST],
+            'images.*' => ImageStorage::rules(),
         ]);
     }
 
     /**
-     * El id de la foto SOLO si es de este negocio y tiene consentimiento.
+     * Los ids que SI son de este negocio y SI tienen consentimiento.
      *
-     * El scope global de `ClientPhoto` ya limita al negocio; el
-     * `whereNotNull` es lo que agrega este modulo. Van juntos en un solo
-     * lugar para que no exista una segunda forma de resolver una foto.
+     * Devuelve menos de los que se piden cuando alguno no pasa, y quien llama
+     * compara los tamanos. El scope global de `ClientPhoto` limita al
+     * negocio; el `whereNotNull` es lo que agrega este modulo. Van juntos en
+     * un solo lugar para que no exista una segunda forma de resolver una foto.
+     *
+     * Se conserva EL ORDEN pedido: es el del carrusel, y `whereIn` devuelve el
+     * de la base.
+     *
+     * @param  array<int, mixed>  $ids
+     * @return list<int>
      */
-    private function consentedPhotoId(mixed $id): ?int
+    private function consentedPhotoIds(array $ids): array
     {
-        if ($id === null) {
-            return null;
+        if ($ids === []) {
+            return [];
         }
 
-        return ClientPhoto::where('id', $id)
+        $validos = ClientPhoto::whereIn('id', $ids)
             ->whereNotNull('marketing_consent_at')
-            ->value('id');
+            ->pluck('id')
+            ->all();
+
+        return array_values(array_filter(
+            array_map('intval', $ids),
+            fn (int $id) => in_array($id, $validos, true),
+        ));
     }
 
     /**
@@ -459,7 +638,7 @@ class SocialPostController
     /** @return list<string> */
     private function relations(): array
     {
-        return ['service:id,name', 'clientPhoto:id,image_path', 'location:id,name', 'approvedBy:id,name'];
+        return ['service:id,name', 'images.clientPhoto:id,image_path', 'location:id,name', 'approvedBy:id,name'];
     }
 
     private function tz(Request $request): string
@@ -482,8 +661,18 @@ class SocialPostController
             'hashtags' => $post->hashtags ?? [],
             // Escrito por el asistente y todavia sin tocar por nadie.
             'written_by_assistant' => $post->composed_at !== null,
-            'image_url' => ImageStorage::url($post->image_path ?: $post->clientPhoto?->image_path),
-            'from_client_photo' => $post->client_photo_id !== null,
+            /*
+             * Todas las imagenes, en orden. La primera es la portada, y por
+             * eso la pantalla no las reordena por su cuenta.
+             */
+            'images' => $post->images->map(fn (SocialPostImage $i) => [
+                'id' => $i->id,
+                'url' => $i->url(),
+                'client_photo_id' => $i->client_photo_id,
+                'from_client_photo' => $i->isFromClient(),
+            ])->values(),
+            // La portada, para las tarjetas del calendario.
+            'image_url' => $post->images->first()?->url(),
             'service_name' => $post->service?->name,
             'location_name' => $post->location?->name,
             'subject_date' => $post->subject_date?->toDateString(),

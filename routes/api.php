@@ -459,6 +459,13 @@ Route::prefix('v1')->group(function () {
 
                 Route::post('/', [SocialPostController::class, 'store']);
 
+                /*
+                 * "Crear publicacion" desde las fotos de un servicio. Cierra
+                 * el circulo: la foto se tomo al cerrar el servicio, la
+                 * clienta dio permiso, y de ahi sale el borrador.
+                 */
+                Route::post('/from-photos', [SocialPostController::class, 'fromPhotos']);
+
                 // POST y no PUT tambien al editar: el formulario manda
                 // multipart por la imagen y PHP no puebla $_FILES en un PUT.
                 Route::post('/{post}', [SocialPostController::class, 'update']);

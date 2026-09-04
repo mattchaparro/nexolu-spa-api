@@ -62,7 +62,7 @@ class PostDispatcher
              * recordatorios.
              */
             ->where('scheduled_for', '<=', $now->utc())
-            ->with(['clientPhoto'])
+            ->with(['images.clientPhoto'])
             ->get();
 
         $ready = 0;
@@ -72,13 +72,14 @@ class PostDispatcher
             /*
              * Se programo completa -- el controlador no deja programar otra
              * cosa -- pero entre esa hora y esta pudieron borrar la foto de
-             * la ficha. Vuelve a propuesta CON el motivo escrito: dejarla en
-             * "programada" seria esconderla en un estado que nadie revisa.
+             * la ficha, o la clienta pudo retirar su permiso. Vuelve a
+             * propuesta CON el motivo escrito: dejarla en "programada" seria
+             * esconderla en un estado que nadie revisa.
              */
             if (! $post->isComplete()) {
                 $post->forceFill([
                     'status' => SocialPost::STATUS_DRAFT,
-                    'error' => 'Le llegó la hora sin foto o sin texto. Se devolvió a propuestas.',
+                    'error' => 'Le llegó la hora sin imagen o sin texto. Se devolvió a propuestas.',
                 ])->save();
 
                 $returned++;

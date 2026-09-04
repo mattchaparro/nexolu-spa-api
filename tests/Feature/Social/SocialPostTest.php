@@ -2,12 +2,15 @@
 
 namespace Tests\Feature\Social;
 
+use App\Models\Appointment;
+use App\Models\AppointmentItem;
 use App\Models\Business;
 use App\Models\Client;
 use App\Models\ClientPhoto;
 use App\Models\Location;
 use App\Models\Service;
 use App\Models\SocialPost;
+use App\Models\SocialPostImage;
 use App\Models\User;
 use App\Support\BusinessFeaturePresets;
 use App\Support\PermissionCatalog;
@@ -66,12 +69,14 @@ class SocialPostTest extends TestCase
 
         $foto = $this->foto(consentida: false);
 
-        $this->postJson('/api/v1/social-posts', [
-            'angle' => SocialPost::ANGLE_WORK,
-            'client_photo_id' => $foto->id,
+        $this->postJson('/api/v1/social-posts/from-photos', [
+            'client_photo_ids' => [$foto->id],
         ])
             ->assertStatus(422)
-            ->assertJsonPath('message', 'Esa foto no se puede publicar. Falta el permiso de la clienta.');
+            ->assertJsonPath(
+                'message',
+                'Alguna de esas fotos no se puede publicar. Falta el permiso de la clienta.',
+            );
 
         $this->assertSame(0, SocialPost::withoutGlobalScopes()->count());
     }
@@ -82,12 +87,12 @@ class SocialPostTest extends TestCase
 
         $foto = $this->foto(consentida: true);
 
-        $this->postJson('/api/v1/social-posts', [
-            'angle' => SocialPost::ANGLE_WORK,
-            'client_photo_id' => $foto->id,
+        $this->postJson('/api/v1/social-posts/from-photos', [
+            'client_photo_ids' => [$foto->id],
         ])
             ->assertCreated()
-            ->assertJsonPath('post.from_client_photo', true);
+            ->assertJsonPath('post.angle', SocialPost::ANGLE_WORK)
+            ->assertJsonPath('post.images.0.from_client_photo', true);
     }
 
     public function test_la_foto_de_otro_negocio_se_rechaza_igual_que_una_sin_permiso(): void
@@ -99,12 +104,14 @@ class SocialPostTest extends TestCase
 
         Sanctum::actingAs($this->duena());
 
-        $this->postJson('/api/v1/social-posts', [
-            'angle' => SocialPost::ANGLE_WORK,
-            'client_photo_id' => $ajena->id,
+        $this->postJson('/api/v1/social-posts/from-photos', [
+            'client_photo_ids' => [$ajena->id],
         ])
             ->assertStatus(422)
-            ->assertJsonPath('message', 'Esa foto no se puede publicar. Falta el permiso de la clienta.');
+            ->assertJsonPath(
+                'message',
+                'Alguna de esas fotos no se puede publicar. Falta el permiso de la clienta.',
+            );
     }
 
     public function test_el_listado_de_fotos_publicables_solo_trae_las_consentidas(): void
@@ -140,18 +147,16 @@ class SocialPostTest extends TestCase
         $foto = $this->foto(consentida: true);
 
         $programada = $this->publicacion([
-            'client_photo_id' => $foto->id,
             'caption' => 'Mira este degradado.',
             'status' => SocialPost::STATUS_SCHEDULED,
             'scheduled_for' => now()->addDay(),
-        ]);
+        ], [$foto->id]);
 
         $publicada = $this->publicacion([
-            'client_photo_id' => $foto->id,
             'caption' => 'La de la semana pasada.',
             'status' => SocialPost::STATUS_PUBLISHED,
             'published_at' => now()->subWeek(),
-        ]);
+        ], [$foto->id]);
 
         $this->postJson("/api/v1/clients/photos/{$foto->id}/marketing-consent", ['allowed' => false])
             ->assertOk()
@@ -190,6 +195,184 @@ class SocialPostTest extends TestCase
         ])->assertCreated();
 
         $this->assertFalse($r->json('marketing_consent'));
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | El carrusel
+    |--------------------------------------------------------------------------
+    | Un trabajo de uñas se muestra de frente, de lado y con la mano cerrada:
+    | son tres fotos de lo mismo. Con una sola imagen, el negocio elige cuál y
+    | descarta las otras dos.
+    */
+
+    public function test_una_publicacion_nace_con_varias_fotos_en_orden(): void
+    {
+        Sanctum::actingAs($this->duena());
+
+        $frente = $this->foto(consentida: true);
+        $lado = $this->foto(consentida: true);
+
+        $r = $this->postJson('/api/v1/social-posts/from-photos', [
+            'client_photo_ids' => [$frente->id, $lado->id],
+        ])->assertCreated();
+
+        $this->assertSame(
+            [$frente->id, $lado->id],
+            array_column($r->json('post.images'), 'client_photo_id'),
+        );
+    }
+
+    public function test_la_portada_es_la_primera_imagen(): void
+    {
+        // Es la única que se ve en la cuadrícula del perfil, y la que decide
+        // si alguien abre la publicación.
+        Sanctum::actingAs($this->duena());
+
+        $portada = $this->foto(consentida: true);
+        $segunda = $this->foto(consentida: true);
+
+        $r = $this->postJson('/api/v1/social-posts/from-photos', [
+            'client_photo_ids' => [$portada->id, $segunda->id],
+        ])->assertCreated();
+
+        $this->assertSame($r->json('post.images.0.url'), $r->json('post.image_url'));
+    }
+
+    public function test_basta_una_foto_sin_permiso_para_rechazar_el_carrusel_entero(): void
+    {
+        // No se cuela "las que sí": guardar tres y publicar dos sin decir
+        // nada es exactamente cómo se publica una foto que nadie autorizó.
+        Sanctum::actingAs($this->duena());
+
+        $ok = $this->foto(consentida: true);
+        $sinPermiso = $this->foto(consentida: false);
+
+        $this->postJson('/api/v1/social-posts/from-photos', [
+            'client_photo_ids' => [$ok->id, $sinPermiso->id],
+        ])->assertStatus(422);
+
+        $this->assertSame(0, SocialPost::withoutGlobalScopes()->count());
+    }
+
+    public function test_no_caben_mas_de_diez_imagenes(): void
+    {
+        // El tope es de Instagram: con once rechaza la publicación entera.
+        Sanctum::actingAs($this->duena());
+
+        $yaEstaban = collect(range(1, 6))->map(fn () => $this->foto(consentida: true)->id)->all();
+        $post = $this->publicacion([], $yaEstaban);
+
+        $nuevas = collect(range(1, 5))->map(fn () => $this->foto(consentida: true)->id)->all();
+
+        // Seis que ya estaban más cinco nuevas son once: el tope se cuenta
+        // sobre el TOTAL, no sobre cada lista por separado.
+        $this->postJson("/api/v1/social-posts/{$post->id}", ['client_photo_ids' => $nuevas])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Un carrusel de Instagram admite hasta 10 imágenes.');
+    }
+
+    public function test_guardar_solo_el_texto_no_vacia_el_carrusel(): void
+    {
+        // Es el error silencioso que este módulo no se puede permitir: la
+        // dueña corrige una tilde y la publicación se queda sin fotos.
+        Sanctum::actingAs($this->duena());
+
+        $foto = $this->foto(consentida: true);
+        $post = $this->publicacion([], [$foto->id]);
+
+        $this->postJson("/api/v1/social-posts/{$post->id}", ['caption' => 'Otro texto.'])
+            ->assertOk()
+            ->assertJsonCount(1, 'post.images');
+    }
+
+    public function test_reordenar_es_volver_a_guardar_la_lista(): void
+    {
+        Sanctum::actingAs($this->duena());
+
+        $a = $this->foto(consentida: true);
+        $b = $this->foto(consentida: true);
+        $post = $this->publicacion([], [$a->id, $b->id]);
+
+        $ids = $post->images->pluck('id')->all();
+
+        $r = $this->postJson("/api/v1/social-posts/{$post->id}", [
+            'keep_image_ids' => [$ids[1], $ids[0]],
+        ])->assertOk();
+
+        $this->assertSame(
+            [$b->id, $a->id],
+            array_column($r->json('post.images'), 'client_photo_id'),
+        );
+    }
+
+    public function test_quitar_una_imagen_no_borra_la_foto_de_la_ficha(): void
+    {
+        /*
+         * La foto es de la clienta y sigue en su historial. Que quitarla de
+         * una publicación le vaciara la ficha sería un efecto que nadie
+         * espera de un botón que dice "quitar".
+         */
+        Sanctum::actingAs($this->duena());
+
+        $foto = $this->foto(consentida: true);
+        $post = $this->publicacion([], [$foto->id]);
+
+        $this->postJson("/api/v1/social-posts/{$post->id}", ['keep_image_ids' => []])
+            ->assertOk()
+            ->assertJsonCount(0, 'post.images');
+
+        $this->assertNotNull($foto->fresh());
+    }
+
+    public function test_retirar_el_permiso_de_una_foto_deja_las_otras(): void
+    {
+        // Un carrusel de tres al que una clienta le retira el permiso sigue
+        // teniendo dos. Descartarlo entero sería castigar al negocio por una
+        // decisión que no es suya.
+        Sanctum::actingAs($this->duena());
+
+        $suya = $this->foto(consentida: true);
+        $otra = $this->foto(consentida: true);
+        $post = $this->publicacion(['status' => SocialPost::STATUS_SCHEDULED], [$suya->id, $otra->id]);
+
+        $this->postJson("/api/v1/clients/photos/{$suya->id}/marketing-consent", ['allowed' => false])
+            ->assertOk();
+
+        $post = $post->fresh('images');
+
+        $this->assertSame(SocialPost::STATUS_SCHEDULED, $post->status);
+        $this->assertSame([$otra->id], $post->images->pluck('client_photo_id')->all());
+    }
+
+    public function test_si_era_la_unica_imagen_la_publicacion_se_descarta(): void
+    {
+        // Dejarla vacía en la bandeja la haría ver como un error del sistema,
+        // y alguien le pondría otra imagen y la sacaría igual.
+        Sanctum::actingAs($this->duena());
+
+        $foto = $this->foto(consentida: true);
+        $post = $this->publicacion(['status' => SocialPost::STATUS_SCHEDULED], [$foto->id]);
+
+        $this->postJson("/api/v1/clients/photos/{$foto->id}/marketing-consent", ['allowed' => false])
+            ->assertOk();
+
+        $this->assertSame(SocialPost::STATUS_DISCARDED, $post->fresh()->status);
+    }
+
+    public function test_la_publicacion_hereda_el_servicio_de_la_cita_que_produjo_la_foto(): void
+    {
+        /*
+         * Es lo que este módulo sabe y un calendario suelto no: quien escriba
+         * el texto ya sabe de qué servicio habla.
+         */
+        Sanctum::actingAs($this->duena());
+
+        $foto = $this->fotoDeUnServicio();
+
+        $this->postJson('/api/v1/social-posts/from-photos', ['client_photo_ids' => [$foto->id]])
+            ->assertCreated()
+            ->assertJsonPath('post.service_name', $this->manicure->name);
     }
 
     /*
@@ -303,7 +486,7 @@ class SocialPostTest extends TestCase
         Sanctum::actingAs($this->duena());
 
         $foto = $this->foto(consentida: true, nombre: 'Carolina');
-        $post = $this->publicacion(['angle' => SocialPost::ANGLE_WORK, 'client_photo_id' => $foto->id]);
+        $post = $this->publicacion(['angle' => SocialPost::ANGLE_WORK], [$foto->id]);
 
         $this->postJson("/api/v1/social-posts/{$post->id}/compose")->assertOk();
 
@@ -463,15 +646,84 @@ class SocialPostTest extends TestCase
         ]);
     }
 
-    /** @param array<string, mixed> $attributes */
-    private function publicacion(array $attributes): SocialPost
+    /** Una foto colgada de una cita real, para que herede su servicio. */
+    private function fotoDeUnServicio(): ClientPhoto
     {
-        return SocialPost::withoutGlobalScopes()->create($attributes + [
+        $cuando = CarbonImmutable::now()->subDay();
+
+        $clienta = $this->clienta('Carolina');
+
+        $cita = Appointment::withoutGlobalScopes()->create([
+            'business_id' => $this->business->id,
+            'location_id' => $this->business->primaryLocation()?->id,
+            'client_id' => $clienta->id,
+            'client_name' => $clienta->name,
+            'starts_at' => $cuando,
+            'ends_at' => $cuando->addHour(),
+            'status' => Appointment::STATUS_COMPLETED,
+            'source' => 'panel',
+        ]);
+
+        $item = AppointmentItem::withoutGlobalScopes()->create([
+            'business_id' => $this->business->id,
+            'appointment_id' => $cita->id,
+            'service_id' => $this->manicure->id,
+            'resource_id' => $this->makeResource($this->business, 'Maria')->id,
+            'starts_at' => $cuando,
+            'ends_at' => $cuando->addHour(),
+            'service_starts_at' => $cuando,
+            'service_ends_at' => $cuando->addHour(),
+            'price' => 50000,
+        ]);
+
+        return ClientPhoto::withoutGlobalScopes()->create([
+            'business_id' => $this->business->id,
+            'client_id' => $clienta->id,
+            'appointment_item_id' => $item->id,
+            'image_path' => 'negocios/'.$this->business->id.'/trabajos/'.uniqid().'.jpg',
+            'taken_at' => $cuando,
+            'marketing_consent_at' => $cuando,
+        ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $attributes
+     * @param  list<int>  $photoIds  Fotos de ficha que la ilustran, en orden.
+     * @param  bool  $conImagenSuelta  Una imagen propia, para que esté completa.
+     */
+    private function publicacion(
+        array $attributes,
+        array $photoIds = [],
+        bool $conImagenSuelta = false,
+    ): SocialPost {
+        $post = SocialPost::withoutGlobalScopes()->create($attributes + [
             'business_id' => $this->business->id,
             'status' => SocialPost::STATUS_DRAFT,
             'source' => SocialPost::SOURCE_MANUAL,
             'angle' => SocialPost::ANGLE_FREE,
         ]);
+
+        $position = 0;
+
+        foreach ($photoIds as $photoId) {
+            SocialPostImage::withoutGlobalScopes()->create([
+                'business_id' => $this->business->id,
+                'social_post_id' => $post->id,
+                'client_photo_id' => $photoId,
+                'position' => $position++,
+            ]);
+        }
+
+        if ($conImagenSuelta) {
+            SocialPostImage::withoutGlobalScopes()->create([
+                'business_id' => $this->business->id,
+                'social_post_id' => $post->id,
+                'image_path' => 'negocios/'.$this->business->id.'/publicaciones/'.uniqid().'.jpg',
+                'position' => $position++,
+            ]);
+        }
+
+        return $post->fresh('images');
     }
 
     /**
@@ -481,10 +733,12 @@ class SocialPostTest extends TestCase
      */
     private function completa(array $attributes = []): SocialPost
     {
-        return $this->publicacion($attributes + [
-            'caption' => 'Quedan horas el jueves.',
-            'image_path' => 'negocios/'.$this->business->id.'/publicaciones/'.uniqid().'.jpg',
-            'service_id' => $this->manicure->id,
-        ]);
+        return $this->publicacion(
+            $attributes + [
+                'caption' => 'Quedan horas el jueves.',
+                'service_id' => $this->manicure->id,
+            ],
+            conImagenSuelta: true,
+        );
     }
 }

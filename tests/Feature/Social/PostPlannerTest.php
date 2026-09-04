@@ -10,6 +10,7 @@ use App\Models\ClientPhoto;
 use App\Models\Resource;
 use App\Models\Service;
 use App\Models\SocialPost;
+use App\Models\SocialPostImage;
 use App\Services\Social\PostDispatcher;
 use App\Services\Social\PostPlanner;
 use App\Support\BusinessFeaturePresets;
@@ -61,7 +62,7 @@ class PostPlannerTest extends TestCase
 
         $this->planificar();
 
-        $post = SocialPost::withoutGlobalScopes()->where('client_photo_id', $foto->id)->first();
+        $post = $this->publicacionDeLaFoto($foto);
 
         $this->assertNotNull($post);
         $this->assertSame(SocialPost::ANGLE_WORK, $post->angle);
@@ -78,7 +79,7 @@ class PostPlannerTest extends TestCase
 
         $this->planificar();
 
-        $this->assertSame(0, SocialPost::withoutGlobalScopes()->whereNotNull('client_photo_id')->count());
+        $this->assertSame(0, SocialPostImage::withoutGlobalScopes()->whereNotNull('client_photo_id')->count());
     }
 
     public function test_una_foto_vieja_ya_no_es_noticia(): void
@@ -88,7 +89,7 @@ class PostPlannerTest extends TestCase
 
         $this->planificar();
 
-        $this->assertSame(0, SocialPost::withoutGlobalScopes()->whereNotNull('client_photo_id')->count());
+        $this->assertSame(0, SocialPostImage::withoutGlobalScopes()->whereNotNull('client_photo_id')->count());
     }
 
     public function test_correr_dos_veces_no_duplica_la_propuesta(): void
@@ -110,9 +111,9 @@ class PostPlannerTest extends TestCase
 
         $this->planificar();
 
-        SocialPost::withoutGlobalScopes()
-            ->where('client_photo_id', $foto->id)
-            ->update(['status' => SocialPost::STATUS_DISCARDED]);
+        $this->publicacionDeLaFoto($foto)
+            ->forceFill(['status' => SocialPost::STATUS_DISCARDED])
+            ->save();
 
         $this->planificar();
 
@@ -120,7 +121,7 @@ class PostPlannerTest extends TestCase
         // escuchado.
         $this->assertSame(
             1,
-            SocialPost::withoutGlobalScopes()->where('client_photo_id', $foto->id)->count(),
+            SocialPostImage::withoutGlobalScopes()->where('client_photo_id', $foto->id)->count(),
         );
     }
 
@@ -349,7 +350,7 @@ class PostPlannerTest extends TestCase
     public function test_una_programada_que_se_quedo_sin_foto_vuelve_a_la_bandeja_con_el_motivo(): void
     {
         $post = $this->programada(now()->subMinutes(5));
-        $post->forceFill(['image_path' => null])->save();
+        $post->images()->delete();
 
         $this->assertSame(1, $this->despachar()['returned']);
 
@@ -426,14 +427,34 @@ class PostPlannerTest extends TestCase
 
     private function programada(\DateTimeInterface $cuando): SocialPost
     {
-        return SocialPost::withoutGlobalScopes()->create([
+        $post = SocialPost::withoutGlobalScopes()->create([
             'business_id' => $this->business->id,
             'status' => SocialPost::STATUS_SCHEDULED,
             'source' => SocialPost::SOURCE_MANUAL,
             'angle' => SocialPost::ANGLE_FREE,
             'caption' => 'Quedan horas el jueves.',
-            'image_path' => 'negocios/'.$this->business->id.'/publicaciones/'.uniqid().'.jpg',
             'scheduled_for' => $cuando,
         ]);
+
+        SocialPostImage::withoutGlobalScopes()->create([
+            'business_id' => $this->business->id,
+            'social_post_id' => $post->id,
+            'image_path' => 'negocios/'.$this->business->id.'/publicaciones/'.uniqid().'.jpg',
+            'position' => 0,
+        ]);
+
+        return $post->fresh('images');
+    }
+
+    /** La publicacion que nacio de esa foto. */
+    private function publicacionDeLaFoto(ClientPhoto $foto): ?SocialPost
+    {
+        $imagen = SocialPostImage::withoutGlobalScopes()
+            ->where('client_photo_id', $foto->id)
+            ->first();
+
+        return $imagen === null
+            ? null
+            : SocialPost::withoutGlobalScopes()->find($imagen->social_post_id);
     }
 }

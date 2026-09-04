@@ -133,7 +133,45 @@ pudo y el negocio escribe su texto a mano, que es lo que hacía antes de que est
 existiera. Un módulo de publicaciones que se cae porque un servicio de IA está
 caído no es un módulo de publicaciones.
 
-### 6. Idempotencia por `idea_key`, no por una bandera
+### 6. Una publicación tiene IMÁGENES, no una imagen
+
+Un carrusel no es un lujo en este negocio: un trabajo de uñas se muestra de
+frente, de lado y con la mano cerrada, y son tres fotos de lo mismo. Con una
+sola columna, el negocio elige cuál de las tres y descarta las otras dos.
+
+Viven en `social_post_images`, cada una es **una foto de la ficha o una imagen
+suelta** —nunca las dos— y `position` decide el orden. La **primera es la
+portada**: es la única que se ve en la cuadrícula del perfil, y la que decide si
+alguien abre la publicación. Confiar en el orden de inserción sería dejar esa
+decisión al azar.
+
+Las columnas viejas (`image_path`, `client_photo_id` en `social_posts`) **se
+quitaron**, no se dejaron conviviendo. Una columna que sigue ahí «por
+compatibilidad» al lado de una tabla es dos fuentes de verdad para la misma
+pregunta, y en algún camino —el que nadie tocó al migrar— una publicación sale
+con la imagen equivocada.
+
+Se editan mandando la **lista completa** (`keep_image_ids` en orden, más
+`client_photo_ids` y archivos que se agregan al final), no parcheando imagen por
+imagen: con endpoints separados para agregar, quitar y mover, quitar la del
+medio y reordenar las otras dos son tres llamadas, cualquiera falla a mitad, y
+queda un carrusel que nadie pidió.
+
+El tope es **10**, que es el de Instagram, y se cuenta sobre el total.
+
+### 7. Retirar un permiso quita la imagen, no la publicación
+
+Un carrusel de tres al que una clienta le retira el permiso sigue teniendo dos.
+Descartarlo entero sería castigar al negocio por una decisión que no es suya.
+
+La que se queda **sin ninguna imagen** sí se descarta, con el motivo escrito:
+dejarla vacía en la bandeja la haría ver como un error del sistema, y alguien le
+pondría otra imagen y la sacaría igual.
+
+Y quitar una imagen de una publicación **no borra la foto de la ficha**: esa es
+de la clienta y sigue en su historial.
+
+### 8. Idempotencia por `idea_key`, no por una bandera
 
 El planificador corre a diario sobre una ventana abierta —los próximos cinco
 días—, así que sin esto volvería a proponer el hueco del jueves cada día hasta
@@ -144,7 +182,7 @@ La huella de cada idea (`hueco:1:2026-09-17`, `foto:412`,
 *es* el mecanismo. Misma lección que los recordatorios: una restricción no se
 desincroniza, un contador sí.
 
-### 7. La bandeja llena calla al planificador
+### 9. La bandeja llena calla al planificador
 
 Doce propuestas sin mirar no necesitan la trece: necesitan que alguien las mire.
 Cuando se llena (`spa.social.max_open_drafts`) el planificador se calla y espera
@@ -163,6 +201,13 @@ para el día de la madre sigue siendo una idea en abril.
 | `hueco` | Un día entre mañana y +5 con más de 3h libres en el equipo | `hueco:{sede}:{fecha}` |
 | `servicio` | Servicio activo, que **ya se vendió alguna vez**, sin venderse hace 6 semanas | `servicio:{id}:{año-semana}` |
 | `equipo`, `libre` | No se proponen solos: los escribe una persona | — |
+
+También se crea una publicación **desde las fotos de un servicio**
+(`POST /social-posts/from-photos`): es el atajo que cierra el círculo del
+módulo. La manicurista fotografió su trabajo al cerrar el servicio, la clienta
+dijo que sí, y de esa misma foto sale el borrador — heredando el servicio y la
+sede **de la cita que la produjo**. Eso es lo que este módulo sabe y un
+calendario suelto no.
 
 Un servicio que **nunca** se vendió no se propone. No es un servicio olvidado:
 es una fila del catálogo que alguien creó por error, y anunciarla es hacerle
@@ -197,7 +242,10 @@ propósito: el control real que tiene el negocio no es cuántas propuestas recib
 ## Lo que todavía no está
 
 - **No publica.** Ver arriba; es una decisión, no una tarea pendiente. Lo que sí
-  está pendiente es el canal automático de Meta, cuando el producto lo pida.
+  está pendiente es el canal automático de Meta.
+- **No retoca las imágenes.** El embellecimiento —fondo y luz, con la mano
+  enmascarada para que las uñas queden intactas por construcción— va sobre una
+  copia y con el original siempre a la vista. Todavía no está.
 - **No avisa por WhatsApp** que hay publicaciones listas. Un aviso fuera de la
   ventana de 24h necesita una plantilla aprobada por Meta, y una plantilla que
   no existe falla en silencio. Por ahora el aviso es el contador de la pantalla.

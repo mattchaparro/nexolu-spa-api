@@ -8,6 +8,7 @@ use App\Models\Business;
 use App\Models\Client;
 use App\Models\ClientPhoto;
 use App\Models\SocialPost;
+use App\Models\SocialPostImage;
 use App\Services\ClientPortalService;
 use App\Support\ChannelPhone;
 use App\Support\ImageStorage;
@@ -242,22 +243,7 @@ class ClientProfileController
         ])->save();
 
         if (! $data['allowed']) {
-            /*
-             * Se descartan, no se les quita la foto: una publicacion sin foto
-             * volveria a la bandeja como si fuera un error del sistema, y
-             * alguien le pondria otra imagen y la sacaria igual. Descartada
-             * dice lo que paso.
-             */
-            SocialPost::where('client_photo_id', $photo->id)
-                ->whereIn('status', [
-                    SocialPost::STATUS_DRAFT,
-                    SocialPost::STATUS_SCHEDULED,
-                    SocialPost::STATUS_READY,
-                ])
-                ->update([
-                    'status' => SocialPost::STATUS_DISCARDED,
-                    'error' => 'La clienta retiró el permiso para publicar esta foto.',
-                ]);
+            $this->pullFromUnpublished($photo);
         }
 
         return response()->json([
@@ -272,6 +258,45 @@ class ClientProfileController
         $photo->delete();
 
         return response()->json(['message' => 'Foto eliminada.']);
+    }
+
+    /**
+     * Saca esta foto de todo lo que todavia no ha salido.
+     *
+     * Se quita LA IMAGEN, no la publicacion: un carrusel de tres fotos al que
+     * una clienta le retira el permiso sigue teniendo dos, y descartarlo
+     * entero seria castigar al negocio por una decision que no es suya.
+     *
+     * La publicacion que se queda SIN NINGUNA imagen si se descarta, con el
+     * motivo escrito. Dejarla vacia en la bandeja la haria ver como un error
+     * del sistema, y alguien le pondria otra imagen y la sacaria igual.
+     *
+     * Lo ya publicado no se toca: no esta en nuestras manos despublicarlo, y
+     * decir lo contrario en la base seria mentirle al negocio.
+     */
+    private function pullFromUnpublished(ClientPhoto $photo): void
+    {
+        $abiertas = [
+            SocialPost::STATUS_DRAFT,
+            SocialPost::STATUS_SCHEDULED,
+            SocialPost::STATUS_READY,
+        ];
+
+        $afectadas = SocialPostImage::where('client_photo_id', $photo->id)
+            ->whereHas('post', fn ($q) => $q->whereIn('status', $abiertas))
+            ->pluck('social_post_id');
+
+        SocialPostImage::where('client_photo_id', $photo->id)
+            ->whereIn('social_post_id', $afectadas)
+            ->delete();
+
+        SocialPost::whereIn('id', $afectadas)
+            ->whereIn('status', $abiertas)
+            ->whereDoesntHave('images')
+            ->update([
+                'status' => SocialPost::STATUS_DISCARDED,
+                'error' => 'La clienta retiró el permiso para publicar esta foto.',
+            ]);
     }
 
     /**

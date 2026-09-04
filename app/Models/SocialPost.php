@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Traits\BelongsToBusiness;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * Una publicacion del negocio en sus redes.
@@ -66,7 +67,7 @@ class SocialPost extends Model
 
     protected $fillable = [
         'business_id', 'location_id', 'status', 'source', 'angle', 'idea_key',
-        'service_id', 'subject_date', 'client_photo_id', 'image_path',
+        'service_id', 'subject_date',
         'caption', 'hashtags', 'composed_at', 'scheduled_for', 'published_at',
         'external_ref', 'error', 'created_by_user_id', 'approved_by_user_id',
     ];
@@ -92,9 +93,14 @@ class SocialPost extends Model
         return $this->belongsTo(Service::class);
     }
 
-    public function clientPhoto(): BelongsTo
+    /**
+     * Las imagenes, en orden. La primera es la PORTADA: es la unica que se ve
+     * en la cuadricula del perfil, y la que decide si alguien abre la
+     * publicacion.
+     */
+    public function images(): HasMany
     {
-        return $this->belongsTo(ClientPhoto::class);
+        return $this->hasMany(SocialPostImage::class)->orderBy('position')->orderBy('id');
     }
 
     public function createdBy(): BelongsTo
@@ -119,15 +125,23 @@ class SocialPost extends Model
     }
 
     /**
-     * Tiene con que salir: algo que decir y algo que mostrar.
+     * Tiene con que salir: algo que decir y AL MENOS una imagen.
      *
      * Se exige imagen porque esto es para un spa de unas. Una publicacion sin
      * foto en Instagram no es una publicacion: es un mensaje que nadie ve.
      */
     public function isComplete(): bool
     {
-        return trim((string) $this->caption) !== ''
-            && ($this->image_path !== null || $this->client_photo_id !== null);
+        if (trim((string) $this->caption) === '') {
+            return false;
+        }
+
+        /*
+         * Al menos una imagen QUE TODAVIA EXISTE. Una fila cuya foto de ficha
+         * se borro sigue ahi pero no muestra nada, y contarla dejaria
+         * programar una publicacion sin nada que publicar.
+         */
+        return $this->images->contains(fn (SocialPostImage $image) => $image->url() !== null);
     }
 
     /** @return array<string, string> */

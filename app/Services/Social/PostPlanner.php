@@ -8,6 +8,7 @@ use App\Models\ClientPhoto;
 use App\Models\Resource;
 use App\Models\Service;
 use App\Models\SocialPost;
+use App\Models\SocialPostImage;
 use App\Services\Scheduling\AvailabilityService;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -111,10 +112,10 @@ class PostPlanner
             ->where('business_id', $business->id)
             ->whereNotNull('marketing_consent_at')
             ->where('taken_at', '>=', $now->subDays((int) config('spa.social.work_photo_days'))->utc())
-            // Ya propuesta antes -- aprobada, publicada o descartada -- no
-            // vuelve. Descartar una foto es una respuesta, y reproponerla
-            // seria no haberla escuchado.
-            ->whereNotIn('id', SocialPost::withoutGlobalScopes()
+            // Ya usada antes -- en una propuesta aprobada, publicada o
+            // descartada -- no vuelve. Descartar una foto es una respuesta, y
+            // reproponerla seria no haberla escuchado.
+            ->whereNotIn('id', SocialPostImage::withoutGlobalScopes()
                 ->where('business_id', $business->id)
                 ->whereNotNull('client_photo_id')
                 ->select('client_photo_id'))
@@ -126,12 +127,15 @@ class PostPlanner
         $made = 0;
 
         foreach ($photos as $photo) {
-            $made += $this->propose($business, [
-                'idea_key' => 'foto:'.$photo->id,
-                'angle' => SocialPost::ANGLE_WORK,
-                'client_photo_id' => $photo->id,
-                'service_id' => $photo->appointmentItem?->service_id,
-            ]);
+            $made += $this->propose(
+                $business,
+                [
+                    'idea_key' => 'foto:'.$photo->id,
+                    'angle' => SocialPost::ANGLE_WORK,
+                    'service_id' => $photo->appointmentItem?->service_id,
+                ],
+                $photo->id,
+            );
         }
 
         return $made;
@@ -265,16 +269,26 @@ class PostPlanner
      * Deja la propuesta, o no hace nada si ya estaba.
      *
      * @param  array<string, mixed>  $attributes
+     * @param  int|null  $photoId  La foto de la ficha con que nace, si la hay.
      * @return int 1 si se creo, 0 si ya existia
      */
-    private function propose(Business $business, array $attributes): int
+    private function propose(Business $business, array $attributes, ?int $photoId = null): int
     {
         try {
-            SocialPost::withoutGlobalScopes()->create($attributes + [
+            $post = SocialPost::withoutGlobalScopes()->create($attributes + [
                 'business_id' => $business->id,
                 'status' => SocialPost::STATUS_DRAFT,
                 'source' => SocialPost::SOURCE_AUTO,
             ]);
+
+            if ($photoId !== null) {
+                SocialPostImage::withoutGlobalScopes()->create([
+                    'business_id' => $business->id,
+                    'social_post_id' => $post->id,
+                    'client_photo_id' => $photoId,
+                    'position' => 0,
+                ]);
+            }
         } catch (UniqueConstraintViolationException) {
             // Ya se propuso esta idea. Es el caso NORMAL: el planificador
             // corre todos los dias sobre la misma ventana de fechas.
