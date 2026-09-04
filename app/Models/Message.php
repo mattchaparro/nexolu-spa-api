@@ -38,6 +38,17 @@ class Message extends Model
     public const KIND_WAITLIST = 'lista_espera';
 
     /**
+     * "Terminaste, registralo".
+     *
+     * Tipo propio y no `KIND_STAFF`, aunque los dos vayan a la misma persona.
+     * El indice unico es (appointment_id, kind): compartir tipo con el aviso
+     * de etapa haria que una cita que ya movio de etapa se trague este aviso
+     * en silencio -- y el sintoma seria "a veces no me llega", que es la clase
+     * de bug que nadie reporta bien.
+     */
+    public const KIND_SERVICE_DONE = 'servicio_terminado';
+
+    /**
      * Lo que contesta el agente de WhatsApp.
      *
      * Sale por el outbox como todo lo demas: queda escrito, se puede auditar

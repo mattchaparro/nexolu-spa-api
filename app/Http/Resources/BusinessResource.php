@@ -2,11 +2,12 @@
 
 namespace App\Http\Resources;
 
+use App\Models\Business;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 /**
- * @mixin \App\Models\Business
+ * @mixin Business
  */
 class BusinessResource extends JsonResource
 {
@@ -37,6 +38,19 @@ class BusinessResource extends JsonResource
                 'min_booking_notice_min' => (int) $this->schedulingSetting('min_booking_notice_min'),
                 'min_cancellation_notice_min' => (int) $this->schedulingSetting('min_cancellation_notice_min'),
                 'max_booking_horizon_days' => (int) $this->schedulingSetting('max_booking_horizon_days'),
+
+                /*
+                 * Que se pide al cerrar un servicio.
+                 *
+                 * Van ya resueltas y no como las cadenas crudas de la
+                 * configuracion: la pantalla del cobro necesita saber SI
+                 * preguntar, no interpretar una politica. `payment_proof` se
+                 * queda como politica porque depende del medio de pago que
+                 * todavia no se ha elegido -- la vista la cruza con
+                 * `counts_as_cash` del metodo, que ya recibe.
+                 */
+                'asks_service_photo' => $this->asksForServicePhoto(),
+                'payment_proof_policy' => (string) $this->schedulingSetting('payment_proof_policy'),
             ],
         ];
     }

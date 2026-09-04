@@ -56,3 +56,19 @@ Schedule::command('publicaciones:despachar')
     ->everyFifteenMinutes()
     ->withoutOverlapping()
     ->runInBackground();
+
+/*
+ * "Terminaste, registralo": el aviso a quien atendio.
+ *
+ * Cada 15 minutos, como los recordatorios y por lo mismo: la ventana es
+ * abierta -- se toman los servicios que ya cumplieron su hora -- asi que una
+ * corrida perdida se recupera sola en la siguiente. Es idempotente por el
+ * indice unico de `messages`, no por una bandera.
+ *
+ * Viene apagado para todo negocio (`service_done_reminder_min` = 0), asi que
+ * esta entrada no manda nada hasta que alguien lo encienda.
+ */
+Schedule::command('servicios:recordar')
+    ->everyFifteenMinutes()
+    ->withoutOverlapping()
+    ->runInBackground();

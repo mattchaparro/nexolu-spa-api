@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Models\Appointment;
 use App\Models\AppointmentItem;
+use App\Models\Business;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -40,7 +41,7 @@ class MyWorkController
             'month' => $this->earnedBetween($resource->id, $now->startOfMonth(), $now->addDay()->startOfDay()),
             // Lo que atendio pero todavia no cobro: lo primero que tiene que
             // resolver antes de irse.
-            'pending_checkout' => $this->pendingCheckout($resource->id, $now),
+            'pending_checkout' => $this->pendingCheckout($user->business, $resource->id, $now),
             'agenda' => $this->agenda($resource->id, $now, $tz),
         ]);
     }
@@ -65,9 +66,19 @@ class MyWorkController
         ];
     }
 
-    /** @return list<array<string, mixed>> */
-    private function pendingCheckout(int $resourceId, CarbonImmutable $now): array
+    /**
+     * @return list<array<string, mixed>>
+     *
+     * Esta lista es la MITAD EN PANTALLA del aviso de fin de servicio. La
+     * otra mitad sale por WhatsApp (ver ServiceDoneReminder), y las dos dicen
+     * lo mismo a proposito: el WhatsApp la alcanza donde de verdad mira, y
+     * esto es lo que ve al abrir el sistema para hacerlo. Un aviso sin un
+     * lugar donde resolverlo es un recordatorio de una tarea invisible.
+     */
+    private function pendingCheckout(Business $business, int $resourceId, CarbonImmutable $now): array
     {
+        $tz = $business->businessTimezone();
+
         return Appointment::query()
             ->whereIn('status', [Appointment::STATUS_PENDING, Appointment::STATUS_CONFIRMED, Appointment::STATUS_IN_PROGRESS])
             ->whereNull('checked_out_at')
@@ -75,16 +86,42 @@ class MyWorkController
             // cobro", simplemente todavia no ocurrio.
             ->where('starts_at', '<=', $now->utc())
             ->whereHas('items', fn ($q) => $q->where('resource_id', $resourceId))
-            ->with('items.service')
+            ->with(['items.service', 'items.photos'])
             ->orderBy('starts_at')
             ->limit(20)
             ->get()
-            ->map(fn (Appointment $a) => [
-                'id' => $a->id,
-                'client_name' => $a->client_name,
-                'service_name' => $a->items->first()?->service?->name,
-                'label' => $a->starts_at?->setTimezone($a->business->businessTimezone())->format('d/m H:i'),
-            ])
+            ->map(function (Appointment $a) use ($business, $tz, $now) {
+                // El ultimo item: es el que decide si el TRABAJO termino, no
+                // el primero. Mismo criterio que ServiceDoneReminder.
+                $item = $a->items->sortByDesc('service_ends_at')->first();
+                $termino = $item?->service_ends_at;
+
+                return [
+                    'id' => $a->id,
+                    'client_name' => $a->client_name,
+                    'service_name' => $item?->service?->name,
+                    'label' => $a->starts_at?->setTimezone($tz)->format('d/m H:i'),
+
+                    // Cuando quedo listo el trabajo, y si eso ya paso. Es la
+                    // diferencia entre "lo estoy haciendo" y "se me quedo sin
+                    // registrar", que en pantalla no puede verse igual.
+                    'item_id' => $item?->id,
+                    'ended_at' => $termino?->setTimezone($tz)->toIso8601String(),
+                    'is_done' => $termino !== null && $termino <= $now,
+
+                    /*
+                     * Que falta. Se resuelve en el servidor y no en la vista:
+                     * la politica del negocio, la bandera del servicio y si ya
+                     * hay foto son tres datos que la pantalla no tiene, y
+                     * reimplementarlos ahi es como una copia se desincroniza.
+                     */
+                    'needs_photo' => $item !== null
+                        && $business->asksForServicePhoto()
+                        && ($item->service?->requires_photo ?? false)
+                        && $item->photos->isEmpty(),
+                    'has_photo' => $item !== null && $item->photos->isNotEmpty(),
+                ];
+            })
             ->values()
             ->all();
     }

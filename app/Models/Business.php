@@ -251,6 +251,49 @@ class Business extends Model
     }
 
     /**
+     * Si al cerrar un servicio se le pide a quien atendio la foto del trabajo.
+     *
+     * Se PIDE, nunca se exige. Bloquear el cobro por una foto que falta
+     * termina siempre en uno de dos sitios: una foto cualquiera subida para
+     * poder cobrar, o una caja que no cierra a las nueve de la noche. Un
+     * pendiente visible convence mejor que un candado.
+     *
+     * Va detras de `client_history`: pedir una foto que el negocio despues no
+     * puede ver en la ficha seria pedirla para nada.
+     */
+    public function asksForServicePhoto(): bool
+    {
+        return $this->hasFeature('client_history')
+            && $this->schedulingSetting('service_photo_policy') === 'ask';
+    }
+
+    /**
+     * Si al cobrar se pide el comprobante, dado el medio de pago.
+     *
+     * `non_cash` es la politica util: el efectivo se cuenta en el cajon al
+     * cerrar el dia y no necesita foto. Una transferencia no se puede contar
+     * -- sin comprobante, el cierre cuadra contra lo que alguien dijo que
+     * entro, que es exactamente lo que el cierre existe para no hacer.
+     */
+    public function asksForPaymentProof(bool $countsAsCash): bool
+    {
+        return match ((string) $this->schedulingSetting('payment_proof_policy')) {
+            'always' => true,
+            'non_cash' => ! $countsAsCash,
+            default => false,
+        };
+    }
+
+    /**
+     * Cuantos minutos despues de terminar el servicio se le avisa a quien
+     * atendio. 0 = nadie recibe nada.
+     */
+    public function serviceDoneReminderMinutes(): int
+    {
+        return max(0, (int) $this->schedulingSetting('service_done_reminder_min'));
+    }
+
+    /**
      * Topes ya resueltos: el preset del plan mas las excepciones del negocio.
      *
      * Misma mezcla y misma razon que `resolvedFeatureFlags()`: el front lee

@@ -58,6 +58,49 @@ return [
         'timezone' => 'America/Bogota',
 
         /*
+         * Cuantos minutos despues de que TERMINA el servicio se le avisa a
+         * quien atendio que lo registre.
+         *
+         * 0 = apagado, y es el default: prender solo un aviso al equipo sin
+         * que nadie lo pida es mandarle WhatsApp a las empleadas de un negocio
+         * a su nombre. Lo enciende quien lo quiera.
+         *
+         * El ancla es `service_ends_at` del ultimo item, que es la hora real a
+         * la que la clienta se levanta de la silla -- no `ends_at`, que
+         * incluye el buffer de limpieza y avisaria tarde.
+         */
+        'service_done_reminder_min' => 0,
+
+        /*
+         * Hasta cuando vale la pena avisar. Un servicio que termino hace seis
+         * horas ya se cobro, se olvido, o el dia se acabo: recordarlo a las
+         * nueve de la noche solo entrena a ignorar el aviso.
+         */
+        'service_done_reminder_max_age_min' => 240,
+
+        /*
+         * Si al cerrar el servicio se pide la foto del trabajo.
+         *
+         * `none` = no se pide. `ask` = se pide, pero NO SE EXIGE: bloquear el
+         * cobro por una foto que falta termina en dos sitios, una foto
+         * cualquiera subida para poder cobrar, o una caja que no cierra. Una
+         * barberia lo deja en `none` -- ahi no se acostumbra fotografiar la
+         * cara de nadie, que es distinto de fotografiar unas manos.
+         */
+        'service_photo_policy' => 'none',   // none | ask
+
+        /*
+         * Si al cobrar se pide el comprobante de pago.
+         *
+         * `non_cash` es el interesante: se pide solo cuando el medio de pago
+         * NO cuenta como efectivo (`payment_methods.counts_as_cash`). El
+         * efectivo se cuenta en el cajon al cerrar el dia; una transferencia
+         * no se puede contar, y sin comprobante el cierre cuadra contra lo que
+         * alguien dijo.
+         */
+        'payment_proof_policy' => 'none',   // none | non_cash | always
+
+        /*
          * Sobre que valor se le paga comision a quien atendio cuando hubo
          * descuento. `charged` = sobre lo cobrado; `list` = sobre el precio de
          * lista, y el descuento lo asume el negocio.

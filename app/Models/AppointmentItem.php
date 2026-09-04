@@ -56,6 +56,18 @@ class AppointmentItem extends Model
         return $this->belongsTo(self::class, 'warranty_for_item_id');
     }
 
+    /**
+     * Las fotos del trabajo que produjo este servicio.
+     *
+     * Viven en `client_photos` -- son de la clienta, no del item -- y se
+     * llegan por aca porque la pregunta que se hace el sistema es "¿este
+     * servicio ya quedo fotografiado?".
+     */
+    public function photos(): HasMany
+    {
+        return $this->hasMany(ClientPhoto::class);
+    }
+
     public function service(): BelongsTo
     {
         return $this->belongsTo(Service::class);

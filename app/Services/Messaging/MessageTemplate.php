@@ -38,6 +38,23 @@ final class MessageTemplate
         return new self('recordatorio_cita', 'es', [$cliente, $negocio, $fecha, $hora]);
     }
 
+    /**
+     * "Terminaste el servicio, registralo".
+     *
+     * El ultimo parametro es LO QUE FALTA, en palabras, y no una bandera: una
+     * plantilla aprobada por Meta no tiene condicionales, asi que la
+     * alternativa seria pedir dos plantillas -- una con foto y otra sin -- y
+     * esperar dos revisiones para una diferencia de seis palabras.
+     */
+    public static function servicioTerminado(
+        string $profesional,
+        string $servicio,
+        string $hora,
+        string $pendiente,
+    ): self {
+        return new self('servicio_terminado', 'es', [$profesional, $servicio, $hora, $pendiente]);
+    }
+
     /** La confirmacion, con el mismo formato que la clienta ya conoce. */
     public static function confirmacion(
         string $fecha,

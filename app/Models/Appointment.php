@@ -38,7 +38,7 @@ class Appointment extends Model
         'discount_campaign_id',
         'starts_at', 'ends_at', 'status', 'source', 'notes',
         'confirmed_at', 'cancelled_at', 'cancelled_by_user_id', 'cancellation_reason',
-        'payment_method_id', 'checked_out_at', 'checked_out_by_user_id',
+        'payment_method_id', 'payment_proof_path', 'checked_out_at', 'checked_out_by_user_id',
         'subtotal', 'discount_amount', 'discount_reason', 'total', 'commission_total',
         'deposit_amount', 'deposit_paid_at', 'deposit_payment_method_id', 'deposit_reference',
         'survey_token', 'survey_sent_at', 'survey_answered_at',

@@ -19,6 +19,7 @@ class Service extends Model
         'business_id', 'name', 'slug', 'description', 'image_path', 'service_category_id',
         'duration_min', 'buffer_before_min', 'buffer_after_min',
         'price', 'commission_rate', 'is_bookable_online', 'is_active', 'sort_order',
+        'requires_photo',
     ];
 
     protected function casts(): array
@@ -31,6 +32,7 @@ class Service extends Model
             'commission_rate' => 'decimal:4',
             'is_bookable_online' => 'boolean',
             'is_active' => 'boolean',
+            'requires_photo' => 'boolean',
         ];
     }
 
