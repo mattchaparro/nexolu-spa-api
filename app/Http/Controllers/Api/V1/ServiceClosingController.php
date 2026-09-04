@@ -6,6 +6,7 @@ use App\Models\Appointment;
 use App\Models\AppointmentItem;
 use App\Models\ClientPhoto;
 use App\Support\AgendaScope;
+use App\Support\ImageCompressor;
 use App\Support\ImageStorage;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -117,6 +118,9 @@ class ServiceClosingController
                 $request->file('proof'),
                 $appointment->business_id,
                 'comprobantes',
+                // Mas grande que una foto: de un comprobante lo unico que
+                // importa es el texto, y uno ilegible no es evidencia de nada.
+                ImageCompressor::MAX_EDGE_DOCUMENT,
             ),
         ])->save();
 

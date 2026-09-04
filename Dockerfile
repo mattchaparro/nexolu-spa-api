@@ -30,9 +30,26 @@ FROM php:8.4-fpm-alpine
 # Sin la extension redis a proposito: esta app usa QUEUE_CONNECTION=database
 # y CACHE_STORE=database. El droplet legacy no tiene Redis, y agregarlo seria
 # otro proceso compitiendo por su unico core.
+
+# gd + exif: sin las dos, ImageStorage guarda la foto de celular tal cual --
+# cuatro megas a 4000 pixeles, servidas desde este droplet de un core, y con
+# las coordenadas GPS del telefono todavia adentro. Con ellas la misma foto
+# pesa 310 KB (medido) y el EXIF desaparece al recodificar.
+#
+# `exif` no necesita librerias externas, pero SI hace falta: sin ella GD ignora
+# la etiqueta de orientacion y toda foto vertical se guarda acostada. Y como al
+# recodificar el EXIF se pierde, queda acostada para siempre.
+#
+# Las libs de imagen van en el grupo de RUNTIME (arriba) y sus -dev en el
+# virtual, por la misma razon que libzip ya documentada: `apk del .build-deps`
+# se lleva los -dev, y si el .so de runtime hubiera entrado ahi se iria con
+# ellos.
 RUN apk add --no-cache nginx supervisor libzip tzdata \
+        libjpeg-turbo libpng libwebp freetype \
     && apk add --no-cache --virtual .build-deps $PHPIZE_DEPS libzip-dev oniguruma-dev \
-    && docker-php-ext-install pdo_mysql zip opcache \
+        libjpeg-turbo-dev libpng-dev libwebp-dev freetype-dev \
+    && docker-php-ext-configure gd --with-jpeg --with-webp --with-freetype \
+    && docker-php-ext-install pdo_mysql zip opcache gd exif \
     && apk del .build-deps
 
 COPY docker/opcache.ini /usr/local/etc/php/conf.d/opcache-custom.ini
