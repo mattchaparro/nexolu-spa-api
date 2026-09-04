@@ -154,6 +154,14 @@ Route::prefix('v1')->group(function () {
         Route::prefix('appointments')->middleware('feature:scheduling')->group(function () {
             Route::get('/', [AppointmentController::class, 'index'])->middleware('permission:citas.ver');
             Route::post('/', [AppointmentController::class, 'store'])->middleware('permission:citas.crear');
+
+            /*
+             * Una cita suelta, por id. La necesita quien llega a una cita sin
+             * pasar por la rejilla del dia -- «Mi dia» cobrando lo que se
+             * quedo sin registrar ayer.
+             */
+            Route::get('/{appointment}', [AppointmentController::class, 'show'])
+                ->middleware('permission:citas.ver');
             Route::patch('/{appointment}/reschedule', [AppointmentController::class, 'reschedule'])->middleware('permission:citas.editar');
             Route::post('/{appointment}/cancel', [AppointmentController::class, 'cancel'])->middleware('permission:citas.cancelar');
             Route::post('/{appointment}/checkout', [CheckoutController::class, 'store'])->middleware('permission:caja.cobrar');

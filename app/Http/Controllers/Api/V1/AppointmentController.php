@@ -103,6 +103,42 @@ class AppointmentController
         return AppointmentResource::collection($appointments);
     }
 
+    /**
+     * UNA cita, por id.
+     *
+     * Existe porque no toda pantalla llega a una cita por la agenda del dia.
+     * «Mi dia» lista lo atendido y sin cobrar SIN limite hacia atras -- a
+     * alguien se le olvido registrar lo de ayer y lo hace hoy, que es el caso
+     * normal, no la excepcion -- y hasta ahora el boton de cobrar la buscaba
+     * en la rejilla de HOY: una cita de ayer no estaba ahi y la pantalla
+     * contestaba "no encontramos esa cita".
+     *
+     * Mismos limites que el listado: sin `citas.ver_todas`, solo las que uno
+     * atendio, y solo de las sedes que le tocan. 404 y no 403 -- una cita
+     * ajena no deberia ni confirmar que existe.
+     */
+    public function show(Request $request, Appointment $appointment): AppointmentResource
+    {
+        $scope = AgendaScope::for($request->user());
+
+        abort_if($scope->seesNothing(), 404);
+
+        abort_unless(
+            LocationScope::for($request->user())->allows($appointment->location_id),
+            404,
+        );
+
+        abort_if(
+            $scope->resourceId !== null
+                && ! $appointment->items()->where('resource_id', $scope->resourceId)->exists(),
+            404,
+        );
+
+        return new AppointmentResource(
+            $appointment->load(['items.service', 'items.resource', 'client', 'paymentMethod']),
+        );
+    }
+
     public function store(Request $request): JsonResponse
     {
         /*

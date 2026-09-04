@@ -272,9 +272,88 @@ class ServiceClosingTest extends TestCase
 
     /*
     |--------------------------------------------------------------------------
+    | Lo que se quedó sin registrar ayer
+    |--------------------------------------------------------------------------
+    */
+
+    public function test_lo_que_se_quedo_de_ayer_sigue_pendiente_hoy(): void
+    {
+        // Se le olvidó registrarlo y lo hace al día siguiente. Es el caso
+        // normal, no la excepción: por eso el pendiente no tiene límite hacia
+        // atrás.
+        $this->citaDeAyer($this->maria);
+
+        Sanctum::actingAs($this->profesional($this->maria));
+
+        $this->getJson('/api/v1/my-work')
+            ->assertOk()
+            ->assertJsonPath('pending_checkout.0.is_done', true);
+    }
+
+    public function test_una_cita_de_ayer_se_puede_abrir_por_id(): void
+    {
+        /*
+         * El botón de cobrar la buscaba en la rejilla de HOY, donde una cita
+         * de ayer no está — y la pantalla contestaba "no encontramos esa
+         * cita". Ese era el bug.
+         */
+        $cita = $this->citaDeAyer($this->maria);
+
+        Sanctum::actingAs($this->profesional($this->maria));
+
+        $this->getJson("/api/v1/appointments/{$cita->id}")
+            ->assertOk()
+            ->assertJsonPath('id', $cita->id);
+    }
+
+    public function test_la_cita_de_otra_no_se_abre_por_id(): void
+    {
+        // Mismos límites que el listado del día: sin `citas.ver_todas`, sólo
+        // las que uno atendió. 404 y no 403 — no debería ni confirmar que
+        // existe.
+        $cita = $this->citaDeAyer($this->luisa);
+
+        Sanctum::actingAs($this->profesional($this->maria));
+
+        $this->getJson("/api/v1/appointments/{$cita->id}")->assertNotFound();
+    }
+
+    public function test_recepcion_abre_cualquiera_porque_cobra_por_todas(): void
+    {
+        $cita = $this->citaDeAyer($this->maria);
+
+        Sanctum::actingAs($this->recepcion());
+
+        $this->getJson("/api/v1/appointments/{$cita->id}")->assertOk();
+    }
+
+    /*
+    |--------------------------------------------------------------------------
     | Ayudas
     |--------------------------------------------------------------------------
     */
+
+    /** La misma cita, pero de ayer: lo que se quedó sin registrar. */
+    private function citaDeAyer(Resource $resource): Appointment
+    {
+        $cita = $this->cita($resource, '14:00');
+
+        foreach ([$cita, ...$cita->items] as $fila) {
+            $fila->forceFill([
+                'starts_at' => $fila->starts_at->subDay(),
+                'ends_at' => $fila->ends_at->subDay(),
+            ])->save();
+        }
+
+        foreach ($cita->items as $item) {
+            $item->forceFill([
+                'service_starts_at' => $item->service_starts_at->subDay(),
+                'service_ends_at' => $item->service_ends_at->subDay(),
+            ])->save();
+        }
+
+        return $cita->fresh('items');
+    }
 
     private function profesional(Resource $resource): User
     {
