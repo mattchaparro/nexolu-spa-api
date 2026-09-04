@@ -9,10 +9,10 @@ use Illuminate\Console\Command;
 /**
  * Libera lo programado que ya cumplio su hora.
  *
- * Lo unico que hace es mover `scheduled` a `ready`, para que aparezca arriba
- * en la pantalla cuando toca. NO PUBLICA -- ver PostDispatcher para el
- * porque, que se resume en que la vitrina del negocio no es el lugar donde
- * estrenar automatizacion.
+ * Que hace con ello depende de si el negocio conecto su cuenta de Instagram:
+ * con cuenta la publica, sin cuenta la deja en "lista para publicar" y espera
+ * a que alguien la pegue. En los dos casos, el texto ya lo aprobo una persona
+ * -- programar ES aprobar. Ver PostDispatcher.
  *
  * Cada quince minutos, y sobre una ventana abierta: toma lo que ya paso su
  * hora, no lo que la cumple justo ahora. Una corrida perdida se recupera sola
@@ -29,6 +29,8 @@ class ReleaseSocialPosts extends Command
     public function handle(PostDispatcher $dispatcher): int
     {
         $listas = 0;
+        $publicadas = 0;
+        $fallidas = 0;
         $devueltas = 0;
 
         $negocios = Business::query()
@@ -44,10 +46,26 @@ class ReleaseSocialPosts extends Command
             $resultado = $dispatcher->run($business);
 
             $listas += $resultado['ready'];
+            $publicadas += $resultado['published'];
+            $fallidas += $resultado['failed'];
             $devueltas += $resultado['returned'];
 
-            if ($resultado['ready'] > 0) {
-                $this->line("{$business->name}: {$resultado['ready']} lista(s) para publicar.");
+            if ($resultado['ready'] > 0 || $resultado['published'] > 0) {
+                $this->line(sprintf(
+                    '%s: %d lista(s) para publicar, %d publicada(s).',
+                    $business->name,
+                    $resultado['ready'],
+                    $resultado['published'],
+                ));
+            }
+
+            /*
+             * Las rechazadas por Meta se nombran una por una. Un contador no
+             * sirve: lo que hace falta saber es CUAL negocio y POR QUE, que
+             * casi siempre es un token caducado y se arregla reconectando.
+             */
+            if ($resultado['failed'] > 0) {
+                $this->warn("{$business->name}: {$resultado['failed']} rechazada(s) por Instagram.");
             }
         }
 
@@ -57,7 +75,13 @@ class ReleaseSocialPosts extends Command
          * la imagen de la ficha -- pero no un fallo del comando, y mezclarlas
          * haria que la salida se vea roja el dia que no importa.
          */
-        $this->info("Listas para publicar: {$listas}. Devueltas por falta de material: {$devueltas}.");
+        $this->info(sprintf(
+            'Listas para publicar: %d. Publicadas: %d. Rechazadas: %d. Devueltas por falta de material: %d.',
+            $listas,
+            $publicadas,
+            $fallidas,
+            $devueltas,
+        ));
 
         return self::SUCCESS;
     }

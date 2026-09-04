@@ -9,37 +9,42 @@ use Carbon\CarbonImmutable;
 /**
  * El reloj de las publicaciones.
  *
- * MUEVE `scheduled` A `ready` Y AHI SE DETIENE. No publica. Es la decision
- * mas importante del modulo y conviene decir por que, porque la tentacion de
- * cerrar el ciclo es enorme y el codigo para hacerlo cabria en veinte lineas:
+ * LA GARANTIA NO ES "EL SISTEMA NO PUBLICA": ES "NADIE PUBLICA SIN QUE UNA
+ * PERSONA LO HAYA LEIDO". Y esa persona ya paso -- programar una publicacion
+ * ES aprobarla, con el texto y la foto adelante. Lo que el reloj hace despues
+ * es apretar un boton que alguien ya decidio apretar.
  *
- * - La cuenta de Instagram de un spa de barrio ES el negocio. No es un canal
- *   mas: es donde la clienta nueva decide si entra. Un texto raro publicado a
- *   las tres de la manana sin que nadie lo mirara cuesta mas que las diez
- *   publicaciones que no salieron.
+ * (Durante un tiempo esto se detuvo en `ready` a proposito, cuando todavia no
+ * habia con que publicar. La regla que se estaba defendiendo era la de
+ * arriba, no la parada en si.)
  *
- * - El texto lo escribio un modelo. Aprobarlo el lunes no es lo mismo que
- *   verlo publicado el jueves: entre las dos cosas el negocio cambio de
- *   promocion, se enfermo la manicurista y el hueco del jueves se lleno.
+ * ASI QUE HAY DOS CAMINOS, y el que se toma depende de si el negocio conecto
+ * su cuenta:
  *
- * - Y la parte aburrida: publicar en nombre de otro en Meta exige una app
- *   revisada y un token que hay que rotar. Construir eso para que el primer
- *   negocio lo estrene contra su propia vitrina no es un buen primer uso.
+ *   con cuenta:  scheduled --(su hora)--> published
+ *   sin cuenta:  scheduled --(su hora)--> ready --(una persona)--> published
  *
- * Asi que la ultima tecla la toca una persona, desde el panel, con el texto y
- * la foto adelante. Lo que este reloj hace es que esa persona no tenga que
- * acordarse: a la hora que se eligio, la publicacion aparece en "listas para
- * publicar" y deja de estar en el futuro.
+ * `ready` sigue existiendo y sigue siendo el modo por defecto, igual que
+ * `messaging_mode: manual` en la mensajeria: un spa opera asi sus primeras
+ * semanas de todas formas, y hay quien no va a querer salir de ahi nunca.
+ *
+ * SI META RECHAZA, la publicacion NO se pierde: queda en `failed` con el
+ * motivo escrito y visible en el calendario. Una publicacion que desaparece
+ * porque un token caduco es peor que una que no salio.
  */
 class PostDispatcher
 {
+    public function __construct(private readonly InstagramPublisher $instagram) {}
+
     /**
-     * @return array{ready: int, returned: int}
+     * @return array{ready: int, published: int, failed: int, returned: int}
      */
     public function run(Business $business, ?CarbonImmutable $now = null): array
     {
+        $vacio = ['ready' => 0, 'published' => 0, 'failed' => 0, 'returned' => 0];
+
         if (! $business->hasFeature('social_posts')) {
-            return ['ready' => 0, 'returned' => 0];
+            return $vacio;
         }
 
         $now ??= CarbonImmutable::now($business->businessTimezone());
@@ -65,7 +70,16 @@ class PostDispatcher
             ->with(['images.clientPhoto'])
             ->get();
 
+        /*
+         * La cuenta se resuelve UNA VEZ por negocio, no por publicacion: son
+         * la misma cuenta y la misma comprobacion de vencimiento.
+         */
+        $cuenta = $business->instagramAccount;
+        $publicaSola = $cuenta !== null && $cuenta->isUsable();
+
         $ready = 0;
+        $published = 0;
+        $failed = 0;
         $returned = 0;
 
         foreach ($due as $post) {
@@ -87,14 +101,56 @@ class PostDispatcher
                 continue;
             }
 
+            if (! $publicaSola) {
+                $post->forceFill([
+                    'status' => SocialPost::STATUS_READY,
+                    'error' => null,
+                ])->save();
+
+                $ready++;
+
+                continue;
+            }
+
+            $resultado = $this->instagram->publish($post, $cuenta);
+
+            if ($resultado['ok']) {
+                $post->forceFill([
+                    'status' => SocialPost::STATUS_PUBLISHED,
+                    'published_at' => now(),
+                    'external_ref' => $resultado['id'],
+                    'error' => null,
+                ])->save();
+
+                $published++;
+
+                continue;
+            }
+
+            /*
+             * Rechazada por Meta: queda en `failed` CON EL MOTIVO, no vuelve a
+             * la bandeja. La diferencia importa -- una propuesta es algo que
+             * nadie miro todavia, y esto es algo que alguien aprobo y que hay
+             * que arreglar. Mezclarlas esconde el problema entre las ideas.
+             *
+             * No se reintenta sola. Casi todos los rechazos de Meta son de los
+             * que no se arreglan esperando (token caducado, proporcion mala,
+             * cupo diario), y reintentar cada quince minutos gastaria el cupo
+             * en intentos que ya sabemos que fallan.
+             */
             $post->forceFill([
-                'status' => SocialPost::STATUS_READY,
-                'error' => null,
+                'status' => SocialPost::STATUS_FAILED,
+                'error' => $resultado['error'],
             ])->save();
 
-            $ready++;
+            $failed++;
         }
 
-        return ['ready' => $ready, 'returned' => $returned];
+        return [
+            'ready' => $ready,
+            'published' => $published,
+            'failed' => $failed,
+            'returned' => $returned,
+        ];
     }
 }

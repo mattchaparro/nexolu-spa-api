@@ -72,3 +72,16 @@ Schedule::command('servicios:recordar')
     ->everyFifteenMinutes()
     ->withoutOverlapping()
     ->runInBackground();
+
+/*
+ * Los tokens de Instagram, antes de que caduquen.
+ *
+ * Diario y no mensual: se renuevan con siete dias de anticipacion, asi que una
+ * corrida perdida tiene seis reintentos antes de que importe. Mensual daria un
+ * solo intento -- y un token vencido no avisa: las publicaciones dejan de
+ * salir en silencio y el negocio se entera semanas despues.
+ */
+Schedule::command('redes:renovar-tokens')
+    ->dailyAt('04:30')
+    ->withoutOverlapping()
+    ->runInBackground();

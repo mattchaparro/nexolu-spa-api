@@ -83,6 +83,44 @@ class ImageStorage
         }
     }
 
+    /**
+     * El ancho y el alto de algo ya guardado, o null si no se pudo medir.
+     *
+     * Existe para comprobar contra los limites de Instagram, que rechaza por
+     * proporcion. Se mide el ARCHIVO GUARDADO y no lo que se supo al subirlo:
+     * entre medio paso el compresor, que pudo rotarlo por su EXIF -- y una
+     * foto rotada tiene la proporcion al reves.
+     *
+     * En el disco local se lee la ruta y no el contenido: medir diez imagenes
+     * de un carrusel no deberia costar leerlas enteras. Contra un bucket no
+     * hay ruta, y ahi si toca traer los bytes.
+     *
+     * @return array{0: int, 1: int}|null
+     */
+    public static function dimensions(?string $path): ?array
+    {
+        if ($path === null || $path === '') {
+            return null;
+        }
+
+        $disk = Storage::disk(self::disk());
+
+        try {
+            if (self::disk() === 'public') {
+                $info = @getimagesize($disk->path($path));
+            } else {
+                $bytes = $disk->get($path);
+                $info = $bytes === null ? false : @getimagesizefromstring($bytes);
+            }
+        } catch (\Throwable $e) {
+            logger()->warning('No se pudo medir la imagen', ['path' => $path, 'error' => $e->getMessage()]);
+
+            return null;
+        }
+
+        return $info === false ? null : [(int) $info[0], (int) $info[1]];
+    }
+
     public static function url(?string $path): ?string
     {
         if ($path === null || $path === '') {

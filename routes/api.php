@@ -472,6 +472,13 @@ Route::prefix('v1')->group(function () {
 
                 Route::post('/{post}/compose', [SocialPostController::class, 'compose']);
                 Route::post('/{post}/schedule', [SocialPostController::class, 'schedule']);
+                /*
+                 * Publicar de verdad, contra Instagram. Solo sirve si el
+                 * negocio conecto su cuenta; sin ella, el camino es
+                 * `published` -- copiar, pegar y marcar.
+                 */
+                Route::post('/{post}/publish', [SocialPostController::class, 'publishNow']);
+
                 Route::post('/{post}/published', [SocialPostController::class, 'markPublished']);
                 Route::delete('/{post}', [SocialPostController::class, 'discard']);
             });

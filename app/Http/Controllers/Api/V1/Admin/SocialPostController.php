@@ -6,6 +6,8 @@ use App\Models\ClientPhoto;
 use App\Models\Service;
 use App\Models\SocialPost;
 use App\Models\SocialPostImage;
+use App\Services\Social\InstagramLimits;
+use App\Services\Social\InstagramPublisher;
 use App\Services\Social\PostComposer;
 use App\Services\Social\PostPlanner;
 use App\Support\ImageStorage;
@@ -97,6 +99,13 @@ class SocialPostController
                 // salir. Es el unico atraso que el modulo puede tener.
                 'ready' => $base()->where('status', SocialPost::STATUS_READY)->count(),
             ],
+            /*
+             * Si este negocio publica solo. La pantalla cambia bastante segun
+             * eso -- "Publicar ahora" contra "copiar y pegar" -- y calcularlo
+             * alla obligaria a repetir la comprobacion de vencimiento.
+             */
+            'instagram' => $this->instagramState($request),
+
             // El catalogo vive aca para que la pantalla no lo duplique.
             'angles' => collect(SocialPost::angleLabels())
                 ->map(fn (string $label, string $value) => ['value' => $value, 'label' => $label])
@@ -299,11 +308,67 @@ class SocialPostController
     }
 
     /**
+     * "Publícala ahora."
+     *
+     * El camino automatico, para el negocio que conecto su cuenta. La persona
+     * ya esta mirando el texto y la foto cuando aprieta -- que es la unica
+     * garantia que importa.
+     *
+     * Se comprueban los limites de Instagram ANTES de llamar a Meta (ver
+     * InstagramLimits): cuando Meta rechaza, lo que vuelve es un codigo de
+     * error en ingles, y para entonces ya se gasto cupo del limite diario.
+     */
+    public function publishNow(Request $request, SocialPost $post, InstagramPublisher $instagram): JsonResponse
+    {
+        $this->authorizePost($request, $post);
+
+        if ($post->status === SocialPost::STATUS_PUBLISHED) {
+            return response()->json(['post' => $this->detail($post, $this->tz($request))]);
+        }
+
+        $cuenta = $request->user()->business->instagramAccount;
+
+        if ($cuenta === null) {
+            /*
+             * Sin cuenta conectada no es un error: es el modo por defecto del
+             * producto. Se dice que hay que copiar y pegar, que es lo que el
+             * negocio ya sabe hacer.
+             */
+            return response()->json([
+                'message' => 'Este negocio no tiene Instagram conectado. Copia el texto y publícala desde la app.',
+            ], 422);
+        }
+
+        $resultado = $instagram->publish($post->load(['images.clientPhoto']), $cuenta);
+
+        if (! $resultado['ok']) {
+            /*
+             * El motivo se GUARDA ademas de devolverse. Quien aprieta el boton
+             * lo ve ahora; quien abra el calendario mañana tambien tiene que
+             * poder saber por que esa publicacion no salio.
+             */
+            $post->forceFill(['error' => $resultado['error']])->save();
+
+            return response()->json(['message' => $resultado['error']], 422);
+        }
+
+        $post->forceFill([
+            'status' => SocialPost::STATUS_PUBLISHED,
+            'published_at' => now(),
+            'external_ref' => $resultado['id'],
+            'error' => null,
+        ])->save();
+
+        return response()->json(['post' => $this->detail($post->fresh($this->relations()), $this->tz($request))]);
+    }
+
+    /**
      * "Ya la publiqué."
      *
-     * Lo marca la persona que la pego en Instagram. Es un dato que el sistema
-     * no puede saber solo, y sin el el calendario deja de servir a la semana:
-     * todo se ve como pendiente y nadie distingue lo que salio de lo que no.
+     * Lo marca la persona que la pego en Instagram A MANO. Es un dato que el
+     * sistema no puede saber solo, y sin el el calendario deja de servir a la
+     * semana: todo se ve como pendiente y nadie distingue lo que salio de lo
+     * que no.
      */
     public function markPublished(Request $request, SocialPost $post): JsonResponse
     {
@@ -641,6 +706,29 @@ class SocialPostController
         return ['service:id,name', 'images.clientPhoto:id,image_path', 'location:id,name', 'approvedBy:id,name'];
     }
 
+    /**
+     * Como esta la conexion con Instagram, en lo que la pantalla necesita.
+     *
+     * El token NO viaja, obviamente. Lo que viaja es si se puede publicar y,
+     * si no, por que -- "caducó" se arregla reconectando y "apagada" con un
+     * interruptor, y un "no se puede" a secas manda a buscar el problema
+     * equivocado.
+     *
+     * @return array<string, mixed>
+     */
+    private function instagramState(Request $request): array
+    {
+        $cuenta = $request->user()->business->instagramAccount;
+
+        return [
+            'connected' => $cuenta !== null,
+            'username' => $cuenta?->username,
+            'can_publish' => $cuenta?->isUsable() ?? false,
+            'expires_soon' => $cuenta?->expiresSoon() ?? false,
+            'reason' => $cuenta?->unusableReason(),
+        ];
+    }
+
     private function tz(Request $request): string
     {
         return $request->user()->business->businessTimezone();
@@ -680,6 +768,10 @@ class SocialPostController
             'published_at' => $post->published_at?->setTimezone($tz)->toIso8601String(),
             'approved_by' => $post->approvedBy?->name,
             'is_complete' => $post->isComplete(),
+            // Lo que Instagram rechazaria, dicho antes de intentarlo. La
+            // pantalla lo muestra para que nadie aprete un boton que ya
+            // sabemos que falla.
+            'rejected_reason' => InstagramLimits::rejects($post),
             'error' => $post->error,
         ];
     }

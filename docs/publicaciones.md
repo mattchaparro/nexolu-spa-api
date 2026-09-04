@@ -56,13 +56,21 @@ draft  ──►  scheduled  ──►  ready  ──►  published
 
 ## Las decisiones que no son obvias
 
-### 1. El sistema no publica
+### 1. Nadie publica sin que una persona lo haya leído
 
-El reloj mueve `scheduled` a `ready` y **ahí se detiene**. La última tecla la
-toca una persona, desde el panel, con el texto y la foto adelante.
+> Esta sección decía «el sistema no publica», y describía un reloj que se
+> detenía en `ready`. Ya no: con la cuenta conectada, el reloj publica. La regla
+> que se estaba defendiendo nunca fue la parada — era ésta. Ver
+> `docs/instagram.md`.
 
-Hay una prueba (`test_el_reloj_nunca_publica`) que falla si alguien agrega esa
-línea. No es pereza; son tres razones:
+**Programar una publicación *es* aprobarla**, con el texto y la foto adelante. Lo
+que el reloj hace después es apretar un botón que alguien ya decidió apretar. Lo
+que sigue sin existir es una publicación que salga sin que nadie la haya mirado
+nunca.
+
+Sin cuenta conectada —el modo por defecto— el reloj deja la publicación en
+«lista para publicar» y la última tecla la toca una persona. Las razones por las
+que ése fue el primer modo siguen valiendo:
 
 - **La cuenta de Instagram de un spa de barrio *es* el negocio.** No es un canal
   más: es donde la clienta nueva decide si entra. Un texto raro publicado a las
@@ -72,8 +80,7 @@ línea. No es pereza; son tres razones:
   verlo publicado el jueves: entre las dos cosas el negocio cambió de promoción,
   se enfermó la manicurista y el hueco del jueves se llenó.
 - **Y la parte aburrida:** publicar en nombre de otro en Meta exige una app
-  revisada y un token que hay que rotar. Cuando exista, se enchufa donde
-  `PostDispatcher` deja el hueco — la columna `external_ref` ya está para eso.
+  revisada y un token que hay que rotar. Eso ya está — ver `docs/instagram.md`.
 
 Lo que sí automatiza el reloj es **acordarse**: a la hora que se eligió, la
 publicación aparece en «listas para publicar» y deja de estar en el futuro.

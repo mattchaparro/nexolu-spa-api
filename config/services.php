@@ -40,6 +40,26 @@ return [
         'app_id' => env('IA_CORE_APP_ID', 'spa'),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Instagram (Graph API de Meta)
+    |--------------------------------------------------------------------------
+    | Aca va SOLO lo de la app de Nexolu, que es una para toda la plataforma.
+    | El id de la cuenta y el token son de CADA negocio y viven cifrados en
+    | `business_social_accounts` -- ver docs/instagram.md para por que, que es
+    | el mismo argumento de docs/whatsapp-numero-por-negocio.md.
+    |
+    | La version de la API se fija a proposito. Meta deprecia versiones cada
+    | pocos meses y "la ultima" es una que cambia sola bajo los pies: preferimos
+    | que el dia que haya que subirla sea una linea que alguien decide.
+    */
+    'instagram' => [
+        'app_id' => env('INSTAGRAM_APP_ID'),
+        'app_secret' => env('INSTAGRAM_APP_SECRET'),
+        'graph_url' => env('INSTAGRAM_GRAPH_URL', 'https://graph.facebook.com'),
+        'graph_version' => env('INSTAGRAM_GRAPH_VERSION', 'v21.0'),
+    ],
+
     'payments_core' => [
         'api_key' => env('PAYMENTS_CORE_API_KEY'),
         'base_url' => env('PAYMENTS_CORE_BASE_URL', 'http://localhost:8020'),

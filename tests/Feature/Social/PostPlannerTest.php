@@ -30,7 +30,9 @@ use Tests\TestCase;
  * DOS INVARIANTES QUE SE DEFIENDEN AQUI CON PRUEBA PROPIA:
  *
  * 1. Ninguna foto sin consentimiento se propone. Nunca, por ningun camino.
- * 2. El reloj NO PUBLICA. Mueve `scheduled` a `ready` y se detiene.
+ * 2. Sin cuenta de Instagram conectada, el reloj deja la publicacion en
+ *    `ready` y la ultima tecla la toca una persona. Con cuenta si publica
+ *    -- eso vive en InstagramPublishTest.
  */
 class PostPlannerTest extends TestCase
 {
@@ -310,22 +312,26 @@ class PostPlannerTest extends TestCase
         $this->assertSame(SocialPost::STATUS_READY, $post->fresh()->status);
     }
 
-    public function test_el_reloj_nunca_publica(): void
+    public function test_sin_cuenta_conectada_el_reloj_no_publica(): void
     {
         /*
-         * LA PRUEBA MAS IMPORTANTE DEL ARCHIVO.
+         * El modo por defecto del producto, y no un estado degradado: un spa
+         * opera así sus primeras semanas de todas formas, y hay quien no va a
+         * querer salir de ahí nunca.
          *
-         * "Ya que esta programada, mandala" es exactamente la linea que
-         * alguien va a agregar con la mejor intencion. La vitrina del negocio
-         * no es el lugar donde estrenar automatizacion: la ultima tecla la
-         * toca una persona con el texto adelante.
+         * (Esta prueba se llamaba `test_el_reloj_nunca_publica` y defendía que
+         * el reloj no publicara JAMÁS. Ya no es cierto: con la cuenta
+         * conectada publica, y programar es aprobar. Lo que sigue siendo
+         * cierto —y lo que esta prueba defiende— es que sin cuenta la última
+         * tecla la toca una persona. La otra mitad está en
+         * InstagramPublishTest.)
          */
         $post = $this->programada(now()->subDay());
 
         $this->despachar();
         $this->despachar();
 
-        $this->assertNotSame(SocialPost::STATUS_PUBLISHED, $post->fresh()->status);
+        $this->assertSame(SocialPost::STATUS_READY, $post->fresh()->status);
         $this->assertNull($post->fresh()->published_at);
     }
 

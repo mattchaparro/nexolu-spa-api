@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\DB;
 
@@ -248,6 +249,19 @@ class Business extends Model
         return $policy === null
             ? 0.0
             : DepositCalculator::forTotal($total, $policy['type'], $policy['value']);
+    }
+
+    /**
+     * La cuenta de Instagram conectada, si la hay.
+     *
+     * `hasOne` y no `hasMany` porque el indice unico ya garantiza una por red
+     * y por negocio: dos cuentas activas del mismo spa es una publicacion que
+     * sale dos veces.
+     */
+    public function instagramAccount(): HasOne
+    {
+        return $this->hasOne(BusinessSocialAccount::class)
+            ->where('provider', BusinessSocialAccount::PROVIDER_INSTAGRAM);
     }
 
     /**

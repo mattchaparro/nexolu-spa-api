@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\V1\SuperAdmin\BusinessesController;
 use App\Http\Controllers\Api\V1\SuperAdmin\DashboardController;
 use App\Http\Controllers\Api\V1\SuperAdmin\ImpersonateController;
 use App\Http\Controllers\Api\V1\SuperAdmin\PaymentMethodCatalogController;
+use App\Http\Controllers\Api\V1\SuperAdmin\SocialAccountController;
 use App\Http\Controllers\Api\V1\SuperAdmin\WorkflowController;
 use Illuminate\Support\Facades\Route;
 
@@ -49,4 +50,25 @@ Route::put('/workflows/{workflow}/stages', [WorkflowController::class, 'saveStag
 | volver: el front guarda el token del superadmin aparte y salir es un
 | POST /logout normal con el token de impersonacion, que lo revoca.
 */
+/*
+|------------------------------------------------------------------------------
+| Cuentas de redes
+|------------------------------------------------------------------------------
+| Pegar a mano el id y el token de la cuenta de Instagram de un negocio.
+|
+| ES UN ATAJO CONSCIENTE. Lo correcto es el Embedded Signup de Meta, donde el
+| negocio conecta su propia cuenta y nadie escribe un token -- mismo camino que
+| docs/whatsapp-numero-por-negocio.md ya decidio para el otro canal. Vive en
+| superadmin y no en el panel del negocio a proposito: pegar un token no es una
+| tarea que se le ofrezca a la duena de un spa.
+*/
+Route::get('/businesses/{business}/social-account', [SocialAccountController::class, 'show'])
+    ->name('social-account.show');
+Route::post('/businesses/{business}/social-account', [SocialAccountController::class, 'store'])
+    ->name('social-account.store');
+Route::patch('/businesses/{business}/social-account', [SocialAccountController::class, 'toggle'])
+    ->name('social-account.toggle');
+Route::delete('/businesses/{business}/social-account', [SocialAccountController::class, 'destroy'])
+    ->name('social-account.destroy');
+
 Route::post('/impersonate/{user}', [ImpersonateController::class, 'start'])->name('impersonate.start');
