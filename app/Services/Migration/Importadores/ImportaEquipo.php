@@ -518,14 +518,31 @@ class ImportaEquipo extends Importador
 
         $clave = fn (int $dia, string $desde, string $hasta) => "{$dia}|{$desde}|{$hasta}";
 
-        $existentes = [];
+        /*
+         * Agrupadas, no indexadas: puede haber DOS filas identicas.
+         *
+         * Indexando por clave, la segunda pisa a la primera y queda invisible
+         * -- se cree reconciliada y sigue abierta para siempre. Paso de
+         * verdad: una empleada tenia sus doce franjas por duplicado y la
+         * agenda la ofrecia dos veces. Aca se conserva UNA y las demas se
+         * cierran con las que sobran.
+         */
+        $porClave = [];
 
         foreach ($vigentes as $v) {
-            $existentes[$clave(
+            $porClave[$clave(
                 (int) $v->weekday,
                 substr((string) $v->start_time, 0, 5),
                 substr((string) $v->end_time, 0, 5),
-            )] = $v;
+            )][] = $v;
+        }
+
+        $existentes = [];
+        $sobrantes = [];
+
+        foreach ($porClave as $k => $filas) {
+            $existentes[$k] = array_shift($filas);
+            $sobrantes = array_merge($sobrantes, $filas);
         }
 
         $creadas = 0;
@@ -562,8 +579,11 @@ class ImportaEquipo extends Importador
             $this->reporte->creado('Horarios', $creadas);
         }
 
-        // Lo que quedo en `$existentes` ya no esta en el sistema viejo.
-        if ($existentes === []) {
+        // Lo que quedo en `$existentes` ya no esta en el sistema viejo, mas las
+        // copias repetidas de las que si estan.
+        $aCerrar = array_merge(array_values($existentes), $sobrantes);
+
+        if ($aCerrar === []) {
             $this->reporte->saltado('Horarios', count($deseadas));
 
             return;
@@ -571,15 +591,17 @@ class ImportaEquipo extends Importador
 
         if (! $this->simular) {
             ResourceSchedule::withoutGlobalScope('business')
-                ->whereIn('id', array_map(fn ($v) => $v->id, $existentes))
+                ->whereIn('id', array_map(fn ($v) => $v->id, $aCerrar))
                 ->update(['effective_to' => now($this->business->businessTimezone())->toDateString()]);
         }
 
-        $this->reporte->actualizado('Horarios', count($existentes));
-        $this->reporte->aviso(
-            'Horarios',
-            count($existentes).' franjas se cerraron porque ya no existen en el sistema viejo.',
-        );
+        $this->reporte->actualizado('Horarios', count($aCerrar));
+
+        $motivo = $sobrantes === []
+            ? 'ya no existen en el sistema viejo'
+            : 'ya no existen en el sistema viejo o estaban repetidas';
+
+        $this->reporte->aviso('Horarios', count($aCerrar)." franjas se cerraron porque {$motivo}.");
     }
 
     private function anotar(string $entidad, int $legacyId, int $nuevoId, ?string $huella = null): void
