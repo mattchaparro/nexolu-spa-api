@@ -76,6 +76,11 @@ levantar() {
 # worker tarda mas, y eso no lo ve nadie; sin el, el monolito atiende mas
 # lento, y eso si lo ve un cliente.
 #
+# NO lleva `--user www-data`: el entrypoint arranca como root para reafirmar
+# el dueno de storage/ y cachear config con `su`, y con --user esos `su`
+# fallan ("must be suid to work properly") dejando el contenedor en bucle de
+# reinicio. El cambio de usuario lo hace el comando, no Docker.
+#
 # `--max-time=3600` lo recicla cada hora: Laravel arranca el framework una
 # vez y lo mantiene vivo, asi que cualquier fuga de memoria se acumula. Morir
 # y volver es mas barato que perseguirla.
@@ -90,9 +95,8 @@ levantar_worker() {
         --env-file .env \
         --cpus=0.5 \
         --memory=256m \
-        --user www-data \
         "$IMAGE" \
-        php artisan queue:work --queue=default --sleep=3 --tries=3 --max-time=3600
+        su -s /bin/sh www-data -c "php artisan queue:work --queue=default --sleep=3 --tries=3 --max-time=3600"
 }
 
 if [ "$MODO" = "recrear" ]; then
