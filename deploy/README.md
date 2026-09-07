@@ -190,6 +190,43 @@ scheduler); acá arrancamos sólo con `web` mientras `pos-saas` siga sirviendo
 tráfico real en el único core. Los recordatorios llegan en la fase 05, cuando
 `nexolu-comms-api` esté probado.
 
+## Worker y scheduler
+
+Ambos corren, y son lo que hace que salgan recordatorios, difusiones e
+historias. Sin ellos la app se ve bien y simplemente no manda nada — un
+fallo silencioso.
+
+**Worker**: contenedor `nexolu-spa-worker`, misma imagen que el web con otro
+comando. Lo crea y lo recrea `deploy.sh` junto al web; nunca a mano, porque
+un worker con la imagen anterior procesa jobs con código viejo y eso se ve
+como "la web anda bien pero los recordatorios están raros".
+
+Va limitado a **medio core y 256 MB**. Este droplet tiene un core y lo
+comparte con el MySQL y el php-fpm de `pos.nexolu.co`: bajo el tope el
+worker tarda más y no lo ve nadie; sin él, el monolito atiende más lento y
+eso sí lo ve un cliente.
+
+No lleva `--user www-data`: el entrypoint arranca como root para reafirmar
+el dueño de `storage/` y cachear config con `su`, y con `--user` esos `su`
+fallan y el contenedor queda en bucle de reinicio.
+
+**Scheduler**: cron del host, no un tercer contenedor.
+
+```cron
+* * * * * ionice -c3 nice -n 19 docker exec -u www-data nexolu-spa-api php artisan schedule:run >> /dev/null 2>&1
+```
+
+Ese crontab ya tenía cuatro entradas de otros sitios (incluido
+`pos.nexolu.co`): **se agrega, nunca se reemplaza**, y hay copia en
+`/root/crontab.backup.*`.
+
+Verificar que de verdad procesa:
+
+```bash
+docker exec -u www-data nexolu-spa-api php artisan schedule:list
+docker exec -u www-data nexolu-spa-api php artisan tinker --execute="echo DB::table('jobs')->count().' pendientes, '.DB::table('failed_jobs')->count().' fallidos';"
+```
+
 ## Pendiente
 
 - **Sin backups automatizados**, igual que el resto del ecosistema
