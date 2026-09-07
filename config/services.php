@@ -45,4 +45,29 @@ return [
         'base_url' => env('PAYMENTS_CORE_BASE_URL', 'http://localhost:8020'),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Nexolu Auth
+    |--------------------------------------------------------------------------
+    | Identidad centralizada. A diferencia de los otros tres, aca NO hay una
+    | `base_url`: esta API nunca llama a nexolu-auth. La llave publica va
+    | fijada y la verificacion es local, para que el login de este producto
+    | no dependa de que otro servicio este arriba.
+    |
+    | `public_keys` vacio = el canje responde 503 y POST /v1/login sigue
+    | funcionando igual. Ese es el interruptor para apagar el SSO sin
+    | apagar el login propio.
+    |
+    | Formato: {"<kid>": "<PEM publico en base64>"}. Acepta varios kids a la
+    | vez, que es lo que permite rotar la llave sin downtime.
+    */
+    'nexolu_auth' => [
+        'issuer' => env('NEXOLU_AUTH_ISSUER', 'https://auth.nexolu.co'),
+        'audience' => env('NEXOLU_AUTH_AUDIENCE', 'nexolu-spa-api'),
+        'public_keys' => env('NEXOLU_AUTH_PUBLIC_KEYS', '{}'),
+        // Seguro contra "restaure un dump y cambiaron los ids". Se apaga
+        // cuando el mapeo de linked_accounts este probado.
+        'email_fallback' => env('NEXOLU_AUTH_EMAIL_FALLBACK', true),
+    ],
+
 ];

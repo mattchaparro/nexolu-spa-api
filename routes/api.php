@@ -34,6 +34,7 @@ use App\Http\Controllers\Api\V1\PublicBookingController;
 use App\Http\Controllers\Api\V1\ResourceController;
 use App\Http\Controllers\Api\V1\SalesReportController;
 use App\Http\Controllers\Api\V1\ServiceController;
+use App\Http\Controllers\Api\V1\SsoExchangeController;
 use App\Http\Controllers\Api\V1\StageController;
 use App\Http\Controllers\Api\V1\SurveyController;
 use App\Http\Controllers\Api\V1\WaitlistAdminController;
@@ -59,6 +60,13 @@ Route::prefix('v1')->group(function () {
 
     // ---- Sesion ----
     Route::post('/login', [AuthController::class, 'login'])->name('login')->middleware('throttle:10,1');
+
+    // Canje de una asercion de nexolu-auth por un token de Sanctum. Publica
+    // porque la asercion firmada ES la credencial; mismo throttle que el
+    // login de arriba.
+    Route::post('/auth/sso/exchange', SsoExchangeController::class)
+        ->name('auth.sso.exchange')
+        ->middleware('throttle:10,1');
 
     Route::middleware(['auth:sanctum', 'sentry.context'])->group(function () {
         Route::post('/logout', [AuthController::class, 'logout']);
