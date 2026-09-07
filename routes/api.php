@@ -37,6 +37,7 @@ use App\Http\Controllers\Api\V1\ServiceController;
 use App\Http\Controllers\Api\V1\StageController;
 use App\Http\Controllers\Api\V1\SurveyController;
 use App\Http\Controllers\Api\V1\WaitlistAdminController;
+use App\Http\Controllers\Api\V1\NavBadgesController;
 use App\Http\Controllers\Api\V1\WaitlistController;
 use App\Http\Controllers\Api\V1\WhatsappInboxController;
 use App\Http\Controllers\Api\V1\WalkInController;
@@ -371,6 +372,12 @@ Route::prefix('v1')->group(function () {
         | Con `citas.ver` y no con un permiso propio: quien atiende el mostrador
         | es quien manda estos mensajes, y ya tiene ese permiso.
         */
+        /*
+        | Los numeritos del menu. Se pide en cada pantalla, asi que es uno
+        | solo para todos los contadores y devuelve conteos, no listas.
+        */
+        Route::get('nav-badges', NavBadgesController::class)->middleware('permission:citas.ver');
+
         /*
         | La bandeja de WhatsApp.
         |
