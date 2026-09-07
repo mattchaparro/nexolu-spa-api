@@ -247,13 +247,19 @@ class AiToolInvokeTest extends TestCase
 
     public function test_un_servicio_que_no_existe_devuelve_las_opciones(): void
     {
-        // Para que el agente pregunte en vez de inventar.
+        /*
+         * Y las devuelve con 200, no con un error.
+         *
+         * Un 4xx el agente lo lee como "falló el sistema" y termina
+         * disculpándose ante algo que tenía solución: preguntar cuál. La
+         * ambigüedad es un resultado, no una avería.
+         */
         $r = $this->invoke('disponibilidad', [
             'servicio' => 'masaje tailandés',
             'fecha' => $this->manana()->toDateString(),
-        ])->assertStatus(422);
+        ])->assertOk();
 
-        $this->assertStringContainsString('Manicure clasico', $r->json('error'));
+        $this->assertStringContainsString('Manicure clasico', $r->json('data.falta_informacion'));
     }
 
     public function test_agendar_crea_la_cita_a_nombre_del_telefono_que_escribe(): void
@@ -340,9 +346,9 @@ class AiToolInvokeTest extends TestCase
         $r = $this->invoke('disponibilidad', [
             'servicio' => 'Manicure clasico',
             'fecha' => $this->manana()->toDateString(),
-        ])->assertStatus(422);
+        ])->assertOk();
 
-        $this->assertStringContainsString('sede', $r->json('error'));
+        $this->assertStringContainsString('sede', $r->json('data.falta_informacion'));
     }
 
     public function test_el_catalogo_de_herramientas_dice_que_exige_cada_una(): void
@@ -353,6 +359,19 @@ class AiToolInvokeTest extends TestCase
         $this->assertTrue($tools['disponibilidad']['allows_customers']);
         $this->assertSame('online_booking', $tools['disponibilidad']['required_feature']);
         $this->assertArrayNotHasKey('clientes', $tools);
+
+        /*
+         * Lo abierto al publico se anuncia SIN permiso.
+         *
+         * El Core esconde del modelo las herramientas cuyo permiso no tiene
+         * quien pregunta, y una clienta de WhatsApp no tiene ninguno. Con
+         * "citas.crear" anunciado, el agente contestaba "esa herramienta no
+         * esta disponible" justo despues de que la clienta dijo "si,
+         * confirmo". El permiso se sigue exigiendo al invocar, para quien si
+         * es empleada.
+         */
+        $this->assertNull($tools['crear_cita']['required_permission']);
+        $this->assertTrue($tools['crear_cita']['allows_customers']);
     }
 
     private function booking(): BookingService

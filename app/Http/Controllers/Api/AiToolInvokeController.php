@@ -100,9 +100,22 @@ class AiToolInvokeController
         try {
             $data = $capability->execute($caller, $validator->validated());
         } catch (AiArgumentException $e) {
-            // Un "no pude resolverlo, pregúntale esto": 422 con el texto
-            // escrito para que el agente lo use, no un error de sistema.
-            return response()->json(['error' => $e->getMessage()], 422);
+            /*
+             * "No pude resolverlo, pregúntale esto" NO es un error HTTP.
+             *
+             * Un 4xx lo marca como fallo, y el agente termina disculpándose
+             * -- "no pude consultar la disponibilidad" -- ante algo que en
+             * realidad tiene solución: preguntar cuál de los dos manicures
+             * quiere. La ambigüedad es un RESULTADO, y viaja como dato para
+             * que el agente pueda actuar.
+             *
+             * Mismo criterio que ya usaba la capacidad de agendar con "esa
+             * hora se ocupó": 200, con el motivo adentro.
+             */
+            return response()->json(['data' => [
+                'falta_informacion' => $e->getMessage(),
+                'instruccion' => 'Pregúntale eso a la clienta y vuelve a intentarlo. No es un fallo del sistema.',
+            ]]);
         }
 
         return response()->json(['data' => $data]);

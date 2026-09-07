@@ -2,9 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
-use App\Models\Message;
-use App\Services\Ia\IaCoreClient;
-use App\Services\Messaging\MessageDispatcher;
+use App\Jobs\AnswerWhatsappMessageJob;
 use App\Services\WhatsApp\ConversationRouter;
 use App\Support\ChannelPhone;
 use Illuminate\Http\JsonResponse;
@@ -25,11 +23,7 @@ use Illuminate\Support\Facades\Log;
  */
 class CommsWebhookController
 {
-    public function __construct(
-        private readonly ConversationRouter $router,
-        private readonly IaCoreClient $ia,
-        private readonly MessageDispatcher $dispatcher,
-    ) {}
+    public function __construct(private readonly ConversationRouter $router) {}
 
     public function whatsapp(Request $request): JsonResponse
     {
@@ -77,30 +71,19 @@ class CommsWebhookController
             return response()->json(['ok' => true, 'handled' => false]);
         }
 
-        $respuesta = $this->ia->ask($conversacion, $texto);
-
-        if ($respuesta === null) {
-            return response()->json(['ok' => true, 'handled' => false]);
-        }
-
-        if ($respuesta['conversation_id'] !== null) {
-            $conversacion->update(['ia_conversation_id' => $respuesta['conversation_id']]);
-        }
-
         /*
-         * La respuesta sale por el mismo camino que todo lo demas -- el
-         * outbox -- y no por una llamada suelta al canal. Asi queda escrita,
-         * se puede auditar y, si el negocio esta en modo manual, alguien la
-         * manda a mano en vez de perderse.
+         * Pensar la respuesta se va a la COLA, y contestamos ya.
+         *
+         * Preguntarle al Core es una llamada HTTP que el Core devuelve con
+         * OTRA llamada a esta misma API -- la herramienta de disponibilidad,
+         * la de agendar. Esperarla aca dentro traba al proceso web que tiene
+         * que servir justamente esa vuelta.
+         *
+         * Y ademas: Communications espera un 200 rapido. Si tarda, reintenta
+         * el MISMO evento, y reintentar aca es volver a escribirle a la
+         * clienta.
          */
-        $this->dispatcher->queue(
-            $conversacion->business,
-            Message::KIND_AGENT,
-            $normalizado,
-            $respuesta['text'],
-            null,
-            $conversacion->client,
-        );
+        AnswerWhatsappMessageJob::dispatch($conversacion->id, $texto);
 
         return response()->json(['ok' => true, 'handled' => true]);
     }

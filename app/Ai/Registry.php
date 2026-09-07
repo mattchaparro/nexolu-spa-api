@@ -47,6 +47,17 @@ class Registry
     /**
      * Lo que el Core cachea para saber que exige cada herramienta.
      *
+     * Una herramienta abierta al publico se publica SIN permiso, y no es un
+     * descuido: el Core esconde del modelo las herramientas cuyo permiso no
+     * tiene quien pregunta, y una clienta de WhatsApp no tiene NINGUNO. Si
+     * `crear_cita` se anunciara pidiendo `citas.crear`, el agente nunca la
+     * veria y contestaria "esa herramienta no esta disponible" justo despues
+     * de que la clienta dijo "sí, confirmo".
+     *
+     * El permiso sigue existiendo y sigue exigiendose -- en `invoke()`, para
+     * quien SI es empleada. Este catalogo es una ayuda para el modelo, no la
+     * frontera de seguridad; esa vive del lado del Spa y no se mueve.
+     *
      * @return array<string, array<string, mixed>>
      */
     public function catalog(): array
@@ -58,7 +69,9 @@ class Registry
             $capability = app($class);
 
             $catalogo[$name] = [
-                'required_permission' => $capability->requiredPermission(),
+                'required_permission' => $capability->allowsCustomers()
+                    ? null
+                    : $capability->requiredPermission(),
                 'required_feature' => $capability->requiredFeature(),
                 'allows_customers' => $capability->allowsCustomers(),
             ];

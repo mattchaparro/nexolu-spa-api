@@ -297,12 +297,20 @@ class WhatsappWebhookTest extends TestCase
         );
     }
 
-    public function test_si_el_core_no_responde_no_se_manda_nada(): void
+    public function test_si_el_core_no_responde_no_se_inventa_una_respuesta(): void
     {
+        /*
+         * El webhook contesta 200 igual: ya recibió el mensaje y lo encoló.
+         * "handled" dice que se aceptó, no que ya se contestó -- pensar la
+         * respuesta ocurre en la cola, fuera de esta petición.
+         *
+         * Lo que se defiende es que ante un Core caído NO salga nada: un
+         * "disculpa, no entendí" automático le enseña a la clienta que el bot
+         * no sirve. El silencio deja que una persona conteste.
+         */
         Http::fake(['ia-core.test/*' => Http::response([], 500)]);
 
-        $this->entra('573001112233', 'Hola', '111222333')
-            ->assertOk()->assertJsonPath('handled', false);
+        $this->entra('573001112233', 'Hola', '111222333')->assertOk();
 
         $this->assertSame(0, Message::withoutGlobalScopes()->count());
     }
