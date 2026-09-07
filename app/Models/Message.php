@@ -47,9 +47,12 @@ class Message extends Model
      */
     public const KIND_AGENT = 'agente';
 
+    /** Una difusion: la misma promocion a muchas. */
+    public const KIND_BROADCAST = 'difusion';
+
     protected $fillable = [
         'business_id', 'location_id', 'kind', 'to', 'client_id', 'appointment_id',
-        'body', 'template_name', 'template_language', 'template_params',
+        'body', 'template_name', 'template_language', 'template_params', 'broadcast_id',
         'status', 'attempts', 'sent_at', 'failed_at', 'error', 'sent_by_user_id',
     ];
 

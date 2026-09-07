@@ -4,6 +4,7 @@ namespace App\Services\Messaging;
 
 use App\Jobs\SendMessageJob;
 use App\Models\Appointment;
+use App\Models\Broadcast;
 use App\Models\Business;
 use App\Models\Client;
 use App\Models\Message;
@@ -53,6 +54,7 @@ class MessageDispatcher
         ?Appointment $appointment = null,
         ?Client $client = null,
         ?MessageTemplate $template = null,
+        ?Broadcast $broadcast = null,
     ): ?Message {
         $phone = $to === null ? null : ChannelPhone::normalize($to, $business->country_code);
 
@@ -81,6 +83,13 @@ class MessageDispatcher
                 'template_name' => $template?->name,
                 'template_language' => $template?->language,
                 'template_params' => $template?->params,
+                /*
+                 * De que difusion salio. Existe por el indice unico
+                 * (broadcast_id, client_id): si el comando corre dos veces, o
+                 * alguien vuelve a tocar "enviar", la segunda choca y no sale
+                 * nada. La garantia es una restriccion, no un contador.
+                 */
+                'broadcast_id' => $broadcast?->id,
                 /*
                  * El modo decide el estado, y el estado decide quien lo manda.
                  * Sin canal configurado tampoco se promete un envio: quedaria

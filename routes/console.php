@@ -27,3 +27,19 @@ Schedule::command('recordatorios:preparar')
     ->everyFifteenMinutes()
     ->withoutOverlapping()
     ->runInBackground();
+
+/*
+ * Difusiones programadas.
+ *
+ * Cada cinco minutos, no cada quince: que una promocion salga cuatro minutos
+ * tarde no importa; que salga una hora tarde la convierte en otra cosa. La
+ * ventana es abierta hacia atras, asi que una corrida perdida se recupera
+ * sola.
+ *
+ * Es idempotente por el indice unico (broadcast_id, client_id) de la tabla
+ * de mensajes: dos corridas no mandan dos veces.
+ */
+Schedule::command('difusiones:enviar')
+    ->everyFiveMinutes()
+    ->withoutOverlapping()
+    ->runInBackground();

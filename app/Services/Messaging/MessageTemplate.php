@@ -22,6 +22,20 @@ final class MessageTemplate
     ) {}
 
     /**
+     * Una plantilla que eligio el negocio, no el codigo.
+     *
+     * Las de arriba son nuestras y sus variables estan fijas. Una difusion
+     * usa la que el negocio aprobo en Meta, con las variables que le puso, y
+     * el sistema no puede saber cuales son.
+     *
+     * @param  list<string>  $params
+     */
+    public static function raw(string $name, string $language, array $params): self
+    {
+        return new self($name, $language ?: 'es', array_values($params));
+    }
+
+    /**
      * El recordatorio de una cita.
      *
      * El NOMBRE DEL NEGOCIO va adentro a proposito: con el numero compartido

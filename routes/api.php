@@ -17,6 +17,7 @@ use App\Http\Controllers\Api\V1\AgendaController;
 use App\Http\Controllers\Api\V1\AppointmentController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\AvailabilityController;
+use App\Http\Controllers\Api\V1\BroadcastController;
 use App\Http\Controllers\Api\V1\CashController;
 use App\Http\Controllers\Api\V1\CheckoutController;
 use App\Http\Controllers\Api\V1\ClientController;
@@ -374,6 +375,25 @@ Route::prefix('v1')->group(function () {
             Route::post('/{message}/retry', [MessageController::class, 'retry']);
             Route::delete('/{message}', [MessageController::class, 'destroy']);
         });
+
+        /*
+         * Difusiones: la misma promocion a muchas, ahora o programada.
+         *
+         * Con `servicios.gestionar` y no con `citas.ver`: mandarle un mensaje
+         * a toda la base de clientas no es atender el mostrador -- es una
+         * decision comercial, y una mal hecha castiga el numero de WhatsApp
+         * del negocio entero.
+         */
+        Route::prefix('broadcasts')
+            ->middleware(['feature:promotions', 'permission:servicios.gestionar'])
+            ->group(function () {
+                Route::get('/', [BroadcastController::class, 'index']);
+                Route::post('/', [BroadcastController::class, 'store']);
+                Route::put('/{broadcast}', [BroadcastController::class, 'update']);
+                Route::get('/{broadcast}/preview', [BroadcastController::class, 'preview']);
+                Route::post('/{broadcast}/send', [BroadcastController::class, 'send']);
+                Route::post('/{broadcast}/cancel', [BroadcastController::class, 'cancel']);
+            });
 
         // Quien espera cupo, visto desde el mostrador. Mismo criterio que los
         // mensajes: lo maneja quien atiende, y ya tiene citas.ver.
