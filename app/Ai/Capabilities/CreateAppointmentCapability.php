@@ -65,6 +65,16 @@ class CreateAppointmentCapability implements Capability
             // Solo se usa para NOMBRAR una ficha nueva. Nunca para elegir a
             // quien se le agenda: eso lo decide el telefono.
             'cliente' => ['nullable', 'string', 'max:255'],
+            /*
+             * Para quien es la visita, si no es para quien escribe.
+             *
+             * La cita SIGUE siendo del telefono -- ahi es donde llegan los
+             * recordatorios y desde donde se puede cancelar -- pero el local
+             * necesita saber a quien va a atender. Sin esto, la hija que
+             * agenda para su mama aparece en la agenda como la mama, y quien
+             * llega no es quien dice la ficha.
+             */
+            'para_quien' => ['nullable', 'string', 'max:120'],
         ];
     }
 
@@ -96,6 +106,7 @@ class CreateAppointmentCapability implements Capability
                 $nombre,
                 $telefono,
                 Appointment::SOURCE_WHATSAPP_AGENT,
+                $this->notaDeTerceros($caller, $arguments),
             );
         } catch (SlotUnavailableException) {
             /*
@@ -121,6 +132,19 @@ class CreateAppointmentCapability implements Capability
             'hora' => $cita->starts_at?->setTimezone($tz)->format('H:i'),
             'precio' => (float) $servicio->price,
         ];
+    }
+
+    /** Si la visita es para otra persona, el local tiene que saberlo. */
+    private function notaDeTerceros(AiCaller $caller, array $arguments): ?string
+    {
+        $otra = trim((string) ($arguments['para_quien'] ?? ''));
+
+        if ($otra === '' || $caller->isStaff()) {
+            return null;
+        }
+
+        return 'La cita es para '.$otra.'. Agendó '
+            .($caller->client?->fullName() ?? $caller->phone).' por WhatsApp.';
     }
 
     /**
@@ -162,7 +186,7 @@ class CreateAppointmentCapability implements Capability
     /** La primera persona activa que presta ese servicio en esa sede. */
     private function anyResourceFor(int $serviceId, ?int $locationId): \App\Models\Resource
     {
-        $recurso = \App\Models\Resource::withoutGlobalScopes()
+        $recurso = \App\Models\Resource::withoutGlobalScope('business')
             ->where('type', \App\Models\Resource::TYPE_STAFF)
             ->where('is_active', true)
             ->where('is_bookable_online', true)

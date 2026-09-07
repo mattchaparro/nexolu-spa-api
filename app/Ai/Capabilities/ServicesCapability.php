@@ -36,7 +36,7 @@ class ServicesCapability implements Capability
 
     public function execute(AiCaller $caller, array $arguments): array
     {
-        $servicios = Service::withoutGlobalScopes()
+        $servicios = Service::withoutGlobalScope('business')
             ->where('business_id', $caller->business->id)
             ->where('is_active', true)
             ->where('is_bookable_online', true)

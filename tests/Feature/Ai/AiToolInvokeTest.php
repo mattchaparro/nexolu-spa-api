@@ -200,6 +200,36 @@ class AiToolInvokeTest extends TestCase
         $this->assertSame(Appointment::STATUS_PENDING, $cita->fresh()->status);
     }
 
+    public function test_una_ficha_borrada_deja_de_existir_para_el_agente(): void
+    {
+        /*
+         * El negocio borró esa clienta -- puede haber sido a petición de ella
+         * misma, que es un derecho. Si el agente la sigue reconociendo por su
+         * teléfono, la saluda por su nombre, le lista sus citas y agenda bajo
+         * un registro que el negocio dio por eliminado.
+         *
+         * Pasaba porque `withoutGlobalScopes()` quita TODOS los scopes,
+         * incluido el del borrado lógico. El correcto es quitar solo el de
+         * negocio, por su nombre.
+         */
+        $carolina = $this->clienta('Carolina', '+573001112233');
+
+        $cita = $this->booking()->book(
+            $this->business,
+            [['service_id' => $this->manicure->id, 'resource_id' => $this->maria->id, 'starts_at' => $this->manana()->setTime(10, 0)]],
+            $carolina,
+        );
+
+        $carolina->delete();
+
+        // Ya no es nadie conocido: sus citas no salen...
+        $this->assertSame([], $this->invoke('mis_citas')->assertOk()->json('data.citas'));
+
+        // ...y su cita tampoco se puede tocar desde el chat.
+        $r = $this->invoke('cancelar_cita', ['cita_id' => $cita->id])->assertOk();
+        $this->assertFalse($r->json('data.cancelada'));
+    }
+
     public function test_un_negocio_inexistente_es_contexto_invalido(): void
     {
         $this->invoke('servicios', [], ['business_id' => '999999'])->assertStatus(422);
@@ -372,6 +402,67 @@ class AiToolInvokeTest extends TestCase
          */
         $this->assertNull($tools['crear_cita']['required_permission']);
         $this->assertTrue($tools['crear_cita']['allows_customers']);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | La ficha: el activo del negocio
+    |--------------------------------------------------------------------------
+    */
+
+    public function test_guardar_contacto_crea_la_ficha_aunque_no_agende(): void
+    {
+        /*
+         * Hasta ahora la ficha solo nacia al AGENDAR, asi que todo el que
+         * escribia y no cerraba cita se perdia. Sin ficha no hay a quien
+         * mandarle una promocion despues.
+         */
+        $r = $this->invoke('guardar_contacto', ['nombre' => 'Valentina Ospina'])->assertOk();
+
+        $this->assertTrue($r->json('data.guardado'));
+
+        $ficha = Client::withoutGlobalScopes()->where('phone', '573001112233')->first();
+        $this->assertNotNull($ficha);
+        $this->assertSame('Valentina', $ficha->name);
+    }
+
+    public function test_guardar_contacto_no_pisa_el_nombre_que_ya_tenia_el_negocio(): void
+    {
+        /*
+         * El nombre del sistema lo escribio el negocio, con la ortografia de
+         * su agenda; el de aca lo dedujo un modelo de una frase suelta. Ante
+         * la duda gana el del negocio.
+         */
+        $this->clienta('Carolina', '+573001112233');
+
+        $r = $this->invoke('guardar_contacto', ['nombre' => 'karo'])->assertOk();
+
+        $this->assertFalse($r->json('data.guardado'));
+        $this->assertSame('Carolina', $r->json('data.ya_lo_teniamos'));
+        $this->assertSame('Carolina', Client::withoutGlobalScopes()->first()->name);
+    }
+
+    public function test_agendar_para_otra_persona_queda_anotado(): void
+    {
+        /*
+         * La cita sigue siendo del telefono -- ahi llegan los recordatorios --
+         * pero el local necesita saber a quien va a atender. Sin esto, la
+         * hija que agenda para su mama aparece en la agenda como la mama.
+         */
+        $this->clienta('Carolina', '+573001112233');
+
+        $r = $this->invoke('crear_cita', [
+            'servicio' => 'Manicure clasico',
+            'fecha' => $this->manana()->toDateString(),
+            'hora' => '10:00',
+            'para_quien' => 'Su mamá Rosa',
+        ])->assertOk();
+
+        $cita = Appointment::withoutGlobalScopes()->find($r->json('data.id'));
+
+        $this->assertStringContainsString('Rosa', (string) $cita->notes);
+        // Y sigue siendo de quien escribió: por ahí se cancela y ahí avisan.
+        $this->assertSame('Carolina', $cita->client->name);
     }
 
     private function booking(): BookingService

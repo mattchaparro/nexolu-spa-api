@@ -49,7 +49,7 @@ class BusinessProfile
 
     private function sedes(Business $business): ?string
     {
-        $sedes = Location::withoutGlobalScopes()
+        $sedes = Location::withoutGlobalScope('business')
             ->where('business_id', $business->id)
             ->where('is_active', true)
             ->orderByDesc('is_primary')
@@ -80,7 +80,7 @@ class BusinessProfile
     /** El horario real del equipo, que es el que manda. */
     private function horario(Business $business): ?string
     {
-        $dias = ResourceSchedule::withoutGlobalScopes()
+        $dias = ResourceSchedule::withoutGlobalScope('business')
             ->join('resources', 'resources.id', '=', 'resource_schedules.resource_id')
             ->where('resources.business_id', $business->id)
             ->where('resources.is_active', true)

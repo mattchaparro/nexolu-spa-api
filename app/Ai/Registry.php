@@ -6,6 +6,7 @@ use App\Ai\Capabilities\AvailabilityCapability;
 use App\Ai\Capabilities\CancelAppointmentCapability;
 use App\Ai\Capabilities\CreateAppointmentCapability;
 use App\Ai\Capabilities\MyAppointmentsCapability;
+use App\Ai\Capabilities\SaveContactCapability;
 use App\Ai\Capabilities\ServicesCapability;
 
 /**
@@ -24,6 +25,7 @@ class Registry
 {
     /** @var array<string, class-string<Capability>> */
     private const MAP = [
+        'guardar_contacto' => SaveContactCapability::class,
         'servicios' => ServicesCapability::class,
         'disponibilidad' => AvailabilityCapability::class,
         'mis_citas' => MyAppointmentsCapability::class,

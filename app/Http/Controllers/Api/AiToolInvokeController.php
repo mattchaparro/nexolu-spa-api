@@ -44,7 +44,7 @@ class AiToolInvokeController
             'context.channel' => ['nullable', 'string', 'max:32'],
         ]);
 
-        $business = Business::withoutGlobalScopes()->find($validated['context']['business_id']);
+        $business = Business::query()->find($validated['context']['business_id']);
 
         if ($business === null || ! $business->is_active) {
             return response()->json(['error' => 'Contexto inválido: el negocio no existe o está inactivo.'], 422);
@@ -144,7 +144,7 @@ class AiToolInvokeController
                 return null;
             }
 
-            $client = Client::withoutGlobalScopes()
+            $client = Client::withoutGlobalScope('business')
                 ->where('business_id', $business->id)
                 ->where('phone', $phone)
                 ->first();
@@ -152,7 +152,7 @@ class AiToolInvokeController
             return AiCaller::customer($business, $phone, $client, $channel);
         }
 
-        $user = User::withoutGlobalScopes()
+        $user = User::withoutGlobalScope('business')
             ->where('business_id', $business->id)
             ->where('is_active', true)
             ->find($userId);

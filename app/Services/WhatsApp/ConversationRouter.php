@@ -75,7 +75,7 @@ class ConversationRouter
             return null;
         }
 
-        return Business::withoutGlobalScopes()
+        return Business::query()
             ->where('whatsapp_phone_number_id', $phoneNumberId)
             ->where('is_active', true)
             ->first();
@@ -88,7 +88,7 @@ class ConversationRouter
             return null;
         }
 
-        return Business::withoutGlobalScopes()
+        return Business::query()
             ->whereRaw('UPPER(whatsapp_code) = ?', [strtoupper($m[1])])
             ->where('is_active', true)
             ->first();
@@ -103,7 +103,7 @@ class ConversationRouter
      */
     private function openConversationFor(string $from): ?WhatsappConversation
     {
-        return WhatsappConversation::withoutGlobalScopes()
+        return WhatsappConversation::withoutGlobalScope('business')
             ->where('phone', $from)
             ->orderByDesc('last_message_at')
             ->with('business')
@@ -118,7 +118,7 @@ class ConversationRouter
          * indice unico (business_id, phone) lo impide, pero mejor no chocar
          * contra el en cada rafaga.
          */
-        $conversacion = DB::transaction(fn () => WhatsappConversation::withoutGlobalScopes()->updateOrCreate(
+        $conversacion = DB::transaction(fn () => WhatsappConversation::withoutGlobalScope('business')->updateOrCreate(
             ['business_id' => $business->id, 'phone' => $from],
             ['last_message_at' => now()],
         ));
@@ -126,7 +126,7 @@ class ConversationRouter
         // La ficha, si ya existe. Puede no existir: una primera vez es un
         // telefono sin nada detras, y la crea el agente al agendar.
         if ($conversacion->client_id === null) {
-            $client = Client::withoutGlobalScopes()
+            $client = Client::withoutGlobalScope('business')
                 ->where('business_id', $business->id)
                 ->where('phone', $from)
                 ->first();

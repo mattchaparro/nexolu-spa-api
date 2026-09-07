@@ -55,7 +55,7 @@ class AnswerWhatsappMessageJob implements ShouldQueue
         IaCoreClient $ia,
         MessageDispatcher $dispatcher,
     ): void {
-        $conversacion = WhatsappConversation::withoutGlobalScopes()
+        $conversacion = WhatsappConversation::withoutGlobalScope('business')
             ->with('business', 'client')
             ->find($this->conversationId);
 

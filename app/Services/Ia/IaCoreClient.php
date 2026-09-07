@@ -22,7 +22,10 @@ use Illuminate\Support\Facades\Log;
  */
 class IaCoreClient
 {
-    public function __construct(private readonly BusinessProfile $profile) {}
+    public function __construct(
+        private readonly BusinessProfile $profile,
+        private readonly CustomerProfile $customer,
+    ) {}
 
     public function isConfigured(): bool
     {
@@ -72,6 +75,16 @@ class IaCoreClient
                          * responder.
                          */
                         'business_profile' => $this->profile->for($business),
+                        /*
+                         * Y con QUIEN habla. Sin esto el agente le pregunta el
+                         * nombre a una clienta que lleva anos viniendo, y cada
+                         * conversacion empieza de cero.
+                         */
+                        'user_profile' => $this->customer->for(
+                            $business,
+                            $conversation->phone,
+                            $conversation->client,
+                        ),
                         'timezone' => $business->businessTimezone(),
                         'locale' => 'es',
                     ],

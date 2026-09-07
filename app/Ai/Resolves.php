@@ -22,7 +22,7 @@ trait Resolves
     /** @throws AiArgumentException */
     protected function resolveService(int $businessId, string $nombre): Service
     {
-        $servicios = Service::withoutGlobalScopes()
+        $servicios = Service::withoutGlobalScope('business')
             ->where('business_id', $businessId)
             ->where('is_active', true)
             ->where('is_bookable_online', true)
@@ -34,7 +34,7 @@ trait Resolves
     /** @throws AiArgumentException */
     protected function resolveResource(int $businessId, string $nombre, ?int $locationId = null): Resource
     {
-        $recursos = Resource::withoutGlobalScopes()
+        $recursos = Resource::withoutGlobalScope('business')
             ->where('business_id', $businessId)
             ->where('type', Resource::TYPE_STAFF)
             ->where('is_active', true)
@@ -48,7 +48,7 @@ trait Resolves
     /** @throws AiArgumentException */
     protected function resolveLocation(int $businessId, ?string $nombre): ?Location
     {
-        $sedes = Location::withoutGlobalScopes()
+        $sedes = Location::withoutGlobalScope('business')
             ->where('business_id', $businessId)
             ->where('is_active', true)
             ->get();

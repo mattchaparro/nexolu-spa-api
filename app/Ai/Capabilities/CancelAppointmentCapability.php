@@ -48,7 +48,7 @@ class CancelAppointmentCapability implements Capability
 
     public function execute(AiCaller $caller, array $arguments): array
     {
-        $cita = Appointment::withoutGlobalScopes()
+        $cita = Appointment::withoutGlobalScope('business')
             ->where('business_id', $caller->business->id)
             ->find($arguments['cita_id']);
 
