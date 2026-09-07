@@ -43,3 +43,14 @@ Schedule::command('difusiones:enviar')
     ->everyFiveMinutes()
     ->withoutOverlapping()
     ->runInBackground();
+
+/*
+ * Historias de Instagram programadas.
+ *
+ * La API de Meta no programa: publicar es una llamada en el momento, y
+ * alguien tiene que hacerla. Misma cadencia que las difusiones.
+ */
+Schedule::command('historias:publicar')
+    ->everyFiveMinutes()
+    ->withoutOverlapping()
+    ->runInBackground();

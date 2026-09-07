@@ -25,6 +25,7 @@ use App\Http\Controllers\Api\V1\ClientPortalController;
 use App\Http\Controllers\Api\V1\ClientProfileController;
 use App\Http\Controllers\Api\V1\DepositController;
 use App\Http\Controllers\Api\V1\ExpenseController;
+use App\Http\Controllers\Api\V1\InstagramStoryController;
 use App\Http\Controllers\Api\V1\LoyaltyCardController;
 use App\Http\Controllers\Api\V1\MessageController;
 use App\Http\Controllers\Api\V1\MyWorkController;
@@ -375,6 +376,19 @@ Route::prefix('v1')->group(function () {
             Route::post('/{message}/retry', [MessageController::class, 'retry']);
             Route::delete('/{message}', [MessageController::class, 'destroy']);
         });
+
+        /*
+         * Historias de Instagram. Mismo permiso que las difusiones: es
+         * comunicacion hacia afuera a nombre del negocio, no mostrador.
+         */
+        Route::prefix('instagram/stories')
+            ->middleware('permission:servicios.gestionar')
+            ->group(function () {
+                Route::get('/', [InstagramStoryController::class, 'index']);
+                Route::post('/', [InstagramStoryController::class, 'store']);
+                Route::post('/{story}/publish', [InstagramStoryController::class, 'publish']);
+                Route::post('/{story}/cancel', [InstagramStoryController::class, 'cancel']);
+            });
 
         /*
          * Difusiones: la misma promocion a muchas, ahora o programada.
