@@ -29,7 +29,7 @@ class LoyaltyReward extends Model
     protected $fillable = [
         'business_id', 'program_id', 'tier_id', 'client_id', 'status',
         'unlocked_at', 'used_at', 'used_on_appointment_id',
-        'reward_type', 'reward_value', 'reward_service_id',
+        'reward_type', 'reward_value', 'reward_service_id', 'reward_note',
     ];
 
     protected function casts(): array
@@ -68,6 +68,7 @@ class LoyaltyReward extends Model
             $this->reward_type,
             $this->reward_value === null ? null : (float) $this->reward_value,
             $this->rewardService?->name,
+            $this->reward_note,
         );
     }
 

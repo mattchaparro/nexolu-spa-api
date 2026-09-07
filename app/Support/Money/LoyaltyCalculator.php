@@ -9,6 +9,18 @@ namespace App\Support\Money;
  * en un programa de fidelizacion son los bordes -- un premio que vale mas que
  * la cuenta, una tarjeta configurada en cero sellos, un porcentaje mayor a
  * cien -- y esos se prueban con casos escritos a mano.
+ *
+ * COMO AGREGAR UN TIPO DE PREMIO NUEVO:
+ *
+ *   1. Una constante.
+ *   2. Una entrada en `types()` diciendo que campos necesita.
+ *   3. Si descuenta plata, una rama en `discountFor()`. Si no, nada.
+ *   4. Una rama en `label()` para explicarselo a quien lo recibe.
+ *
+ * Y nada mas: la validacion del formulario, el catalogo que consume la
+ * pantalla y el congelado del premio salen todos de `types()`. Antes cada uno
+ * de esos tres sitios tenia su propia lista, y agregar un tipo significaba
+ * acordarse de los tres.
  */
 final class LoyaltyCalculator
 {
@@ -21,14 +33,84 @@ final class LoyaltyCalculator
     /** Un servicio del catalogo, gratis. */
     public const REWARD_FREE_SERVICE = 'free_service';
 
+    /**
+     * Algo que se entrega en la mano: un producto, una copa de vino, un
+     * detalle. No toca la cuenta; le dice a quien atiende que lo entregue.
+     */
+    public const REWARD_GIFT = 'gift';
+
+    /**
+     * El catalogo de premios, con lo que cada uno necesita para existir.
+     *
+     * `value`   -> pide un numero (el porcentaje, el monto)
+     * `service` -> pide un servicio del catalogo
+     * `note`    -> pide un texto que describa lo que se entrega
+     * `money`   -> descuenta plata de la cuenta
+     *
+     * @return array<string, array{label: string, value: bool, service: bool, note: bool, money: bool}>
+     */
+    public static function types(): array
+    {
+        return [
+            self::REWARD_DISCOUNT_PERCENT => [
+                'label' => 'Un porcentaje de descuento',
+                'value' => true, 'service' => false, 'note' => false, 'money' => true,
+            ],
+            self::REWARD_DISCOUNT_AMOUNT => [
+                'label' => 'Un monto fijo de descuento',
+                'value' => true, 'service' => false, 'note' => false, 'money' => true,
+            ],
+            self::REWARD_FREE_SERVICE => [
+                'label' => 'Un servicio gratis',
+                'value' => false, 'service' => true, 'note' => false, 'money' => true,
+            ],
+            self::REWARD_GIFT => [
+                'label' => 'Un regalo (producto, detalle)',
+                'value' => false, 'service' => false, 'note' => true, 'money' => false,
+            ],
+        ];
+    }
+
     /** @return list<string> */
     public static function rewardTypes(): array
     {
-        return [
-            self::REWARD_DISCOUNT_PERCENT,
-            self::REWARD_DISCOUNT_AMOUNT,
-            self::REWARD_FREE_SERVICE,
-        ];
+        return array_keys(self::types());
+    }
+
+    /**
+     * Que le falta a este premio para poder entregarse.
+     *
+     * Una sola funcion para los cuatro tipos, guiada por `types()`: el dia que
+     * alguien agregue un quinto, la validacion ya lo cubre.
+     *
+     * @param  array<string, mixed>  $data
+     * @return string|null El problema, o null si esta bien.
+     */
+    public static function whatIsMissing(array $data): ?string
+    {
+        $type = $data['reward_type'] ?? null;
+        $reglas = self::types()[$type] ?? null;
+
+        if ($reglas === null) {
+            return 'Ese tipo de premio no existe.';
+        }
+
+        if ($reglas['value'] && ($data['reward_value'] ?? 0) <= 0) {
+            return 'El premio necesita un valor mayor que cero.';
+        }
+
+        if ($reglas['note'] && trim((string) ($data['reward_note'] ?? '')) === '') {
+            return 'Describe qué se entrega, para que quien atienda sepa qué dar.';
+        }
+
+        // Que el servicio exista y este activo no se puede saber sin la base:
+        // eso lo comprueba quien llama, que si la tiene.
+        return null;
+    }
+
+    public static function needsService(?string $type): bool
+    {
+        return self::types()[$type]['service'] ?? false;
     }
 
     /**
@@ -91,8 +173,11 @@ final class LoyaltyCalculator
         $amount = match ($type) {
             self::REWARD_DISCOUNT_PERCENT => $ticketTotal * (self::clampPercent($value) / 100),
             self::REWARD_DISCOUNT_AMOUNT => $value,
-            // El servicio gratis no se resuelve aca: depende del precio que
-            // tenga ESA linea en ESA cita, y eso lo sabe el checkout.
+            /*
+             * El servicio gratis no se resuelve aca: depende del precio que
+             * tenga ESA linea en ESA cita, y eso lo sabe el checkout. El
+             * regalo no descuenta nada por definicion.
+             */
             default => 0.0,
         };
 
@@ -105,12 +190,17 @@ final class LoyaltyCalculator
     }
 
     /** Como se le explica el premio a quien lo va a recibir. */
-    public static function label(string $type, ?float $value, ?string $serviceName = null): string
-    {
+    public static function label(
+        string $type,
+        ?float $value,
+        ?string $serviceName = null,
+        ?string $note = null,
+    ): string {
         return match ($type) {
             self::REWARD_DISCOUNT_PERCENT => rtrim(rtrim(number_format(self::clampPercent((float) $value), 2, ',', '.'), '0'), ',').'% de descuento',
             self::REWARD_DISCOUNT_AMOUNT => '$'.number_format((float) $value, 0, ',', '.').' de descuento',
             self::REWARD_FREE_SERVICE => ($serviceName ?? 'Un servicio').' gratis',
+            self::REWARD_GIFT => trim((string) $note) !== '' ? trim((string) $note) : 'Un regalo',
             default => 'Premio',
         };
     }

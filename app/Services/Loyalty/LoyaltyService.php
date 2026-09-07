@@ -168,6 +168,7 @@ class LoyaltyService
                     'reward_type' => $program->reward_type,
                     'reward_value' => $program->reward_value,
                     'reward_service_id' => $program->reward_service_id,
+                    'reward_note' => $program->reward_note,
                 ]);
 
                 // Los sellos mas viejos primero: la tarjeta se llena en orden.
@@ -247,6 +248,7 @@ class LoyaltyService
                         'reward_type' => $escalon->reward_type,
                         'reward_value' => $escalon->reward_value,
                         'reward_service_id' => $escalon->reward_service_id,
+                        'reward_note' => $escalon->reward_note,
                     ]);
                 } catch (UniqueConstraintViolationException) {
                     /*

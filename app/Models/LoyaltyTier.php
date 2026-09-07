@@ -19,7 +19,7 @@ class LoyaltyTier extends Model
 
     protected $fillable = [
         'business_id', 'program_id', 'stamps_required',
-        'reward_type', 'reward_value', 'reward_service_id', 'is_active',
+        'reward_type', 'reward_value', 'reward_service_id', 'reward_note', 'is_active',
     ];
 
     protected function casts(): array
@@ -48,6 +48,7 @@ class LoyaltyTier extends Model
             $this->reward_type,
             $this->reward_value === null ? null : (float) $this->reward_value,
             $this->rewardService?->name,
+            $this->reward_note,
         );
     }
 }

@@ -98,34 +98,20 @@ class ImportaFidelizacion extends Importador
             ]);
 
             foreach ($escalones as $escalon) {
-                $tipo = $this->tipoDePremio($escalon);
-
-                if ($tipo === null) {
-                    /*
-                     * El escalon de 30 visitas regala "un producto de nuestra
-                     * marca al azar", y aca no hay un tipo de premio para un
-                     * regalo fisico. No se inventa uno ni se convierte en un
-                     * descuento que el negocio no prometio: se avisa.
-                     *
-                     * No corre prisa -- la clienta con mas visitas lleva 23 --
-                     * pero hay que decidirlo antes de que alguien llegue.
-                     */
-                    $this->reporte->aviso(
-                        'Fidelizacion',
-                        "El escalon de {$escalon->required_stamps} visitas regala "
-                        ."\"{$escalon->name}\", y el sistema nuevo no tiene un premio de regalo "
-                        .'fisico. Ese escalon NO se creo: hay que decidir con que reemplazarlo.',
-                    );
-
-                    continue;
-                }
-
                 $tier = LoyaltyTier::create([
                     'business_id' => $this->business->id,
                     'program_id' => $programa->id,
                     'stamps_required' => (int) $escalon->required_stamps,
-                    'reward_type' => $tipo,
-                    'reward_value' => (float) $escalon->value,
+                    'reward_type' => $this->tipoDePremio($escalon),
+                    /*
+                     * El regalo no lleva valor: lo que hay que entregar se
+                     * dice con palabras, y esas palabras son las mismas que la
+                     * clienta ya leyo en el sistema viejo ("un producto de
+                     * nuestra marca al azar"). Inventarle un precio seria
+                     * prometer algo distinto.
+                     */
+                    'reward_value' => $escalon->type === 'discount' ? (float) $escalon->value : null,
+                    'reward_note' => $escalon->type === 'discount' ? null : $escalon->name,
                     'is_active' => true,
                 ]);
 
@@ -139,12 +125,19 @@ class ImportaFidelizacion extends Importador
         });
     }
 
-    /** El tipo equivalente aca, o null si no hay ninguno. */
-    private function tipoDePremio(object $escalon): ?string
+    /**
+     * El tipo equivalente aca.
+     *
+     * `product` del sistema viejo -- "un producto de nuestra marca al azar" --
+     * entra como REGALO: no toca la cuenta, solo le dice a quien atiende que
+     * hay algo que entregar. Es exactamente lo que pasaba alla, donde ese
+     * premio tampoco tenia mecanica de precio.
+     */
+    private function tipoDePremio(object $escalon): string
     {
         return match ($escalon->type) {
             'discount' => LoyaltyCalculator::REWARD_DISCOUNT_PERCENT,
-            default => null,
+            default => LoyaltyCalculator::REWARD_GIFT,
         };
     }
 
@@ -268,6 +261,7 @@ class ImportaFidelizacion extends Importador
                     'unlocked_at' => now(),
                     'reward_type' => $escalon->reward_type,
                     'reward_value' => $escalon->reward_value,
+                    'reward_note' => $escalon->reward_note,
                     'created_at' => now(),
                     'updated_at' => now(),
                 ]);

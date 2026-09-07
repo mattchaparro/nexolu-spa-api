@@ -46,7 +46,7 @@ class LoyaltyProgram extends Model
 
     protected $fillable = [
         'business_id', 'name', 'mode', 'terms', 'stamps_required',
-        'reward_type', 'reward_value', 'reward_service_id',
+        'reward_type', 'reward_value', 'reward_service_id', 'reward_note',
         'min_ticket', 'is_active',
     ];
 
@@ -97,6 +97,7 @@ class LoyaltyProgram extends Model
             $this->reward_type,
             $this->reward_value === null ? null : (float) $this->reward_value,
             $this->rewardService?->name,
+            $this->reward_note,
         );
     }
 }

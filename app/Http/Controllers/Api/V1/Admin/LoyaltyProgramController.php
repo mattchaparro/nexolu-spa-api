@@ -36,14 +36,19 @@ class LoyaltyProgramController
 
         return response()->json([
             'program' => $program === null ? null : $this->detail($program),
-            // El catalogo de tipos vive en el backend para que la pantalla no
-            // lo duplique: agregar un tipo nuevo no deberia obligar a tocar
-            // los dos repos.
-            'reward_types' => [
-                ['value' => LoyaltyCalculator::REWARD_DISCOUNT_PERCENT, 'label' => 'Un porcentaje de descuento'],
-                ['value' => LoyaltyCalculator::REWARD_DISCOUNT_AMOUNT, 'label' => 'Un monto fijo de descuento'],
-                ['value' => LoyaltyCalculator::REWARD_FREE_SERVICE, 'label' => 'Un servicio gratis'],
-            ],
+            /*
+             * El catalogo sale del registro, con los campos que cada tipo
+             * necesita. La pantalla arma el formulario leyendo esto, asi que
+             * un tipo nuevo aparece alla sin tocar el front.
+             */
+            'reward_types' => collect(LoyaltyCalculator::types())
+                ->map(fn (array $r, string $value) => [
+                    'value' => $value,
+                    'label' => $r['label'],
+                    'needs_value' => $r['value'],
+                    'needs_service' => $r['service'],
+                    'needs_note' => $r['note'],
+                ])->values()->all(),
             'modes' => [
                 [
                     'value' => LoyaltyProgram::MODE_CARD,
@@ -77,6 +82,7 @@ class LoyaltyProgramController
             'reward_type' => ['required_without:tiers', 'nullable', Rule::in(LoyaltyCalculator::rewardTypes())],
             'reward_value' => ['nullable', 'numeric', 'min:0'],
             'reward_service_id' => ['nullable', 'integer'],
+            'reward_note' => ['nullable', 'string', 'max:200'],
             'min_ticket' => ['nullable', 'numeric', 'min:0'],
             'is_active' => ['nullable', 'boolean'],
 
@@ -90,6 +96,7 @@ class LoyaltyProgramController
             'tiers.*.reward_type' => ['required', Rule::in(LoyaltyCalculator::rewardTypes())],
             'tiers.*.reward_value' => ['nullable', 'numeric', 'min:0'],
             'tiers.*.reward_service_id' => ['nullable', 'integer'],
+            'tiers.*.reward_note' => ['nullable', 'string', 'max:200'],
         ]);
 
         $esEscalera = ($data['mode'] ?? LoyaltyProgram::MODE_CARD) === LoyaltyProgram::MODE_LADDER;
@@ -186,6 +193,7 @@ class LoyaltyProgramController
                     'reward_type' => $tier['reward_type'],
                     'reward_value' => $tier['reward_value'] ?? null,
                     'reward_service_id' => $tier['reward_service_id'] ?? null,
+                    'reward_note' => $tier['reward_note'] ?? null,
                     'is_active' => true,
                 ],
             );
@@ -234,19 +242,26 @@ class LoyaltyProgramController
      */
     private function rewardIsUsable(int $businessId, array $data): ?string
     {
-        if (($data['reward_type'] ?? null) === LoyaltyCalculator::REWARD_FREE_SERVICE) {
-            $service = Service::where('business_id', $businessId)
-                ->where('is_active', true)
-                ->find($data['reward_service_id'] ?? 0);
-
-            return $service === null
-                ? 'Elige qué servicio se regala, y que esté activo.'
-                : null;
+        /*
+         * Lo que se puede saber sin la base lo sabe el registro: que tipo pide
+         * valor, cual pide una nota. Aca solo queda lo que necesita consultar
+         * -- que el servicio regalado exista y este activo.
+         */
+        if ($falta = LoyaltyCalculator::whatIsMissing($data)) {
+            return $falta;
         }
 
-        return ($data['reward_value'] ?? 0) > 0
-            ? null
-            : 'El premio necesita un valor mayor que cero.';
+        if (! LoyaltyCalculator::needsService($data['reward_type'] ?? null)) {
+            return null;
+        }
+
+        $service = Service::where('business_id', $businessId)
+            ->where('is_active', true)
+            ->find($data['reward_service_id'] ?? 0);
+
+        return $service === null
+            ? 'Elige qué servicio se regala, y que esté activo.'
+            : null;
     }
 
     /** @return array<string, mixed> */
@@ -261,6 +276,7 @@ class LoyaltyProgramController
             'reward_type' => $program->reward_type,
             'reward_value' => $program->reward_value === null ? null : (float) $program->reward_value,
             'reward_service_id' => $program->reward_service_id,
+            'reward_note' => $program->reward_note,
             'reward_label' => $program->rewardLabel(),
             'min_ticket' => (float) $program->min_ticket,
             'is_active' => (bool) $program->is_active,
@@ -270,6 +286,7 @@ class LoyaltyProgramController
                     'reward_type' => $t->reward_type,
                     'reward_value' => $t->reward_value === null ? null : (float) $t->reward_value,
                     'reward_service_id' => $t->reward_service_id,
+                    'reward_note' => $t->reward_note,
                     'reward_label' => $t->rewardLabel(),
                 ])->values()->all(),
         ];

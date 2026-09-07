@@ -438,6 +438,94 @@ class LoyaltyLadderTest extends TestCase
 
     /*
     |--------------------------------------------------------------------------
+    | Premios que no son plata
+    |--------------------------------------------------------------------------
+    | El escalón de 30 visitas de Luxury regala "un producto de nuestra marca
+    | al azar". No tiene precio ni apunta al catálogo: se dice con palabras.
+    */
+
+    public function test_un_regalo_exige_decir_que_se_entrega(): void
+    {
+        // "Premio" a secas no le sirve a quien atiende: tiene que saber qué
+        // sacar del mostrador.
+        $r = $this->postJson('/api/v1/loyalty/program', [
+            'name' => 'Con regalo', 'mode' => LoyaltyProgram::MODE_LADDER,
+            'tiers' => [
+                ['stamps_required' => 2, 'reward_type' => LoyaltyCalculator::REWARD_DISCOUNT_PERCENT, 'reward_value' => 10],
+                ['stamps_required' => 4, 'reward_type' => LoyaltyCalculator::REWARD_GIFT],
+            ],
+        ])->assertStatus(422);
+
+        $this->assertStringContainsString('4 visitas', $r->json('message'));
+    }
+
+    public function test_un_regalo_se_anuncia_con_sus_propias_palabras(): void
+    {
+        $program = $this->crearEscalera([
+            ['stamps_required' => 2, 'reward_type' => LoyaltyCalculator::REWARD_DISCOUNT_PERCENT, 'reward_value' => 10],
+            ['stamps_required' => 4, 'reward_type' => LoyaltyCalculator::REWARD_GIFT,
+                'reward_note' => 'Un esmalte de nuestra marca'],
+        ]);
+
+        $this->assertSame('Un esmalte de nuestra marca', $program['tiers'][1]['reward_label']);
+    }
+
+    public function test_un_regalo_no_descuenta_de_la_cuenta_pero_si_se_gana(): void
+    {
+        /*
+         * Es la diferencia con los otros tres premios: el regalo no toca la
+         * plata. Si descontara algo, el negocio estaría regalando el producto
+         * Y rebajando el servicio.
+         */
+        $this->crearEscalera([
+            ['stamps_required' => 2, 'reward_type' => LoyaltyCalculator::REWARD_GIFT,
+                'reward_note' => 'Un esmalte'],
+            ['stamps_required' => 4, 'reward_type' => LoyaltyCalculator::REWARD_DISCOUNT_PERCENT, 'reward_value' => 10],
+        ]);
+
+        $this->visita(9);
+        $cliente = $this->clienteId();
+        $this->visita(10, $cliente);
+
+        $premio = $this->premios($cliente)->first();
+        $this->assertSame(LoyaltyCalculator::REWARD_GIFT, $premio->reward_type);
+        $this->assertSame(0.0, $premio->discountFor(50000));
+
+        // Y se puede canjear igual: queda enlazado a la cita en que se entregó.
+        $id = $this->postJson('/api/v1/appointments', [
+            'service_id' => $this->service->id,
+            'resource_id' => $this->maria->id,
+            'starts_at' => $this->hoy()->format('Y-m-d').' 11:00:00',
+            'client_id' => $cliente,
+        ])->assertCreated()->json('id');
+
+        $cobrada = $this->postJson("/api/v1/appointments/{$id}/checkout", [
+            'payment_method_id' => $this->efectivo->id,
+            'loyalty_reward_id' => $premio->id,
+        ])->assertOk();
+
+        $this->assertEqualsWithDelta(50000, $cobrada->json('total'), 0.01);
+        $this->assertSame(LoyaltyReward::STATUS_USED, $premio->fresh()->status);
+    }
+
+    public function test_el_catalogo_dice_que_campos_pide_cada_premio(): void
+    {
+        /*
+         * La pantalla arma el formulario leyendo esto. Si el catálogo no dijera
+         * qué campos pide cada tipo, el front tendría que duplicar la regla --
+         * y agregar un quinto premio obligaría a tocar los dos repos.
+         */
+        $tipos = collect($this->getJson('/api/v1/loyalty/program')->assertOk()->json('reward_types'))
+            ->keyBy('value');
+
+        $this->assertTrue($tipos[LoyaltyCalculator::REWARD_DISCOUNT_PERCENT]['needs_value']);
+        $this->assertTrue($tipos[LoyaltyCalculator::REWARD_FREE_SERVICE]['needs_service']);
+        $this->assertTrue($tipos[LoyaltyCalculator::REWARD_GIFT]['needs_note']);
+        $this->assertFalse($tipos[LoyaltyCalculator::REWARD_GIFT]['needs_value']);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
     | Que el modo tarjeta siga intacto
     |--------------------------------------------------------------------------
     */
