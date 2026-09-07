@@ -7,6 +7,7 @@ use App\Models\AppointmentItem;
 use App\Models\Client;
 use App\Models\Service;
 use App\Support\ChannelPhone;
+use App\Support\Money\Reparto;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 
@@ -254,39 +255,15 @@ class ImportaHistorial extends Importador
     /**
      * Reparte un monto entre servicios, a prorrata del precio de lista.
      *
-     * La ultima parte se lleva la diferencia en vez de redondearse aparte:
-     * asi la suma de las lineas es EXACTAMENTE el total de la cita. Repartir
-     * 50.000 en dos redondeos independientes puede dar 49.999, y ese peso
-     * suelto aparece despues como un descuadre de caja que nadie explica.
-     *
      * @param  list<int>  $servicios
      * @return list<float>
      */
     private function repartir(float $monto, array $servicios): array
     {
-        if (count($servicios) === 1) {
-            return [round($monto, 2)];
-        }
-
-        $pesos = array_map(fn (int $s) => max(0.01, $this->precios[$s] ?? 1.0), $servicios);
-        $total = array_sum($pesos);
-
-        $reparto = [];
-        $acumulado = 0.0;
-
-        foreach ($servicios as $i => $servicio) {
-            if ($i === count($servicios) - 1) {
-                $reparto[] = round($monto - $acumulado, 2);
-
-                break;
-            }
-
-            $parte = round($monto * $pesos[$i] / $total, 2);
-            $acumulado += $parte;
-            $reparto[] = $parte;
-        }
-
-        return $reparto;
+        return Reparto::proporcional(
+            $monto,
+            array_map(fn (int $s) => $this->precios[$s] ?? 0.0, $servicios),
+        );
     }
 
     /**

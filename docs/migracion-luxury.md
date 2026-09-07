@@ -180,6 +180,91 @@ falta. **Penalizaciones**: 0 filas, nada que migrar.
    wa.link / número según el plan de WhatsApp.
 4. Legacy queda en solo-lectura como archivo. No se apaga el mismo día.
 
+## El comando, y lo que ya se verificó (2026-09-07)
+
+```bash
+php artisan luxury:importar --negocio=luxury-nails --simular   # no escribe nada
+php artisan luxury:importar --negocio=luxury-nails             # de verdad
+php artisan luxury:importar --negocio=luxury-nails --paso=Historial
+```
+
+**Se puede correr todos los días.** Es la propiedad que manda el diseño: el
+sistema viejo no se apaga el día de la mudanza. La primera corrida trae todo
+el histórico (5 min); las siguientes solo lo nuevo (10 s).
+
+La idempotencia vive en la tabla `legacy_map`: qué fila vieja quedó en qué
+fila nueva, con una huella de los campos que importan. Lo ya traído no se
+vuelve a mirar.
+
+### Qué se re-sincroniza y qué no
+
+| Dato | En corridas siguientes | Por qué |
+|---|---|---|
+| Precio y activo de un servicio | **Sí** | El negocio administra la carta en el sistema viejo mientras convivan |
+| Duración de un servicio | **Nunca** | Están cortas y la migración es la ocasión de corregirlas; reimportarlas desharía la corrección |
+| `accepts_marketing` | **Siempre** | Una baja es decisión de la persona; llegar tarde no es un bug de sincronización, es un mensaje que no debió salir |
+| Nombre / teléfono / email | Solo si están **vacíos** | Alguien pudo corregirlos aquí |
+| Historial y gastos | **Nunca** | Una atención cobrada en marzo no cambia |
+| `is_active` de una empleada | **Sí** | Quien se retira debe dejar de aparecer en la agenda |
+
+### Resultado de la corrida real (contra la base de producción, solo lectura)
+
+| Paso | Filas |
+|---|---|
+| Categorías | 6 |
+| Servicios | 41 |
+| Combos (como paquetes) | 4 |
+| Equipo | 15 recursos (+1 fusión) |
+| Horarios | 70 ventanas |
+| Medios de pago | 5 |
+| Clientas | 758 (767 fichas, 9 fusionadas por teléfono) |
+| **Historial** | **3.324** |
+| Gastos | 113 |
+
+**Los tres años cuadran al peso** contra el origen — citas, ingresos y
+comisiones:
+
+| Año | Citas | Ingresos | Comisiones |
+|---|---|---|---|
+| 2024 | 955 | 31.862.000 | 16.144.900 |
+| 2025 | 1.606 | 62.121.050 | 31.297.775 |
+| 2026 | 763 | 33.928.550 | 17.030.500 |
+
+Y las comprobaciones de integridad: 0 citas sin líneas, 0 citas sin mapear,
+0 descuadres entre el total de una cita y la suma de sus líneas, y los 159
+combos partidos en dos líneas cada uno sin perder un peso.
+
+### Seis cosas que solo aparecieron al correrlo contra datos reales
+
+Ninguna la habría encontrado un test:
+
+1. **159 atenciones son combos.** Al convertir los combos en paquetes, esas
+   atenciones se quedaron sin servicio al que apuntar. Ahora una atención de
+   combo genera sus dos líneas y reparte la plata a prorrata del precio de
+   lista, con la última línea absorbiendo el redondeo.
+2. **93 atenciones las prestaron dos empleadas borradas** (ids 5 y 7). Se
+   traen como recursos inactivos: existen para que el pasado tenga a quien
+   atribuirse, no para aparecer en la agenda.
+3. **La fusión de las dos Alejandras no funcionaba**: la ficha 2 se procesa
+   antes que la 3, así que no había a quién apuntarla. Va en segunda pasada.
+4. **Dos clientas tienen el nombre y el teléfono intercambiados**
+   (name="3106985459", cellphone="LuisaFernanda"). Sin enderezarlas, nunca
+   habrían recibido un recordatorio.
+5. **Una cita quedó sin líneas** cuando falló un insert a mitad — y su total
+   seguía sumando en el reporte de ventas. Cita y líneas ahora nacen en una
+   transacción.
+6. **Una atención de 3.324 no tiene `started_at`**, y la columna no admite
+   nulo. Cae al horario agendado en vez de perderse.
+
+### Lo que queda pendiente
+
+- **La escalera de sellos** (hitos acumulativos 5/10/15…) y honrar los 74
+  premios que hoy están sin redimir.
+- **Citas futuras** (~100): entran una a una por `BookingService`, nunca por
+  SQL, para que reclamen su ocupación contra el índice único.
+- **Calificaciones** (189 filas).
+- **Confirmar las duraciones** servicio por servicio con el negocio.
+
 ## Decisiones tomadas (2026-09-07)
 
 ### 1. Fidelización: se conserva la escalera, y se cierra una fuga
