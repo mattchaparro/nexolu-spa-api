@@ -52,10 +52,26 @@ class PayrollService
         $start = $this->periodStartFor($resource, $business);
         $end = $until->startOfDay();
 
-        if ($end->lt($start)) {
+        /*
+         * Se puede liquidar OTRA VEZ el mismo dia del ultimo corte, pero nunca
+         * antes.
+         *
+         * El caso real: se paga hoy a las diez de la manana y en la tarde se
+         * cobran mas servicios. Esos son de hoy, y hoy ya fue el corte. Si se
+         * prohibiera volver a liquidar hasta hoy, habria que esperar a manana
+         * o corregir la fecha a mano -- que es exactamente lo que tocaba hacer
+         * en el sistema anterior.
+         *
+         * No hay riesgo de pagar dos veces: las lineas ya liquidadas no
+         * vuelven (ver `chargedItems()`), y los dias con sueldo base son cero
+         * porque el periodo no avanzo.
+         */
+        $ultimoCorte = $start->subDay();
+
+        if ($end->lt($ultimoCorte)) {
             throw ValidationException::withMessages([
-                'until' => "Ya se liquidó hasta el {$start->subDay()->toDateString()}. "
-                    ."El siguiente período empieza el {$start->toDateString()}.",
+                'until' => "Ya se liquidó hasta el {$ultimoCorte->toDateString()}. "
+                    .'No se puede liquidar hacia atrás de eso.',
             ]);
         }
 
@@ -64,7 +80,12 @@ class PayrollService
         $items = $this->chargedItems($business, $resource, $start, $end, $tz);
         $adjustments = $this->pendingAdjustments($resource, $end);
 
-        $days = (int) $start->diffInDays($end) + 1;
+        /*
+         * Cero dias cuando se vuelve a liquidar el mismo dia del corte
+         * anterior: el sueldo base de ese dia ya se pago, y solo faltaban las
+         * comisiones de la tarde.
+         */
+        $days = $end->gte($start) ? (int) $start->diffInDays($end) + 1 : 0;
 
         $totals = PayrollCalculator::settle(
             $resource->payroll_mode,
@@ -83,7 +104,9 @@ class PayrollService
             'base_amount' => (float) $resource->base_amount,
             'base_period' => $resource->base_period,
             'base_until' => $resource->base_until?->toDateString(),
-            'period_start' => $start->toDateString(),
+            // Si el periodo no avanzo, se muestra el dia del corte y no un
+            // rango invertido que nadie sabria leer.
+            'period_start' => ($days === 0 ? $end : $start)->toDateString(),
             'period_end' => $end->toDateString(),
             'days' => $days,
             'services_count' => $items->count(),
@@ -293,6 +316,11 @@ class PayrollService
 
     /**
      * El dia en que arranca el periodo. No lo elige quien liquida.
+     *
+     * Sirve para DOS cosas: mostrar el rango en el comprobante, y prorratear
+     * el sueldo base por dias. Las comisiones NO dependen de esta fecha --
+     * ver `chargedItems()` -- justamente para que liquidar a media manana no
+     * deje sin pagar lo que se cobre en la tarde.
      */
     private function periodStartFor(Resource $resource, Business $business): CarbonImmutable
     {
@@ -438,6 +466,23 @@ class PayrollService
         ];
     }
 
+    /**
+     * Los servicios cobrados que TODAVIA NO SE HAN PAGADO, hasta el corte.
+     *
+     * SIN PISO INFERIOR, y eso es lo que arregla un problema viejo. Si el
+     * periodo empezara en una fecha, liquidar hoy a las diez de la manana
+     * cerraria el dia entero: lo que se cobre en la tarde queda con fecha de
+     * hoy, y hoy ya esta pagado. En el sistema anterior habia que corregirlo a
+     * mano, poniendo el corte de ayer para que lo de hoy volviera a contar.
+     *
+     * Aca no hace falta: lo que manda no es la fecha sino si esa linea ya
+     * entro en una liquidacion. Lo de la tarde no estaba en ninguna, asi que
+     * entra en la siguiente aunque sea del mismo dia. Un servicio no se puede
+     * perder ni pagar dos veces, caiga donde caiga la fecha.
+     *
+     * El sueldo base SI sigue siendo por fechas -- se prorratea por dias -- y
+     * esta bien que asi sea: son dos cosas distintas.
+     */
     private function chargedItems(
         Business $business,
         Resource $resource,
@@ -445,7 +490,6 @@ class PayrollService
         CarbonImmutable $end,
         string $tz,
     ): Collection {
-        $from = $start->setTimezone($tz)->startOfDay()->utc();
         $to = $end->setTimezone($tz)->endOfDay()->utc();
 
         return AppointmentItem::withoutGlobalScope('business')
@@ -453,7 +497,15 @@ class PayrollService
             ->where('appointment_items.resource_id', $resource->id)
             ->join('appointments', 'appointments.id', '=', 'appointment_items.appointment_id')
             ->whereNotNull('appointments.checked_out_at')
-            ->whereBetween('appointments.checked_out_at', [$from, $to])
+            ->where('appointments.checked_out_at', '<=', $to)
+            /*
+             * Lo ya liquidado no vuelve. Es la garantia de no pagar dos veces,
+             * y vive en la consulta y no en una bandera: una bandera hay que
+             * acordarse de ponerla, y quien la olvide paga doble.
+             */
+            ->whereNotExists(fn ($q) => $q->select(DB::raw(1))
+                ->from('payroll_settlement_items as psi')
+                ->whereColumn('psi.appointment_item_id', 'appointment_items.id'))
             ->with(['service'])
             ->orderBy('appointments.checked_out_at')
             ->get([

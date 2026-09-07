@@ -163,6 +163,52 @@ class PayrollTest extends TestCase
         $this->assertEqualsWithDelta(40000, $preview->json('commission_total'), 0.01);
     }
 
+    public function test_liquidar_a_media_manana_no_deja_sin_pagar_lo_de_la_tarde(): void
+    {
+        /*
+         * EL problema del sistema anterior, dicho por quien lo sufrió: si se
+         * paga hoy en la mañana, lo que se cobre hoy en la tarde ya no cuenta
+         * para el siguiente pago -- porque hoy quedó dentro de un período
+         * cerrado. Allá tocaba corregirlo a mano, poniendo el corte de ayer.
+         *
+         * Acá lo que manda no es la fecha sino si esa línea ya entró en una
+         * liquidación. Lo de la tarde no estaba en ninguna, así que entra en
+         * la siguiente aunque sea del mismo día.
+         */
+        $this->cobrar(1);
+
+        // Se paga HOY, con corte de HOY.
+        $this->postJson("/api/v1/payroll/resources/{$this->maria->id}/settle", [
+            'until' => $this->dia(0)->toDateString(),
+            'payment_method_id' => $this->efectivo->id,
+        ])->assertCreated();
+
+        // Y en la tarde se cobra otro servicio, del mismo día.
+        $this->cobrar(0);
+
+        $preview = $this->getJson("/api/v1/payroll/resources/{$this->maria->id}/preview")->assertOk();
+
+        $this->assertSame(1, $preview->json('services_count'), 'Se perdió lo cobrado después de liquidar.');
+        $this->assertEqualsWithDelta(40000, $preview->json('commission_total'), 0.01);
+    }
+
+    public function test_un_servicio_ya_pagado_no_se_paga_dos_veces(): void
+    {
+        // La otra mitad de lo mismo: que no perder nada no signifique cobrarlo
+        // dos veces.
+        $this->cobrar(1);
+
+        $this->postJson("/api/v1/payroll/resources/{$this->maria->id}/settle", [
+            'until' => $this->dia(0)->toDateString(),
+            'payment_method_id' => $this->efectivo->id,
+        ])->assertCreated();
+
+        $preview = $this->getJson("/api/v1/payroll/resources/{$this->maria->id}/preview")->assertOk();
+
+        $this->assertSame(0, $preview->json('services_count'));
+        $this->assertEqualsWithDelta(0, $preview->json('commission_total'), 0.01);
+    }
+
     public function test_no_se_puede_liquidar_hacia_atras_de_lo_ya_pagado(): void
     {
         $this->cobrar(20);
