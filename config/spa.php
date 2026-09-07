@@ -89,6 +89,15 @@ return [
          *
          * Se puede soltar antes a mano desde la bandeja.
          */
+        /*
+         * El negocio que se sincroniza desde el sistema viejo, por slug.
+         *
+         * Vacio = no hay convivencia y la sincronizacion no se programa. Es lo
+         * correcto para cualquier otro negocio de la plataforma: nadie mas
+         * tiene una app vieja de la cual traer datos.
+         */
+        'legacy_sync_business' => env('LEGACY_SYNC_BUSINESS'),
+
         'whatsapp_agent_pause_min' => 120,
 
         'commission_base_manual' => 'charged',

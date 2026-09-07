@@ -5,6 +5,7 @@ namespace App\Services\Migration\Importadores;
 use App\Models\Appointment;
 use App\Models\AppointmentItem;
 use App\Models\Client;
+use App\Models\ResourceOccupancy;
 use App\Models\Service;
 use App\Support\ChannelPhone;
 use App\Support\Money\Reparto;
@@ -83,10 +84,17 @@ class ImportaHistorial extends Importador
         /*
          * El historial es inmutable: una atencion cobrada hace ocho meses no
          * cambia. Si ya se importo, no se vuelve a mirar -- y eso es lo que
-         * hace que la corrida diaria mire 12 filas y no 3.324.
+         * hace que la corrida de cada cinco minutos mire dos filas y no 3.324.
+         *
+         * SALVO una: la cita que se agendo a futuro y que acaban de cobrar
+         * alla. Esa ya existe aca, pendiente, y hay que TERMINARLA en su
+         * sitio. Crear una segunda seria contar la visita dos veces en el
+         * reporte de ventas y en la tarjeta de sellos de la clienta.
          */
-        if ($this->map->yaExiste('appointment', $legacyId)) {
-            $this->reporte->saltado('Historial');
+        $yaCreada = $this->map->idNuevo('appointment', $legacyId);
+
+        if ($yaCreada !== null) {
+            $this->completarPendiente($yaCreada, $fila);
 
             return;
         }
@@ -206,6 +214,81 @@ class ImportaHistorial extends Importador
 
         $this->anotar('appointment', $legacyId, $id);
         $this->reporte->creado('Historial');
+    }
+
+    /**
+     * Termina una cita que ya existia aca como pendiente.
+     *
+     * Es el puente entre los dos pasos: `ImportaCitasFuturas` la creo cuando
+     * estaba agendada, y ahora que el sistema viejo la cobro hay que cerrarla
+     * con lo que de verdad se pago.
+     *
+     * Si ya esta terminada no se toca: una atencion cobrada no cambia, y
+     * reescribirla cada cinco minutos seria pelear con quien la haya
+     * ajustado a mano aca.
+     */
+    private function completarPendiente(int $citaId, object $fila): void
+    {
+        $cita = Appointment::withoutGlobalScope('business')->find($citaId);
+
+        if ($cita === null || $cita->status !== Appointment::STATUS_PENDING) {
+            $this->reporte->saltado('Historial');
+
+            return;
+        }
+
+        $lista = (float) $fila->price;
+        $cobrado = (float) $fila->final_price;
+        $descuento = max(0.0, round($lista - $cobrado, 2));
+        $comision = (float) $fila->commission;
+
+        $items = AppointmentItem::withoutGlobalScope('business')
+            ->where('appointment_id', $citaId)
+            ->orderBy('sort_order')
+            ->get();
+
+        $servicios = $items->pluck('service_id')->map(fn ($id) => (int) $id)->all();
+
+        $repartoLista = $this->repartir($lista, $servicios);
+        $repartoCobrado = $this->repartir($cobrado, $servicios);
+        $repartoComision = $this->repartir($comision, $servicios);
+
+        DB::transaction(function () use (
+            $cita, $fila, $items, $lista, $cobrado, $descuento, $comision,
+            $repartoLista, $repartoCobrado, $repartoComision
+        ) {
+            $cita->update([
+                'status' => 'completed',
+                'payment_method_id' => $this->map->idNuevo('payment_method', $fila->payment_method_id),
+                'checked_out_at' => $this->utc($fila->finished_at) ?? $cita->ends_at,
+                'subtotal' => $lista,
+                'discount_amount' => $descuento,
+                'discount_reason' => $descuento > 0 ? $this->motivo($fila) : null,
+                'total' => $cobrado,
+                'commission_total' => $comision,
+            ]);
+
+            foreach ($items as $i => $item) {
+                $item->update([
+                    'service_starts_at' => $this->utc($fila->started_at) ?? $item->starts_at,
+                    'service_ends_at' => $this->utc($fila->finished_at) ?? $item->ends_at,
+                    'price' => $repartoLista[$i] ?? $item->price,
+                    'final_price' => $repartoCobrado[$i] ?? $item->final_price,
+                    'commission_rate' => round(((float) $fila->commission_percentage) / 100, 4),
+                    'commission_amount' => $repartoComision[$i] ?? 0,
+                ]);
+            }
+
+            /*
+             * La ocupacion se suelta: la cita ya ocurrio, y una cita del
+             * pasado no tiene por que seguir bloqueando un horario.
+             */
+            ResourceOccupancy::withoutGlobalScope('business')
+                ->whereIn('appointment_item_id', $items->pluck('id'))
+                ->delete();
+        });
+
+        $this->reporte->actualizado('Historial');
     }
 
     /**

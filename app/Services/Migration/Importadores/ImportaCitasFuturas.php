@@ -2,11 +2,13 @@
 
 namespace App\Services\Migration\Importadores;
 
+use App\Models\Appointment;
 use App\Models\Client;
 use App\Models\Service;
 use App\Models\ServicePackage;
 use App\Services\Scheduling\BookingService;
 use App\Services\Scheduling\Exceptions\SlotUnavailableException;
+use Illuminate\Support\Facades\DB;
 use Throwable;
 
 /**
@@ -74,6 +76,68 @@ class ImportaCitasFuturas extends Importador
         foreach ($filas as $fila) {
             $this->una($booking, $fila);
         }
+
+        $this->cancelarLasQueYaNoEstan($filas->pluck('id')->all());
+    }
+
+    /**
+     * Las citas que se cancelaron o se movieron en el sistema viejo.
+     *
+     * Sincronizando cada cinco minutos esto deja de ser un detalle: una cita
+     * que la clienta cancelo a las diez sigue ocupando el horario aca y
+     * bloquea a quien quiera ese cupo. Y quien mire la agenda va a preparar
+     * un servicio que nadie va a recibir.
+     *
+     * Se cancela, no se borra: una cita cancelada es informacion -- explica un
+     * hueco en el dia -- y ademas `cancel()` libera la ocupacion, que es lo
+     * que de verdad hay que soltar.
+     *
+     * @param  list<int>  $vigentes  Los ids que el sistema viejo tiene agendados.
+     */
+    private function cancelarLasQueYaNoEstan(array $vigentes): void
+    {
+        if ($this->simular) {
+            return;
+        }
+
+        $mias = DB::table('legacy_map')
+            ->where('business_id', $this->business->id)
+            ->where('entity', 'appointment')
+            ->pluck('new_id', 'legacy_id');
+
+        $pendientes = Appointment::withoutGlobalScope('business')
+            ->where('business_id', $this->business->id)
+            ->where('status', Appointment::STATUS_PENDING)
+            ->pluck('id')
+            ->all();
+
+        if ($pendientes === []) {
+            return;
+        }
+
+        $vigentes = array_flip($vigentes);
+        $booking = app(BookingService::class);
+
+        foreach ($mias as $legacyId => $nuevoId) {
+            if (! in_array($nuevoId, $pendientes, true) || isset($vigentes[(int) $legacyId])) {
+                continue;
+            }
+
+            $cita = Appointment::withoutGlobalScope('business')->find($nuevoId);
+
+            if ($cita === null) {
+                continue;
+            }
+
+            $booking->cancel($cita, null, 'Cancelada en el sistema anterior.');
+
+            $this->reporte->actualizado('Citas futuras');
+            $this->reporte->aviso(
+                'Citas futuras',
+                "La cita {$legacyId} ya no esta agendada en el sistema viejo: se cancelo aca y se "
+                .'libero el horario.',
+            );
+        }
     }
 
     /**
@@ -108,7 +172,16 @@ class ImportaCitasFuturas extends Importador
     {
         $legacyId = (int) $fila->id;
 
-        if ($this->map->yaExiste('future_appointment', $legacyId)) {
+        /*
+         * MISMA llave que el historial: `appointment`.
+         *
+         * Es la misma fila del sistema viejo. Cuando esa cita se cobre alla,
+         * el paso del historial la va a encontrar ya creada y la va a
+         * COMPLETAR en su sitio, en vez de crear una segunda cita para la
+         * misma atencion. Con llaves distintas se duplicaba, y sincronizando
+         * cada cinco minutos eso pasa el mismo dia.
+         */
+        if ($this->map->yaExiste('appointment', $legacyId)) {
             $this->reporte->saltado('Citas futuras');
 
             return;
@@ -211,7 +284,7 @@ class ImportaCitasFuturas extends Importador
             return;
         }
 
-        $this->map->anotar('future_appointment', $legacyId, $cita->id);
+        $this->map->anotar('appointment', $legacyId, $cita->id);
         $this->reporte->creado('Citas futuras');
     }
 }

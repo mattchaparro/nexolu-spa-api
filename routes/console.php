@@ -54,3 +54,34 @@ Schedule::command('historias:publicar')
     ->everyFiveMinutes()
     ->withoutOverlapping()
     ->runInBackground();
+
+/*
+ * Traer del sistema viejo lo que pasó allá.
+ *
+ * CADA MEDIA HORA, y no de noche. Mientras los dos sistemas conviven, el local
+ * sigue agendando en el viejo -- y una clienta que llama a las diez para venir
+ * a las once tiene que estar en la agenda nueva antes de las once. Una
+ * sincronización nocturna dejaría a quien mire la app nueva viendo el día de
+ * ayer, que es peor que no verla.
+ *
+ * Media hora y no cinco minutos porque en este local no hay tanto movimiento:
+ * unas pocas citas al día. Lo caro es la primera corrida, no las siguientes.
+ *
+ * `withoutOverlapping` porque media hora puede no alcanzar el día que alguien
+ * cargue mucho de golpe. No rompería nada -- `legacy_map` y los
+ * índices únicos lo impiden -- pero serían dos procesos peleándose por las
+ * mismas tablas sin ganar nada.
+ *
+ * Solo se programa si hay un negocio configurado Y credenciales de la base
+ * vieja. Un negocio sin convivencia no tiene de dónde traer nada, y programar
+ * un comando que siempre falla llena los logs de ruido que nadie lee.
+ */
+if (filled(config('spa.defaults.legacy_sync_business'))
+    && filled(config('database.connections.legacy.username'))) {
+    Schedule::command('luxury:importar', [
+        '--negocio' => config('spa.defaults.legacy_sync_business'),
+    ])
+        ->everyThirtyMinutes()
+        ->withoutOverlapping()
+        ->runInBackground();
+}
