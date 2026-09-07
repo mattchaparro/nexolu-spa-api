@@ -265,6 +265,72 @@ Ninguna la habría encontrado un test:
 - **Calificaciones** (189 filas).
 - **Confirmar las duraciones** servicio por servicio con el negocio.
 
+## La migración, completa (2026-09-07)
+
+Catorce pasos. Corrida real contra la base de producción, en solo lectura:
+
+| Paso | Filas |
+|---|---|
+| Categorías | 6 |
+| Servicios | 41 |
+| Combos (como paquetes) | 4 |
+| Equipo | 15 recursos + 1 fusión |
+| Horarios | 35 franjas vigentes |
+| Medios de pago | 5 |
+| Clientas | 758 (767 fichas, 9 fusionadas) |
+| **Historial** | **3.324** |
+| Escalera de sellos | 7 escalones |
+| Sellos | 1.218 |
+| Premios | 110 (74 disponibles) |
+| Calificaciones | 141 |
+| Gastos | 113 |
+| **Citas futuras** | **6** |
+
+Correrlo dos veces seguidas deja **cero creados y cero actualizados** en los
+catorce pasos.
+
+### Las citas futuras son el único paso que no escribe con SQL
+
+Todo lo demás es historia: ya pasó, no puede chocar con nada. Una cita futura
+ocupa un horario, y dos citas encima de la misma manicurista a la misma hora
+es el problema que este sistema existe para no tener. Por eso entran por
+`BookingService::book()`, que reclama la ocupación contra el índice único.
+
+`enforceSchedule` va apagado (el sistema viejo agendaba sobre bloques fijos de
+120 min que no siempre coinciden con los turnos), pero **el anti-solape no se
+apaga nunca**. Si una cita choca se reporta y se sigue: un reporte de tres
+citas conflictivas que alguien resuelve a mano es mejor que un solape
+silencioso.
+
+Verificado contra el origen: las seis coinciden en fecha y hora al minuto, y
+la que era un combo entró como sus dos partes.
+
+### Los horarios se RECONCILIAN, no solo se agregan
+
+Esto apareció solo, y de la mejor manera: **el negocio editó sus turnos en la
+app vieja mientras yo trabajaba** — de 18 turnos pasó a 5. La corrida
+siguiente trajo bien los nuevos, pero dejó vivas 48 franjas que ya nadie
+trabaja. La agenda nueva habría ofrecido horas en que el local está cerrado.
+
+Ahora el paso reconcilia: las ventanas que ya no existen allá se **cierran**
+acá (con `effective_to`, no se borran — una cita agendada dentro de esa franja
+tiene que seguir explicándose).
+
+La contrapartida, dicha en voz alta: **mientras dure la convivencia los
+horarios se editan en el sistema viejo**. Si alguien los ajusta en el nuevo,
+la corrida siguiente se lo devuelve. Dos fuentes de verdad para el horario es
+peor que una incómoda.
+
+### Las calificaciones venían duplicadas
+
+242 opiniones para 141 atenciones: la misma clienta calificó dos y hasta tres
+veces la misma visita (volvió a abrir el enlace y lo mandó de nuevo). Otras 52
+no dicen qué atención calificaron.
+
+Se conserva **una por atención, la más reciente**. Dos notas de la misma
+persona sobre el mismo servicio contarían doble en el promedio de la
+manicurista. Promedio migrado: **4,93** sobre 5.
+
 ## La escalera de sellos (2026-09-07)
 
 El sistema nuevo tenía UN modo de tarjeta: junta N sellos, cobra el premio, y

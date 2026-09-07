@@ -3,7 +3,9 @@
 namespace App\Console\Commands;
 
 use App\Models\Business;
+use App\Services\Migration\Importadores\ImportaCalificaciones;
 use App\Services\Migration\Importadores\ImportaCatalogo;
+use App\Services\Migration\Importadores\ImportaCitasFuturas;
 use App\Services\Migration\Importadores\ImportaClientas;
 use App\Services\Migration\Importadores\ImportaEquipo;
 use App\Services\Migration\Importadores\ImportaFidelizacion;
@@ -122,7 +124,15 @@ class ImportarLuxury extends Command
             new ImportaHistorial($negocio, $map, $reporte, $simular),
             // Despues del historial: cada sello cuelga de una cita migrada.
             new ImportaFidelizacion($negocio, $map, $reporte, $simular),
+            new ImportaCalificaciones($negocio, $map, $reporte, $simular),
             new ImportaGastos($negocio, $map, $reporte, $simular),
+            /*
+             * Las futuras van AL FINAL, y no por comodidad: son las unicas
+             * que reclaman ocupacion, asi que si algo va a chocar es mejor
+             * que choque cuando todo lo demas ya esta adentro y el reporte
+             * puede decir exactamente cual cita quedo pendiente.
+             */
+            new ImportaCitasFuturas($negocio, $map, $reporte, $simular),
         ];
 
         $pedidos = array_filter((array) $this->option('paso'));

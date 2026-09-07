@@ -186,29 +186,55 @@ class ImportaEquipo extends Importador
     }
 
     /**
-     * Turnos a ventanas por dia de la semana.
+     * Los horarios, RECONCILIADOS contra el sistema viejo.
+     *
+     * No basta con agregar los turnos nuevos. Mientras los dos sistemas
+     * conviven, el negocio sigue administrando sus turnos alla -- y de hecho
+     * lo hizo a mitad de esta migracion: de 18 turnos paso a 5. Un paso que
+     * solo agrega dejaria al motor ofreciendo trece franjas que ya nadie
+     * trabaja, y la agenda nueva se llenaria de citas a horas en que el local
+     * esta cerrado.
+     *
+     * Por eso este paso es el UNICO que quita: para cada persona, las
+     * ventanas que ya no existen alla se CIERRAN aca. Cerrar y no borrar,
+     * porque una cita agendada la semana pasada dentro de esa franja tiene
+     * que seguir explicandose.
+     *
+     * La contrapartida honesta: si alguien ajusta un horario en el sistema
+     * nuevo, la corrida siguiente se lo devuelve. Mientras dure la
+     * convivencia los turnos se editan en el sistema viejo, y punto -- tener
+     * dos fuentes de verdad para el horario es peor que tener una incomoda.
      *
      * Un turno del legacy es una franja + una lista de dias, asi que uno solo
-     * produce hasta siete filas aca. Y una misma persona puede tener dos
+     * produce hasta siete ventanas aca. Y una misma persona puede tener dos
      * turnos el mismo dia (manana y tarde): son dos ventanas, y el motor las
      * soporta.
      */
     private function horarios(): void
     {
+        $deseadas = $this->ventanasDelLegacy();
+        $recursos = $this->recursosConTurnos();
+
+        foreach ($recursos as $recurso) {
+            $this->reconciliar($recurso, $deseadas[$recurso] ?? []);
+        }
+    }
+
+    /**
+     * Las ventanas que el sistema viejo tiene HOY, por recurso.
+     *
+     * @return array<int, list<array{weekday:int, start:string, end:string}>>
+     */
+    private function ventanasDelLegacy(): array
+    {
+        $mapa = [];
+
         $turnos = $this->legacy('work_shifts')->whereNull('deleted_at')->orderBy('id')->get();
 
         foreach ($turnos as $turno) {
             $recurso = $this->map->idNuevo('resource', $turno->user_id);
 
             if ($recurso === null) {
-                $this->reporte->saltado('Horarios');
-
-                continue;
-            }
-
-            if ($this->map->yaExiste('work_shift', $turno->id)) {
-                $this->reporte->saltado('Horarios');
-
                 continue;
             }
 
@@ -220,9 +246,6 @@ class ImportaEquipo extends Importador
                 continue;
             }
 
-            $creadas = 0;
-            $ultimo = 0;
-
             foreach ($dias as $dia) {
                 $iso = self::DIAS[strtolower((string) $dia)] ?? null;
 
@@ -232,33 +255,119 @@ class ImportaEquipo extends Importador
                     continue;
                 }
 
-                $ultimo = $this->crear(fn () => ResourceSchedule::create([
-                    'business_id' => $this->business->id,
-                    'resource_id' => $recurso,
+                $mapa[$recurso][] = [
                     'weekday' => $iso,
-                    'start_time' => substr((string) $turno->start_time, 0, 5),
-                    'end_time' => substr((string) $turno->end_time, 0, 5),
-                    /*
-                     * Desde que se creo el turno alla, no desde hoy. El
-                     * horario ya venia rigiendo; fecharlo hoy dejaria sin
-                     * disponibilidad cualquier consulta sobre el pasado y
-                     * haria que una cita migrada al futuro cercano cayera
-                     * fuera del horario de quien la va a atender.
-                     */
-                    'effective_from' => ($this->utc($turno->created_at)
-                        ?? now())->setTimezone(self::ZONA_LEGACY)->toDateString(),
-                ])->id);
-
-                $creadas++;
-            }
-
-            if ($creadas > 0) {
-                // Se anota el turno del legacy, no cada ventana: lo que no se
-                // puede repetir es el turno completo.
-                $this->anotar('work_shift', (int) $turno->id, $ultimo);
-                $this->reporte->creado('Horarios', $creadas);
+                    'start' => substr((string) $turno->start_time, 0, 5),
+                    'end' => substr((string) $turno->end_time, 0, 5),
+                ];
             }
         }
+
+        return $mapa;
+    }
+
+    /**
+     * Los recursos que alguna vez tuvieron turno alla.
+     *
+     * Solo esos se reconcilian. Un recurso creado a mano en el sistema nuevo,
+     * que el viejo no conoce, no puede quedarse sin horario porque una
+     * migracion decidio que "alla no existe".
+     *
+     * @return list<int>
+     */
+    private function recursosConTurnos(): array
+    {
+        $usuarios = $this->legacy('work_shifts')->distinct()->pluck('user_id');
+
+        $recursos = [];
+
+        foreach ($usuarios as $usuario) {
+            $id = $this->map->idNuevo('resource', $usuario);
+
+            if ($id !== null) {
+                $recursos[$id] = true;
+            }
+        }
+
+        return array_keys($recursos);
+    }
+
+    /**
+     * Deja las ventanas de un recurso iguales a las del sistema viejo.
+     *
+     * @param  list<array{weekday:int, start:string, end:string}>  $deseadas
+     */
+    private function reconciliar(int $recurso, array $deseadas): void
+    {
+        $vigentes = ResourceSchedule::withoutGlobalScope('business')
+            ->where('resource_id', $recurso)
+            ->whereNull('effective_to')
+            ->get();
+
+        $clave = fn (int $dia, string $desde, string $hasta) => "{$dia}|{$desde}|{$hasta}";
+
+        $existentes = [];
+
+        foreach ($vigentes as $v) {
+            $existentes[$clave(
+                (int) $v->weekday,
+                substr((string) $v->start_time, 0, 5),
+                substr((string) $v->end_time, 0, 5),
+            )] = $v;
+        }
+
+        $creadas = 0;
+
+        foreach ($deseadas as $d) {
+            $k = $clave($d['weekday'], $d['start'], $d['end']);
+
+            if (isset($existentes[$k])) {
+                // Ya esta y sigue vigente: se quita de la lista de sobrantes.
+                unset($existentes[$k]);
+
+                continue;
+            }
+
+            $this->crear(fn () => ResourceSchedule::create([
+                'business_id' => $this->business->id,
+                'resource_id' => $recurso,
+                'weekday' => $d['weekday'],
+                'start_time' => $d['start'],
+                'end_time' => $d['end'],
+                /*
+                 * Desde hoy y no desde una fecha vieja: una ventana que se
+                 * agrega hoy no puede reescribir la disponibilidad del mes
+                 * pasado, donde ya hay citas cobradas que se explican con el
+                 * horario que habia entonces.
+                 */
+                'effective_from' => now($this->business->businessTimezone())->toDateString(),
+            ]));
+
+            $creadas++;
+        }
+
+        if ($creadas > 0) {
+            $this->reporte->creado('Horarios', $creadas);
+        }
+
+        // Lo que quedo en `$existentes` ya no esta en el sistema viejo.
+        if ($existentes === []) {
+            $this->reporte->saltado('Horarios', count($deseadas));
+
+            return;
+        }
+
+        if (! $this->simular) {
+            ResourceSchedule::withoutGlobalScope('business')
+                ->whereIn('id', array_map(fn ($v) => $v->id, $existentes))
+                ->update(['effective_to' => now($this->business->businessTimezone())->toDateString()]);
+        }
+
+        $this->reporte->actualizado('Horarios', count($existentes));
+        $this->reporte->aviso(
+            'Horarios',
+            count($existentes).' franjas se cerraron porque ya no existen en el sistema viejo.',
+        );
     }
 
     private function anotar(string $entidad, int $legacyId, int $nuevoId, ?string $huella = null): void
