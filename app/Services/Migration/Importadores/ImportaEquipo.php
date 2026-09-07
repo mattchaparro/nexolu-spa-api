@@ -570,7 +570,7 @@ class ImportaEquipo extends Importador
                  * horario que habia entonces.
                  */
                 'effective_from' => now($this->business->businessTimezone())->toDateString(),
-            ]));
+            ])->id);
 
             $creadas++;
         }

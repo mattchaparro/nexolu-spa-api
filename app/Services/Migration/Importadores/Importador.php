@@ -78,9 +78,17 @@ abstract class Importador
     /**
      * Escribe, salvo que sea un simulacro.
      *
-     * En `--dry-run` devuelve un id negativo distinto cada vez. Negativo para
+     * En `--simular` devuelve un id negativo distinto cada vez. Negativo para
      * que, si algo lo guardara por error, se note al instante en vez de
      * apuntar en silencio a la fila 1 de otra tabla.
+     *
+     * OJO: EN SIMULACRO EL CIERRE NO SE EJECUTA. Eso es lo que hace que el
+     * simulacro no escriba, y tambien lo que hace que no vea nada de lo que
+     * pase adentro: un `create()` al que se le olvide el `->id` pasa el
+     * simulacro limpio y revienta en la corrida de verdad. Ya paso, contra una
+     * base de produccion recien creada.
+     *
+     * El cierre TIENE que devolver el id, no el modelo.
      */
     protected function crear(callable $insertar): int
     {
