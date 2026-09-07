@@ -7,6 +7,7 @@ use App\Models\PayrollSettlement;
 use App\Models\PayrollSettlementItem;
 use App\Support\Payroll\BasePeriod;
 use App\Support\Payroll\PayrollMode;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -91,7 +92,37 @@ class ImportaNomina extends Importador
             return;
         }
 
-        $id = DB::transaction(function () use ($fila, $recurso, $desde, $hasta) {
+        try {
+            $id = $this->crearLiquidacion($fila, $recurso, $desde, $hasta);
+        } catch (UniqueConstraintViolationException) {
+            /*
+             * El sistema viejo tiene DOS pagos que arrancan el mismo dia para
+             * la misma persona -- un segundo pago del mismo periodo, o un
+             * ajuste registrado como pago aparte. Aca eso no cabe: el indice
+             * unico (persona, inicio de periodo) existe para que no haya dos
+             * liquidaciones pisandose.
+             *
+             * Se salta, y no rompe lo que importa: los servicios de esa
+             * ventana ya quedaron marcados como pagados por la primera, que
+             * es lo que impide volver a cobrarlos. Lo que se pierde es el
+             * registro de ese segundo pago, y por eso se avisa.
+             */
+            $this->reporte->aviso(
+                'Nomina',
+                "El pago {$legacyId} arranca el mismo dia que otro de la misma persona: "
+                .'no se pudo traer. Los servicios de ese periodo ya quedaron pagados por el primero.',
+            );
+
+            return;
+        }
+
+        $this->map->anotar('payroll', $legacyId, $id);
+        $this->reporte->creado('Nomina');
+    }
+
+    private function crearLiquidacion(object $fila, int $recurso, string $desde, string $hasta): int
+    {
+        return DB::transaction(function () use ($fila, $recurso, $desde, $hasta) {
             $lineas = $this->lineasDe($recurso, $desde, $hasta);
 
             $liquidacion = PayrollSettlement::create([
@@ -145,9 +176,6 @@ class ImportaNomina extends Importador
 
             return $liquidacion->id;
         });
-
-        $this->map->anotar('payroll', $legacyId, $id);
-        $this->reporte->creado('Nomina');
     }
 
     /**
