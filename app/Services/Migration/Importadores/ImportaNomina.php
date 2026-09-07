@@ -5,6 +5,7 @@ namespace App\Services\Migration\Importadores;
 use App\Models\AppointmentItem;
 use App\Models\PayrollSettlement;
 use App\Models\PayrollSettlementItem;
+use App\Support\Payroll\BasePeriod;
 use App\Support\Payroll\PayrollMode;
 use Illuminate\Support\Facades\DB;
 
@@ -104,7 +105,12 @@ class ImportaNomina extends Importador
                  */
                 'mode' => PayrollMode::COMMISSION,
                 'base_amount' => 0,
-                'base_period' => null,
+                /*
+                 * La columna no admite nulo aunque en modo comision el sueldo
+                 * base no exista: se guarda el periodo por defecto, que con
+                 * base cero no cambia ninguna cuenta.
+                 */
+                'base_period' => BasePeriod::MONTH,
                 'services_count' => $lineas->count(),
                 'charged_total' => round((float) $lineas->sum(fn ($i) => (float) ($i->final_price ?? 0)), 2),
                 'commission_total' => round((float) $fila->total_commission, 2),
