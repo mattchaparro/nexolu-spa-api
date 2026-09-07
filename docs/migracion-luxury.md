@@ -265,6 +265,60 @@ Ninguna la habría encontrado un test:
 - **Calificaciones** (189 filas).
 - **Confirmar las duraciones** servicio por servicio con el negocio.
 
+## La comisión: allá es por categoría, acá por cascada
+
+En el sistema viejo la comisión se resuelve por **(persona, categoría)** —
+`getEmployeeComissionByType()`, tabla `employee_comissions`. Una persona puede
+ir al 50% en manicure y al 60% en pestañas.
+
+Acá la cascada es **acuerdo puntual (persona+servicio) → persona → servicio →
+categoría**, y gana el primero que exista.
+
+**El porcentaje de la persona tapa todo lo de abajo.** Así que poner el 50% en
+la persona y confiar en la categoría dejaría a Nathaly cobrando 50% en
+pestañas cuando su acuerdo dice 60%.
+
+El mapeo que sí funciona:
+
+1. El porcentaje **general** de la persona = el que más se repite entre sus
+   categorías.
+2. Cada categoría que se sale de ese general se escribe como **acuerdo
+   puntual** sobre cada servicio de esa categoría.
+
+Resultado migrado, verificado contra el origen:
+
+| Persona | General | Excepciones |
+|---|---|---|
+| Todas (15) | 50% | — |
+| Nathaly Pereira | 50% | Pestañas 60% (9 servicios), Cejas 60% (4) |
+| Laura Bello | 50% | Pestañas 60% (9) |
+
+Comprobado resolviendo la cascada: Nathaly da 60% en «Griego 3D» (acuerdo) y
+50% en «Semipermanente» (persona).
+
+**Ojo con `users.commission_percentage`.** Ese campo existe en el sistema
+viejo pero **no es el que se usa al cobrar**. El de Nathaly dice 60; sus
+acuerdos reales son 50 con dos excepciones. Usarlo le habría pagado 60% en
+todo.
+
+### Dos acuerdos que no se pudieron trasladar
+
+- **Diana Yate, Peinados 60%** — esa categoría no tiene servicios activos.
+- **Laura Bello, Combos 60%** — los combos acá son paquetes, no servicios: la
+  comisión sale de sus partes, que pertenecen a otras categorías.
+
+No se inventó una equivalencia. Quedan reportados en cada corrida.
+
+### El vínculo servicio↔empleada estaba vacío, y eso rompía todo
+
+`AvailabilityService` busca quién puede prestar un servicio a través del
+pivote `service_resource`. Estaba en cero: **la página pública no habría
+ofrecido un solo horario para ningún servicio.**
+
+El sistema viejo no tiene ese vínculo (allá cualquiera presta cualquier cosa),
+así que se crean los 615 (41 servicios × 15 personas) y el negocio recorta
+después. Comprobado: de 0 huecos a 63 un martes.
+
 ## La migración, completa (2026-09-07)
 
 Catorce pasos. Corrida real contra la base de producción, en solo lectura:

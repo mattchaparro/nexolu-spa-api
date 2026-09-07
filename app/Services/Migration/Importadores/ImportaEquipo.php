@@ -4,7 +4,10 @@ namespace App\Services\Migration\Importadores;
 
 use App\Models\Resource;
 use App\Models\ResourceSchedule;
+use App\Models\Service;
+use App\Models\ServiceCategory;
 use App\Services\Migration\LegacyMap;
+use Illuminate\Support\Facades\DB;
 
 /**
  * El equipo y sus horarios.
@@ -14,11 +17,15 @@ use App\Services\Migration\LegacyMap;
  * permisos los reparte el negocio a mano, y un usuario que nadie pidio es un
  * acceso que nadie recuerda haber dado.
  *
- * QUE SE ACTUALIZA en corridas siguientes: solo `is_active`. Alguien que se
- * retira del local tiene que dejar de aparecer en la agenda nueva tambien.
- * El porcentaje de comision NO se re-sincroniza: es lo primero que el negocio
- * va a ajustar aca, y pisarlo cada noche seria devolverle el cambio sin
- * avisar.
+ * QUE SE ACTUALIZA en corridas siguientes: `is_active` y el PORCENTAJE DE
+ * COMISION. Alguien que se retira del local tiene que dejar de aparecer en la
+ * agenda nueva tambien, y mientras los dos sistemas convivan la nomina se
+ * sigue pagando alla -- que es donde el negocio ajusta los acuerdos.
+ *
+ * Es la misma regla que los precios y los horarios: durante la convivencia el
+ * sistema viejo manda. Tener dos fuentes de verdad para lo que gana alguien es
+ * peor que tener una incomoda, y descubrirlo el dia de pago es lo peor de
+ * todo.
  */
 class ImportaEquipo extends Importador
 {
@@ -58,6 +65,7 @@ class ImportaEquipo extends Importador
         $this->personas();
         $this->fusionarDuplicados();
         $this->horarios();
+        $this->quienHaceQue();
     }
 
     /**
@@ -117,7 +125,8 @@ class ImportaEquipo extends Importador
             }
 
             $activo = ((bool) $fila->is_active) && $fila->deleted_at === null;
-            $huella = LegacyMap::huella([$activo]);
+            $porcentaje = $this->porcentajeGeneral($legacyId, (float) $fila->commission_percentage);
+            $huella = LegacyMap::huella([$activo, $porcentaje]);
 
             $idNuevo = $this->map->idNuevo('resource', $legacyId);
 
@@ -126,7 +135,7 @@ class ImportaEquipo extends Importador
                     if (! $this->simular) {
                         Resource::withoutGlobalScope('business')
                             ->where('id', $idNuevo)
-                            ->update(['is_active' => $activo]);
+                            ->update(['is_active' => $activo, 'commission_rate' => $porcentaje]);
                     }
 
                     $this->anotar('resource', $legacyId, $idNuevo, $huella);
@@ -148,11 +157,214 @@ class ImportaEquipo extends Importador
                 'is_public' => $activo,
                 'is_bookable_online' => $activo,
                 'payroll_mode' => 'commission',
-                'commission_rate' => round(((float) $fila->commission_percentage) / 100, 4),
+                'commission_rate' => $porcentaje,
             ])->id);
 
             $this->anotar('resource', $legacyId, $id, $huella);
             $this->reporte->creado('Equipo');
+        }
+    }
+
+    /**
+     * El porcentaje general de una persona.
+     *
+     * NO sale de `users.commission_percentage`: ese campo existe en el sistema
+     * viejo pero NO es el que se usa al cobrar. Alla la comision es por
+     * (persona, categoria) -- `getEmployeeComissionByType()` -- y una persona
+     * puede ir al 50% en manicure y al 60% en pestanas.
+     *
+     * Aca la cascada es acuerdo puntual > persona > servicio > categoria, asi
+     * que el porcentaje de la persona TAPA todo lo de abajo. Por eso se toma
+     * el que mas se repite entre sus categorias como su porcentaje general, y
+     * las categorias que se salen de ahi se escriben como acuerdo puntual en
+     * `quienHaceQue()`.
+     *
+     * Poner el 50% aqui y confiar en la categoria no funcionaria: la persona
+     * gana sobre la categoria, y Nathaly terminaria cobrando 50% en pestanas
+     * cuando su acuerdo dice 60%.
+     */
+    private function porcentajeGeneral(int $legacyId, float $respaldo): float
+    {
+        $porcentajes = $this->legacy('employee_comissions')
+            ->where('employee_id', $legacyId)
+            ->whereNull('deleted_at')
+            ->pluck('percentage');
+
+        if ($porcentajes->isEmpty()) {
+            return round($respaldo / 100, 4);
+        }
+
+        $conteo = $porcentajes->map(fn ($p) => (float) $p)->countBy()->sortDesc();
+
+        return round(((float) $conteo->keys()->first()) / 100, 4);
+    }
+
+    /**
+     * Quien puede prestar que servicio, y a que porcentaje.
+     *
+     * DOS COSAS, y la primera no es opcional: SIN FILAS EN `service_resource`
+     * NADIE PUEDE AGENDAR. `AvailabilityService` busca los recursos capaces a
+     * traves de ese pivote, asi que un pivote vacio devuelve cero
+     * disponibilidad para todos los servicios y la pagina publica no ofrece un
+     * solo horario.
+     *
+     * El sistema viejo no tiene ese vinculo -- alla cualquiera presta
+     * cualquier cosa -- asi que se crean TODOS y el negocio recorta despues.
+     * "Lucia no hace acrilicas" es configuracion fina que solo el negocio
+     * sabe, y adivinarla dejaria clientas sin poder reservar.
+     *
+     * Y sobre esas mismas filas se escribe el acuerdo puntual cuando la
+     * categoria paga distinto al porcentaje general de la persona.
+     */
+    private function quienHaceQue(): void
+    {
+        $servicios = Service::withoutGlobalScope('business')
+            ->where('business_id', $this->business->id)
+            ->get(['id', 'service_category_id']);
+
+        if ($servicios->isEmpty()) {
+            return;
+        }
+
+        $recursos = Resource::withoutGlobalScope('business')
+            ->where('business_id', $this->business->id)
+            ->where('type', Resource::TYPE_STAFF)
+            ->get(['id', 'commission_rate']);
+
+        $acuerdos = $this->acuerdosPorCategoria();
+
+        $existentes = DB::table('service_resource')
+            ->whereIn('resource_id', $recursos->pluck('id'))
+            ->get()
+            ->keyBy(fn ($f) => $f->service_id.'-'.$f->resource_id);
+
+        $nuevas = [];
+        $cambiadas = 0;
+
+        foreach ($recursos as $recurso) {
+            $general = $recurso->commission_rate === null ? null : (float) $recurso->commission_rate;
+
+            foreach ($servicios as $servicio) {
+                $categoria = (int) $servicio->service_category_id;
+                $delAcuerdo = $acuerdos[$recurso->id][$categoria] ?? null;
+
+                /*
+                 * Solo se escribe cuando se SALE del general. Una fila que
+                 * repite el porcentaje de la persona no aporta nada y llenaria
+                 * la pantalla de nomina de excepciones que no lo son.
+                 */
+                $override = ($delAcuerdo !== null && $general !== null
+                    && abs($delAcuerdo - $general) > 0.0001) ? $delAcuerdo : null;
+
+                $clave = $servicio->id.'-'.$recurso->id;
+
+                if (isset($existentes[$clave])) {
+                    $actual = $existentes[$clave]->commission_rate_override;
+                    $actual = $actual === null ? null : (float) $actual;
+
+                    if ($actual !== $override && ! $this->simular) {
+                        DB::table('service_resource')
+                            ->where('service_id', $servicio->id)
+                            ->where('resource_id', $recurso->id)
+                            ->update(['commission_rate_override' => $override]);
+
+                        $cambiadas++;
+                    }
+
+                    continue;
+                }
+
+                $nuevas[] = [
+                    'service_id' => $servicio->id,
+                    'resource_id' => $recurso->id,
+                    'commission_rate_override' => $override,
+                ];
+            }
+        }
+
+        if ($nuevas !== [] && ! $this->simular) {
+            foreach (array_chunk($nuevas, 500) as $lote) {
+                DB::table('service_resource')->insertOrIgnore($lote);
+            }
+        }
+
+        $nuevas === []
+            ? $this->reporte->saltado('Quien hace que', $existentes->count())
+            : $this->reporte->creado('Quien hace que', count($nuevas));
+
+        if ($cambiadas > 0) {
+            $this->reporte->actualizado('Quien hace que', $cambiadas);
+        }
+
+        $this->avisarLoQueNoCabe($acuerdos, $recursos, $servicios);
+    }
+
+    /**
+     * Los porcentajes por (recurso, categoria) que trae el sistema viejo.
+     *
+     * @return array<int, array<int, float>>
+     */
+    private function acuerdosPorCategoria(): array
+    {
+        $mapa = [];
+
+        foreach ($this->legacy('employee_comissions')->whereNull('deleted_at')->get() as $fila) {
+            $recurso = $this->map->idNuevo('resource', $fila->employee_id);
+            $categoria = $this->map->idNuevo('service_category', $fila->service_type_id);
+
+            if ($recurso === null || $categoria === null) {
+                continue;
+            }
+
+            $mapa[$recurso][$categoria] = round(((float) $fila->percentage) / 100, 4);
+        }
+
+        return $mapa;
+    }
+
+    /**
+     * Acuerdos del sistema viejo que aca no tienen donde aterrizar.
+     *
+     * Pasa con las categorias SIN SERVICIOS -- el acuerdo existe pero no hay a
+     * que aplicarlo -- y con los combos, que aca son paquetes de servicios y
+     * no servicios: la comision de un combo sale ahora de sus partes, que
+     * pertenecen a otras categorias.
+     *
+     * No se inventa una equivalencia. Se dice, y el negocio decide.
+     *
+     * @param  array<int, array<int, float>>  $acuerdos
+     */
+    private function avisarLoQueNoCabe(array $acuerdos, $recursos, $servicios): void
+    {
+        $conServicios = $servicios->pluck('service_category_id')->unique()->all();
+        $personas = Resource::withoutGlobalScope('business')
+            ->whereIn('id', $recursos->pluck('id'))->pluck('name', 'id');
+        $categorias = ServiceCategory::withoutGlobalScope('business')
+            ->where('business_id', $this->business->id)->pluck('name', 'id');
+
+        foreach ($acuerdos as $recursoId => $porCategoria) {
+            $general = $recursos->firstWhere('id', $recursoId)?->commission_rate;
+
+            foreach ($porCategoria as $categoriaId => $tasa) {
+                if (in_array($categoriaId, $conServicios, true)) {
+                    continue;
+                }
+
+                // Un acuerdo igual al general no se pierde: es el general.
+                if ($general !== null && abs($tasa - (float) $general) <= 0.0001) {
+                    continue;
+                }
+
+                $pct = round($tasa * 100);
+                $quien = $personas[$recursoId] ?? "recurso {$recursoId}";
+                $que = $categorias[$categoriaId] ?? "categoria {$categoriaId}";
+
+                $this->reporte->aviso(
+                    'Equipo',
+                    "{$quien} tiene un acuerdo del {$pct}% en «{$que}», pero esa categoria no tiene "
+                    .'servicios activos. No se pudo trasladar: revisar si sigue vigente.',
+                );
+            }
         }
     }
 
