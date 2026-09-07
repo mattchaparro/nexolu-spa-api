@@ -240,6 +240,17 @@ class Auditoria
             'Son promesas ya hechas a clientas reales. Si faltan, alguien se queda sin su descuento.',
         );
 
+        /*
+         * El contador de sellos del sistema viejo NO se copia: se deriva de
+         * las visitas. Aca se mide cuanto se apartan, porque una clienta que
+         * veia 22 sellos alla va a ver 21 aca y alguien tiene que saberlo
+         * antes que ella.
+         *
+         * No es una falla: el contador de alla se desincroniza -- por eso su
+         * propio sistema tiene un comando para recalcularlo. Es un aviso.
+         */
+        $this->contadorDeSellos();
+
         // El pivote: sin el, nadie puede agendar.
         $sinServicios = Resource::withoutGlobalScope('business')
             ->where('business_id', $this->business->id)
@@ -257,6 +268,60 @@ class Auditoria
         $this->comisiones();
         $this->horarios();
         $this->disponibilidad();
+    }
+
+    /**
+     * Cuantas clientas veran un numero de sellos distinto al del sistema viejo.
+     *
+     * El contador de alla es un entero suelto que se desincroniza de las
+     * visitas -- su propio sistema tiene `gamification:recalculate` para
+     * arreglarlo. Aca el saldo se CUENTA, asi que es correcto por
+     * construccion, pero puede no coincidir con lo que la clienta vio.
+     *
+     * Ningun premio se pierde por esto: los que el sistema viejo prometio se
+     * honran aunque las visitas no alcancen el hito. Lo unico que cambia es el
+     * numero en la tarjeta.
+     */
+    private function contadorDeSellos(): void
+    {
+        $distintas = 0;
+        $peor = 0;
+
+        $tarjetas = DB::connection('legacy')->table('loyalty_cards')
+            ->whereNotNull('client_id')
+            ->get(['client_id', 'stamps']);
+
+        foreach ($tarjetas as $tarjeta) {
+            $clienteId = $this->idNuevo('client', $tarjeta->client_id);
+
+            if ($clienteId === null) {
+                continue;
+            }
+
+            $aca = DB::table('loyalty_stamps')
+                ->where('business_id', $this->business->id)
+                ->where('client_id', $clienteId)
+                ->count();
+
+            $diferencia = abs((int) $tarjeta->stamps - $aca);
+
+            if ($diferencia > 0) {
+                $distintas++;
+                $peor = max($peor, $diferencia);
+            }
+        }
+
+        $this->anotar(
+            'Reglas',
+            'Clientas que veran otro numero de sellos',
+            'informativo',
+            (string) $distintas,
+            true,
+            $distintas === 0
+                ? 'Ninguna.'
+                : "Hasta {$peor} de diferencia. El contador del sistema viejo se desincroniza; "
+                    .'aca los sellos se cuentan desde las visitas. Ningun premio se pierde.',
+        );
     }
 
     /**

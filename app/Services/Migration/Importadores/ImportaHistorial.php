@@ -7,6 +7,7 @@ use App\Models\AppointmentItem;
 use App\Models\Client;
 use App\Models\ResourceOccupancy;
 use App\Models\Service;
+use App\Services\Migration\LegacyMap;
 use App\Support\ChannelPhone;
 use App\Support\Money\Reparto;
 use Carbon\CarbonImmutable;
@@ -49,6 +50,15 @@ class ImportaHistorial extends Importador
     /** FINALIZADO en `service_statuses` del legacy. */
     private const FINALIZADO = 2;
 
+    /**
+     * Cuantos dias hacia atras se vuelve a mirar una atencion ya cobrada.
+     *
+     * Treinta: mas que suficiente para cualquier correccion que alguien haga
+     * al darse cuenta, y poco suficiente para que la corrida de cada media
+     * hora siga costando segundos.
+     */
+    private const DIAS_DE_GRACIA = 30;
+
     /** @var array<int, int> id de servicio nuevo => duracion en minutos */
     private array $duraciones = [];
 
@@ -74,6 +84,166 @@ class ImportaHistorial extends Importador
                     $this->una($fila, $telefonos);
                 }
             });
+
+        $this->correcciones();
+        $this->desaparecidas();
+    }
+
+    /**
+     * Cobros que el sistema viejo corrigio DESPUES de haberlos cerrado.
+     *
+     * El historial se trata como inmutable -- una atencion cobrada en marzo no
+     * cambia -- y eso es cierto para el pasado lejano. Pero mientras los dos
+     * sistemas convivan no lo es para lo reciente: alguien se equivoca al
+     * cobrar, lo corrige media hora despues, y sin esto el sistema nuevo se
+     * queda con la cifra mala para siempre.
+     *
+     * En la base real pasa poco -- una vez en sesenta dias -- pero cuando pasa
+     * es plata, y la diferencia aparece en el reporte del mes sin que nadie
+     * sepa de donde salio.
+     *
+     * Solo se miran las TOCADAS RECIENTEMENTE. Revisar las 3.324 en cada
+     * corrida seria pagar todos los dias por un caso que ocurre una vez cada
+     * dos meses.
+     */
+    private function correcciones(): void
+    {
+        $desde = now()->subDays(self::DIAS_DE_GRACIA)->toDateTimeString();
+
+        $filas = $this->legacy('employee_services')
+            ->where('status_id', self::FINALIZADO)
+            ->whereNull('deleted_at')
+            ->where('updated_at', '>=', $desde)
+            ->orderBy('id')
+            ->get();
+
+        foreach ($filas as $fila) {
+            $citaId = $this->map->idNuevo('appointment', $fila->id);
+
+            if ($citaId === null) {
+                continue;
+            }
+
+            $huella = LegacyMap::huella([
+                (float) $fila->price,
+                (float) $fila->final_price,
+                (float) $fila->commission,
+                $fila->payment_method_id,
+            ]);
+
+            if (! $this->map->cambio('appointment', (int) $fila->id, $huella)) {
+                continue;
+            }
+
+            $cita = Appointment::withoutGlobalScope('business')->find($citaId);
+
+            if ($cita === null) {
+                continue;
+            }
+
+            $this->reescribirDinero($cita, $fila);
+
+            $this->map->anotar('appointment', (int) $fila->id, $citaId, $huella);
+            $this->reporte->actualizado('Historial');
+            $this->reporte->aviso(
+                'Historial',
+                "La atencion {$fila->id} se corrigio en el sistema viejo: se actualizo el cobro aca.",
+            );
+        }
+    }
+
+    /**
+     * Cobros que el sistema viejo ya no reconoce.
+     *
+     * Se borran atenciones ya cobradas -- cinco en todo el historico -- y
+     * tambien se les puede quitar el estado de finalizada. Sin esto, esa plata
+     * se queda sumando aca para siempre y el reporte de ventas dice mas de lo
+     * que entro.
+     *
+     * Se CANCELA, no se borra: un hueco sin explicacion es peor que una cita
+     * cancelada con su motivo escrito.
+     */
+    private function desaparecidas(): void
+    {
+        $vivas = $this->legacy('employee_services')
+            ->where('status_id', self::FINALIZADO)
+            ->whereNull('deleted_at')
+            ->pluck('id')
+            ->flip();
+
+        $mias = DB::table('legacy_map as m')
+            ->join('appointments as a', 'a.id', '=', 'm.new_id')
+            ->where('m.business_id', $this->business->id)
+            ->where('m.entity', 'appointment')
+            ->where('a.status', 'completed')
+            ->get(['m.legacy_id', 'a.id as cita_id']);
+
+        foreach ($mias as $fila) {
+            if (isset($vivas[(int) $fila->legacy_id])) {
+                continue;
+            }
+
+            $cita = Appointment::withoutGlobalScope('business')->find($fila->cita_id);
+
+            if ($cita === null) {
+                continue;
+            }
+
+            $cita->update([
+                'status' => 'cancelled',
+                'cancelled_at' => now(),
+                'cancellation_reason' => 'Anulada en el sistema anterior.',
+            ]);
+
+            $this->reporte->actualizado('Historial');
+            $this->reporte->aviso(
+                'Historial',
+                "La atencion {$fila->legacy_id} ya no esta cobrada en el sistema viejo: se anulo aca.",
+            );
+        }
+    }
+
+    /** Deja el dinero de una cita igual al del sistema viejo. */
+    private function reescribirDinero(Appointment $cita, object $fila): void
+    {
+        $lista = (float) $fila->price;
+        $cobrado = (float) $fila->final_price;
+        $descuento = max(0.0, round($lista - $cobrado, 2));
+        $comision = (float) $fila->commission;
+
+        $items = AppointmentItem::withoutGlobalScope('business')
+            ->where('appointment_id', $cita->id)
+            ->orderBy('sort_order')
+            ->get();
+
+        $servicios = $items->pluck('service_id')->map(fn ($id) => (int) $id)->all();
+
+        $repartoLista = $this->repartir($lista, $servicios);
+        $repartoCobrado = $this->repartir($cobrado, $servicios);
+        $repartoComision = $this->repartir($comision, $servicios);
+
+        DB::transaction(function () use (
+            $cita, $fila, $items, $lista, $cobrado, $descuento, $comision,
+            $repartoLista, $repartoCobrado, $repartoComision
+        ) {
+            $cita->update([
+                'payment_method_id' => $this->map->idNuevo('payment_method', $fila->payment_method_id),
+                'subtotal' => $lista,
+                'discount_amount' => $descuento,
+                'discount_reason' => $descuento > 0 ? $this->motivo($fila) : null,
+                'total' => $cobrado,
+                'commission_total' => $comision,
+            ]);
+
+            foreach ($items as $i => $item) {
+                $item->update([
+                    'price' => $repartoLista[$i] ?? $item->price,
+                    'final_price' => $repartoCobrado[$i] ?? $item->final_price,
+                    'commission_rate' => round(((float) $fila->commission_percentage) / 100, 4),
+                    'commission_amount' => $repartoComision[$i] ?? 0,
+                ]);
+            }
+        });
     }
 
     /** @param array<string, int> $telefonos */
@@ -212,7 +382,16 @@ class ImportaHistorial extends Importador
             return $cita->id;
         }));
 
-        $this->anotar('appointment', $legacyId, $id);
+        /*
+         * La huella cubre el DINERO, no la fila entera: es lo unico que puede
+         * cambiar despues de cobrar y que importa. Cubrirlo todo haria que
+         * cualquier toque irrelevante alla -- un `updated_at` movido por una
+         * migracion suya -- disparara una reescritura aca.
+         */
+        $this->anotar('appointment', $legacyId, $id, LegacyMap::huella([
+            $lista, $cobrado, $comision, $fila->payment_method_id,
+        ]));
+
         $this->reporte->creado('Historial');
     }
 

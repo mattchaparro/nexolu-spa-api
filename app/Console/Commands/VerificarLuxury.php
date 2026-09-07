@@ -67,10 +67,22 @@ class VerificarLuxury extends Command
                     $this->line("  <options=bold>{$grupo}</>");
                 }
 
-                $marca = $r['ok'] ? '<fg=green>✓</>' : '<fg=red>✗</>';
-                $this->line("    {$marca} {$r['que']}");
+                $informativo = $r['esperado'] === 'informativo';
+                $marca = $informativo ? '<fg=blue>i</>' : ($r['ok'] ? '<fg=green>✓</>' : '<fg=red>✗</>');
 
-                if (! $r['ok']) {
+                $this->line("    {$marca} {$r['que']}"
+                    .($informativo ? ": <options=bold>{$r['obtenido']}</>" : ''));
+
+                /*
+                 * Un informativo SIEMPRE muestra su nota, aunque este en
+                 * verde: existe justamente para contar algo que no es una
+                 * falla pero que alguien tiene que saber.
+                 */
+                if ($informativo && $r['nota'] !== null) {
+                    $this->line("        <fg=gray>{$r['nota']}</>");
+                }
+
+                if (! $r['ok'] && ! $informativo) {
                     $this->line("        esperado <fg=green>{$r['esperado']}</>, "
                         ."obtenido <fg=red>{$r['obtenido']}</>");
 
