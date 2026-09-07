@@ -186,6 +186,25 @@ class ImportaUsuarios extends Importador
             ->where('email', $base->email)
             ->first();
 
+        /*
+         * Ese correo puede estar tomado por OTRO negocio: el de verdad, si
+         * este es un negocio de practica hecho con los mismos datos. El correo
+         * es unico en toda la plataforma, asi que aca no se puede crear.
+         *
+         * Se avisa y se sigue, en vez de tumbar la importacion: todo lo demas
+         * -- clientas, historial, agenda -- si se puede traer, y las cuentas
+         * de un negocio de practica se crean a mano con otro correo.
+         */
+        if ($existente === null && User::withoutGlobalScope('business')
+            ->where('email', $base->email)->exists()) {
+            $this->reporte->aviso(
+                'Usuarios',
+                "El correo {$base->email} ya es de otro negocio: no se creo cuenta aca.",
+            );
+
+            return;
+        }
+
         $usuario = $existente ?? DB::transaction(function () use ($base, $persona) {
             $u = User::create([
                 'business_id' => $this->business->id,
