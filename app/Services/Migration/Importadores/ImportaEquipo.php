@@ -40,7 +40,7 @@ class ImportaEquipo extends Importador
      *
      * @var array<int, int> ficha duplicada => ficha buena
      */
-    private const MISMA_PERSONA = [
+    public const MISMA_PERSONA = [
         2 => 3,
     ];
 

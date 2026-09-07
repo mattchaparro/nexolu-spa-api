@@ -12,6 +12,7 @@ use App\Services\Migration\Importadores\ImportaFidelizacion;
 use App\Services\Migration\Importadores\ImportaGastos;
 use App\Services\Migration\Importadores\ImportaHistorial;
 use App\Services\Migration\Importadores\ImportaMediosDePago;
+use App\Services\Migration\Importadores\ImportaUsuarios;
 use App\Services\Migration\Importadores\Importador;
 use App\Services\Migration\LecturaSolamente;
 use App\Services\Migration\LegacyMap;
@@ -119,6 +120,9 @@ class ImportarLuxury extends Command
         $todos = [
             new ImportaCatalogo($negocio, $map, $reporte, $simular),
             new ImportaEquipo($negocio, $map, $reporte, $simular),
+            // Despues del equipo: cada cuenta se liga a la ficha de esa
+            // persona, y ese vinculo es el que hace funcionar "Mi dia".
+            new ImportaUsuarios($negocio, $map, $reporte, $simular),
             new ImportaMediosDePago($negocio, $map, $reporte, $simular),
             new ImportaClientas($negocio, $map, $reporte, $simular),
             new ImportaHistorial($negocio, $map, $reporte, $simular),
