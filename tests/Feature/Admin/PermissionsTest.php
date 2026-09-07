@@ -237,6 +237,43 @@ class PermissionsTest extends TestCase
     |--------------------------------------------------------------------------
     */
 
+    public function test_una_manicurista_no_ve_la_bandeja_de_whatsapp(): void
+    {
+        /*
+         * La bandeja muestra el teléfono y el nombre de TODAS las clientas que
+         * han escrito, no solo las que uno atiende. Eso es la base de clientes
+         * del negocio -- exactamente lo que el dueño no le da a una
+         * manicurista: "son mis clientes y podría robarse los datos para
+         * atenderlos fuera de mi local".
+         *
+         * Estuvo abierta con `citas.ver` y se descubrió en producción, con una
+         * manicurista viendo el ítem en su menú.
+         */
+        Sanctum::actingAs($this->manicurista->fresh());
+
+        $this->getJson('/api/v1/whatsapp/inbox')->assertForbidden();
+    }
+
+    public function test_una_manicurista_si_puede_leer_las_sedes(): void
+    {
+        /*
+         * No es un permiso de configuración: la agenda las necesita para
+         * filtrar, y quien atiende entra a la agenda. Con
+         * `negocio.configurar` recibía un 403 cada vez que abría su pantalla,
+         * con un mensaje que no decía de qué.
+         *
+         * Crearlas o cambiarlas sigue cerrado.
+         */
+        Sanctum::actingAs($this->manicurista->fresh());
+
+        $this->getJson('/api/v1/locations')->assertOk();
+
+        $sede = \App\Models\Location::withoutGlobalScope('business')
+            ->where('business_id', $this->business->id)->firstOrFail();
+
+        $this->postJson("/api/v1/locations/{$sede->id}", ['name' => 'Otra'])->assertForbidden();
+    }
+
     public function test_el_admin_ve_al_equipo_y_el_catalogo_marcado(): void
     {
         Sanctum::actingAs($this->admin);

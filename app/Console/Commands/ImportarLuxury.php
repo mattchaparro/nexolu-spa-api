@@ -12,6 +12,7 @@ use App\Services\Migration\Importadores\ImportaFidelizacion;
 use App\Services\Migration\Importadores\ImportaGastos;
 use App\Services\Migration\Importadores\ImportaHistorial;
 use App\Services\Migration\Importadores\ImportaMediosDePago;
+use App\Services\Migration\Importadores\ImportaNomina;
 use App\Services\Migration\Importadores\ImportaUsuarios;
 use App\Services\Migration\Importadores\Importador;
 use App\Services\Migration\LecturaSolamente;
@@ -129,6 +130,11 @@ class ImportarLuxury extends Command
             // Despues del historial: cada sello cuelga de una cita migrada.
             new ImportaFidelizacion($negocio, $map, $reporte, $simular),
             new ImportaCalificaciones($negocio, $map, $reporte, $simular),
+            /*
+             * Despues del historial: cada liquidacion tiene que decir que
+             * servicios pago, y esos servicios son las citas migradas.
+             */
+            new ImportaNomina($negocio, $map, $reporte, $simular),
             new ImportaGastos($negocio, $map, $reporte, $simular),
             /*
              * Las futuras van AL FINAL, y no por comodidad: son las unicas

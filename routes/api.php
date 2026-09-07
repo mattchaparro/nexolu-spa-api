@@ -389,17 +389,16 @@ Route::prefix('v1')->group(function () {
         /*
         | La bandeja de WhatsApp.
         |
-        | Con `citas.ver` y no con un permiso propio, igual que el outbox:
-        | quien atiende el mostrador es quien contesta los WhatsApp, y ya lo
-        | tiene. Un permiso aparte obligaria a repartirlo de nuevo a todo el
-        | equipo el dia que se prenda la bandeja.
+        | Con `clientes.ver`, NO con `citas.ver`.
         |
-        | OJO con el limite del empleado: la conversacion trae el nombre de la
-        | clienta, y eso es dato de cliente. El scope de negocio ya impide ver
-        | los de otro local; dentro del local, quien puede ver la agenda ya ve
-        | esos nombres.
+        | La bandeja muestra el telefono y el nombre de TODAS las clientas que
+        | han escrito, no solo las que uno atiende. Eso es la base de clientes
+        | del negocio, que es justo lo que no se le da a una manicurista. Con
+        | `citas.ver` la veia cualquiera que abriera la agenda.
+        |
+        | Recepcion y administracion si la tienen, que son quienes contestan.
         */
-        Route::prefix('whatsapp/inbox')->middleware('permission:citas.ver')->group(function () {
+        Route::prefix('whatsapp/inbox')->middleware('permission:clientes.ver')->group(function () {
             Route::get('/', [WhatsappInboxController::class, 'index']);
             Route::get('/{conversation}', [WhatsappInboxController::class, 'show']);
             Route::post('/{conversation}/reply', [WhatsappInboxController::class, 'reply']);
@@ -453,15 +452,28 @@ Route::prefix('v1')->group(function () {
             Route::post('/{entry}/stop', [WaitlistAdminController::class, 'stop']);
         });
 
-        Route::prefix('locations')
-            ->middleware('permission:negocio.configurar')
-            ->group(function () {
-                Route::get('/', [LocationController::class, 'index']);
+        Route::prefix('locations')->group(function () {
+                /*
+                 * LEER las sedes solo pide ver la agenda, no configurar el
+                 * negocio.
+                 *
+                 * La agenda las necesita para filtrar, y quien atiende entra a
+                 * la agenda: con `negocio.configurar` una manicurista recibia
+                 * un 403 cada vez que abria su pantalla, con un mensaje que no
+                 * decia de que. Saber que sedes existen no es un dato
+                 * sensible; crearlas o cambiarlas si, y eso sigue cerrado.
+                 */
+                Route::get('/', [LocationController::class, 'index'])
+                    ->middleware('permission:citas.ver');
+
                 Route::post('/', [LocationController::class, 'store'])
-                    ->middleware('feature:multi_location');
-                Route::post('/{location}', [LocationController::class, 'update']);
-                Route::post('/{location}/primary', [LocationController::class, 'makePrimary']);
-                Route::delete('/{location}', [LocationController::class, 'disable']);
+                    ->middleware(['permission:negocio.configurar', 'feature:multi_location']);
+                Route::post('/{location}', [LocationController::class, 'update'])
+                    ->middleware('permission:negocio.configurar');
+                Route::post('/{location}/primary', [LocationController::class, 'makePrimary'])
+                    ->middleware('permission:negocio.configurar');
+                Route::delete('/{location}', [LocationController::class, 'disable'])
+                    ->middleware('permission:negocio.configurar');
             });
 
         Route::prefix('loyalty')->middleware('feature:loyalty')->group(function () {
