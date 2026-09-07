@@ -76,6 +76,51 @@ return [
             ]) : [],
         ],
 
+        /*
+         * La base de la app VIEJA de Luxury (`spa_app` en el droplet), para
+         * la migracion. SOLO LECTURA.
+         *
+         * Ese sistema sigue atendiendo clientas de verdad mientras el equipo
+         * se muda, asi que una escritura accidental desde aca no romperia un
+         * respaldo: romperia el local. El usuario de MySQL debe tener GRANT
+         * SELECT y nada mas, y ademas `LecturaSolamente` (ver
+         * app/Services/Migration) aborta cualquier consulta que no sea SELECT
+         * sobre esta conexion. Dos cerrojos porque uno se olvida.
+         *
+         * ZONA HORARIA -- el detalle que ya nos costo tres bugs:
+         *
+         * El legacy tiene `America/Bogota` hardcodeado en su config/app.php y
+         * escribe con la sesion de MySQL en SYSTEM (UTC en ese droplet). Con
+         * esa combinacion, TODAS sus fechas -- `datetime` y `timestamp` por
+         * igual -- quedaron guardadas como hora de pared de Bogota, sin
+         * conversion neta.
+         *
+         * Por eso aqui se fija `+00:00`: para que MySQL tampoco convierta
+         * nada al leer y devuelva exactamente el string guardado. La
+         * conversion a UTC la hace el importador, explicita, interpretando
+         * cada valor como America/Bogota. Poner '-05:00' aqui haria que las
+         * columnas `timestamp` se corrieran cinco horas al leerlas, y el
+         * historial entero de 3.329 atenciones nacería desfasado.
+         */
+        'legacy' => [
+            'driver' => 'mysql',
+            'host' => env('LEGACY_DB_HOST', '127.0.0.1'),
+            'port' => env('LEGACY_DB_PORT', '3306'),
+            'database' => env('LEGACY_DB_DATABASE', 'spa_app'),
+            'username' => env('LEGACY_DB_USERNAME'),
+            'password' => env('LEGACY_DB_PASSWORD'),
+            'charset' => 'utf8mb4',
+            'collation' => 'utf8mb4_unicode_ci',
+            'prefix' => '',
+            'prefix_indexes' => true,
+            'strict' => false,
+            'engine' => null,
+            'timezone' => '+00:00',
+            'options' => extension_loaded('pdo_mysql') ? array_filter([
+                Mysql::ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
+            ]) : [],
+        ],
+
         'mariadb' => [
             'driver' => 'mariadb',
             'url' => env('DB_URL'),
