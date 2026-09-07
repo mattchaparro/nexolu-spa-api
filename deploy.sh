@@ -42,6 +42,7 @@ cd "$(dirname "$0")"
 
 IMAGE="nexolu-spa-api:latest"
 CONTAINER="nexolu-spa-api"
+WORKER="nexolu-spa-worker"
 MODO="${1:-completo}"
 
 # Levantar el contenedor vive en una sola funcion porque hay DOS caminos que
@@ -58,6 +59,40 @@ levantar() {
         -v "$(pwd)/storage:/var/www/html/storage" \
         --env-file .env \
         "$IMAGE"
+
+    levantar_worker
+}
+
+# El worker vive en SU PROPIO contenedor, con la misma imagen y otro comando.
+#
+# Se recrea junto al web en cada deploy, a proposito: un worker que sigue
+# corriendo la imagen anterior procesa jobs con el codigo viejo, y el sintoma
+# es de los peores -- la web se comporta como la version nueva y los
+# recordatorios como la vieja, sin nada en los logs que lo explique.
+#
+# El tope de medio core NO es tacanieria. Este droplet tiene UNO solo, y lo
+# comparte con el MySQL y el php-fpm que sirven pos.nexolu.co en produccion.
+# Una rafaga de difusiones no puede quedarse con la maquina: bajo el tope el
+# worker tarda mas, y eso no lo ve nadie; sin el, el monolito atiende mas
+# lento, y eso si lo ve un cliente.
+#
+# `--max-time=3600` lo recicla cada hora: Laravel arranca el framework una
+# vez y lo mantiene vivo, asi que cualquier fuga de memoria se acumula. Morir
+# y volver es mas barato que perseguirla.
+levantar_worker() {
+    docker stop "$WORKER" 2>/dev/null || true
+    docker rm "$WORKER" 2>/dev/null || true
+    docker run -d \
+        --name "$WORKER" \
+        --restart unless-stopped \
+        --network host \
+        -v "$(pwd)/storage:/var/www/html/storage" \
+        --env-file .env \
+        --cpus=0.5 \
+        --memory=256m \
+        --user www-data \
+        "$IMAGE" \
+        php artisan queue:work --queue=default --sleep=3 --tries=3 --max-time=3600
 }
 
 if [ "$MODO" = "recrear" ]; then
@@ -92,6 +127,9 @@ docker exec -u www-data "$CONTAINER" php artisan migrate --force
 
 echo "[deploy] 5/5 Sincronizando permisos (idempotente, no borra nada)"
 docker exec -u www-data "$CONTAINER" php artisan permissions:sync
+
+echo "[deploy] 6/6 Contenedores"
+docker ps --filter "name=nexolu-spa" --format "   {{.Names}}: {{.Status}}"
 
 echo "[deploy] Listo. Verificar:"
 echo "         curl -s https://agenda-backend.nexolu.co/up"
