@@ -180,7 +180,122 @@ falta. **Penalizaciones**: 0 filas, nada que migrar.
    wa.link / número según el plan de WhatsApp.
 4. Legacy queda en solo-lectura como archivo. No se apaga el mismo día.
 
-## Decisiones abiertas para Alejandro
+## Decisiones tomadas (2026-09-07)
+
+### 1. Fidelización: se conserva la escalera, y se cierra una fuga
+
+El dueño confirma el comportamiento: la manicurista, al cobrar, ve que la
+clienta tiene premio y aplica el descuento. En el legacy eso funciona así
+(verificado en `GamifiesClients.php` y `Employee/Service/Index.vue`):
+
+- **Un sello por servicio finalizado**, sin mínimo de precio.
+- **Escalera acumulativa**: los sellos NUNCA se reinician. Desbloqueo por
+  igualdad exacta (`stamps == required_stamps`).
+- **Un solo premio vivo**: al desbloquear el de 10, el de 5 sin redimir pasa
+  a `expired`. Los premios no se acumulan.
+- **La comisión se paga sobre precio de lista**: la manicurista no pierde
+  nada por el descuento, y el local registra la diferencia como gasto
+  "Retención cliente".
+
+**Lo que el sistema nuevo ya tiene**: sellos, desbloqueo, el premio ofrecido
+en el modal de cobro, marcado como usado, y la política de comisión sobre
+lista (que ya venía como default para premios — coincide con el legacy).
+
+**Lo que hay que agregar**: modo ESCALERA. El modelo nuevo es una tarjeta
+repetible (junta N, consume N, vuelve a empezar); Luxury necesita hitos
+acumulativos con premio distinto en cada uno.
+
+#### La fuga que hay que cerrar
+
+En el legacy **nadie marca el premio como usado**. Verificado en la base
+real: 74 premios `available`, 60 `expired`, **0 `used`**, y **ninguna**
+atención tiene `loyalty_card_reward_id` (siempre NULL).
+
+Consecuencia: un premio desbloqueado en el sello 5 **se puede aplicar otra
+vez** en los servicios 6, 7, 8 y 9. Solo muere al llegar al sello 10, cuando
+el premio nuevo expira al viejo. En los datos hay 49 descuentos aplicados
+(43 del 10%, 6 del 15%) sin ningún vínculo a un premio.
+
+El sistema nuevo cierra el ciclo: al aplicarlo lo marca usado y lo enlaza a
+la cita. **Es una mejora, no una regresión** — pero cambia lo que hoy pasa,
+así que se dice antes y no después.
+
+### 2. Contabilidad: sí, y sale casi gratis
+
+El dueño quiere conservar al menos las ventas mensuales de este año.
+
+**No hace falta migrar contabilidad**: al traer las 3.329 atenciones
+terminadas con su `final_price` y su fecha de cobro, el reporte de Ventas
+del sistema nuevo reconstruye los meses solo — y no solo 2026, sino todo el
+histórico desde julio de 2024.
+
+Lo que sí se migra aparte: **gastos** (476 filas, 160 de 2026 por 25.2M),
+porque sin ellos la utilidad queda mal. NO se migran cierres de caja ni
+nóminas: son registros operativos con las reglas de cálculo del otro
+sistema, y el nuevo los computa desde sus propios datos.
+
+Referencia de lo que debe cuadrar tras migrar (servicios finalizados):
+
+| Mes 2026 | Servicios | Ingresos |
+|---|---|---|
+| Enero | 108 | 4.963.250 |
+| Febrero | 140 | 5.964.800 |
+| Marzo | 104 | 4.573.500 |
+| Abril | 83 | 4.040.000 |
+| Mayo | 64 | 2.972.000 |
+| Junio | 97 | 4.844.000 |
+| Julio | 73 | 2.950.500 |
+| Agosto | 78 | 3.015.000 |
+
+### 3. Combos: como paquetes, sin duplicar servicios
+
+Los 4 combos son **exactamente la suma de servicios que ya existen**, sin
+descuento:
+
+| Combo | Precio | Partes |
+|---|---|---|
+| Tradi Manos + Pies | 50.000 | Tradicional (20k) + Pedi Jellyspa (30k) |
+| Manos Semi + Pies Tradi | 75.000 | Semipermanente (45k) + Pedi Jellyspa (30k) |
+| Semi Manos + Pies | 85.000 | Semipermanente (45k) + Pedi Jelly Semi (40k) |
+| Semi Rubber + Semi Pies | 95.000 | Semi+Rubber (55k) + Pedi Jelly Semi (40k) |
+
+Van como `ServicePackage` de las partes existentes. No se duplican.
+
+**Ojo con la duración**: tres de los cuatro bloquean 180 min en legacy pero
+sus partes suman 120. El paquete calcula la duración sumando partes, así que
+sub-reservaría una hora. Se resuelve con el punto siguiente.
+
+### 4. Las duraciones configuradas están cortas, y eso sí importa
+
+Comparando la duración configurada contra la real (`started_at` →
+`finished_at`) de los servicios con 5+ registros:
+
+| Servicio | Configurada | Real (promedio) |
+|---|---|---|
+| Semipermanente | 60 | **115** |
+| Semi + Rubber | 60 | 93 |
+| Pedi - Jellyspa | 60 | 93 |
+| Pedi + Jelly Spa + Semi | 60 | 85 |
+| Tradicional | 60 | 77 |
+| Tradi Manos + Pies | 120 | 170 |
+
+En el legacy esto no dolía: la rejilla de slots era de 120 minutos fijos y
+absorbía el error. **El motor nuevo respeta la duración al minuto**, así que
+migrarlas tal cual haría que la agenda se atrase en cadena todo el día.
+
+Salvedad honesta: `started_at`/`finished_at` dependen de cuándo la
+manicurista abre y cierra el registro, así que el promedio puede estar
+inflado. Pero el patrón es consistente en todos los servicios.
+
+Recomendación: usar la migración para corregirlas, con estos datos a la
+vista, y que el negocio confirme servicio por servicio.
+
+### 5. Alejandra Castillo
+
+Confirmado: es la misma persona. Se fusionan las dos fichas y sus
+atenciones se re-apuntan a una sola.
+
+## Decisiones que quedaron cerradas
 
 1. **Fidelización**: ¿un solo nivel al arrancar, o extendemos a escalera
    antes de migrar? (Los premios disponibles se honran en ambos casos.)
