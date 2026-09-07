@@ -4,6 +4,7 @@ namespace App\Services\Migration\Importadores;
 
 use App\Models\Appointment;
 use App\Models\Client;
+use App\Models\Resource;
 use App\Models\Service;
 use App\Models\ServicePackage;
 use App\Services\Scheduling\BookingService;
@@ -77,7 +78,98 @@ class ImportaCitasFuturas extends Importador
             $this->una($booking, $fila);
         }
 
-        $this->cancelarLasQueYaNoEstan($filas->pluck('id')->all());
+        /*
+         * Para decidir que cancelar se miran TODAS las agendadas del sistema
+         * viejo, sin filtro de fecha.
+         *
+         * La lista de arriba solo trae las de hoy en adelante, que es lo que
+         * hay que crear. Pero si se usara esa misma lista para cancelar, una
+         * cita de ayer que alla sigue agendada -- porque nadie la cerro --
+         * se cancelaria aca sin que nadie la haya cancelado.
+         */
+        $this->cancelarLasQueYaNoEstan(
+            $this->legacy('employee_services')
+                ->where('status_id', self::AGENDADO)
+                ->whereNull('deleted_at')
+                ->pluck('id')
+                ->all(),
+        );
+    }
+
+    /**
+     * Si la cita se movio de hora o de persona en el sistema viejo, se mueve aca.
+     *
+     * Sin esto, reagendar alla no llegaba: la fila sigue siendo la misma y el
+     * paso la daba por hecha. La clienta quedaba en la agenda nueva a la hora
+     * vieja, y quien la mirara preparia el puesto a la hora equivocada.
+     *
+     * Se mueve por `BookingService::reschedule()` y no con un UPDATE: mover
+     * una cita libera su ocupacion y reclama la nueva, y saltarse eso seria
+     * dejar el horario viejo bloqueado y el nuevo libre para que otra clienta
+     * lo tome encima.
+     */
+    private function moverSiCambio(int $citaId, object $fila): void
+    {
+        $cita = Appointment::withoutGlobalScope('business')->find($citaId);
+
+        // Solo las que siguen pendientes: una ya cobrada no se mueve.
+        if ($cita === null || $cita->status !== Appointment::STATUS_PENDING) {
+            $this->reporte->saltado('Citas futuras');
+
+            return;
+        }
+
+        $inicio = $this->utcDe($fila->date, (string) $fila->start_time);
+        $recurso = $this->map->idNuevo('resource', $fila->employee_id);
+
+        if ($inicio === null || $recurso === null) {
+            $this->reporte->saltado('Citas futuras');
+
+            return;
+        }
+
+        $mismaHora = $cita->starts_at !== null
+            && $cita->starts_at->equalTo($inicio);
+
+        $mismaPersona = (int) ($cita->items()->value('resource_id') ?? 0) === $recurso;
+
+        if ($mismaHora && $mismaPersona) {
+            $this->reporte->saltado('Citas futuras');
+
+            return;
+        }
+
+        if ($this->simular) {
+            $this->reporte->actualizado('Citas futuras');
+
+            return;
+        }
+
+        try {
+            app(BookingService::class)->reschedule(
+                $cita,
+                $inicio->setTimezone(self::ZONA_LEGACY),
+                $mismaPersona ? null : Resource::withoutGlobalScope('business')->find($recurso),
+            );
+        } catch (SlotUnavailableException) {
+            $this->reporte->aviso(
+                'Citas futuras',
+                "La cita {$fila->id} se movio en el sistema viejo a un horario que aca ya esta "
+                .'ocupado. Hay que resolverla a mano.',
+            );
+
+            return;
+        } catch (Throwable $e) {
+            $this->reporte->aviso('Citas futuras', "La cita {$fila->id} no se pudo mover: {$e->getMessage()}");
+
+            return;
+        }
+
+        $this->reporte->actualizado('Citas futuras');
+        $this->reporte->aviso(
+            'Citas futuras',
+            "La cita {$fila->id} se movio en el sistema viejo: se movio aca tambien.",
+        );
     }
 
     /**
@@ -181,8 +273,10 @@ class ImportaCitasFuturas extends Importador
          * misma atencion. Con llaves distintas se duplicaba, y sincronizando
          * cada cinco minutos eso pasa el mismo dia.
          */
-        if ($this->map->yaExiste('appointment', $legacyId)) {
-            $this->reporte->saltado('Citas futuras');
+        $yaCreada = $this->map->idNuevo('appointment', $legacyId);
+
+        if ($yaCreada !== null) {
+            $this->moverSiCambio($yaCreada, $fila);
 
             return;
         }
