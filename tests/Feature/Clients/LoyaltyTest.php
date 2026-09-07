@@ -415,14 +415,13 @@ class LoyaltyTest extends TestCase
     | por su tarjeta, ¿quien la atendió trabaja gratis?
     */
 
-    public function test_por_defecto_el_premio_si_le_baja_la_comision(): void
+    public function test_por_defecto_el_premio_lo_asume_el_negocio(): void
     {
         /*
-         * Decisión del negocio: el premio es una atención al cliente por su
-         * fidelidad, y de esa fidelidad vive también quien lo atiende -- una
-         * clienta que vuelve es trabajo suyo. Distinto de una campaña de
-         * temporada, que el negocio decide para traer gente nueva y por eso
-         * absorbe él.
+         * El premio lo prometió el local para que la clienta volviera; el
+         * trabajo de quien atendió fue exactamente el mismo. Es lo que hace
+         * hoy el spa de Luxury -- comisión sobre el precio de catálogo -- y
+         * migrarlo al revés le recortaría la nómina al equipo el primer día.
          */
         $this->crearPrograma(['stamps_required' => 2, 'reward_value' => 100]);
         $this->visita('10:00');
@@ -443,17 +442,17 @@ class LoyaltyTest extends TestCase
             'loyalty_reward_id' => $premio->id,
         ])->assertOk();
 
-        // La clienta no paga nada, y la comisión sigue a lo cobrado.
+        // La clienta no paga nada, y quien atendió cobra su comisión completa.
         $this->assertEqualsWithDelta(0, $cobrada->json('total'), 0.01);
-        $this->assertEqualsWithDelta(0, $cobrada->json('commission_total'), 0.01);
+        $this->assertEqualsWithDelta(15000, $cobrada->json('commission_total'), 0.01);
     }
 
-    public function test_el_negocio_puede_decidir_asumir_el_premio_el_mismo(): void
+    public function test_el_negocio_puede_decidir_que_el_premio_baje_la_comision(): void
     {
-        // El local que prefiera que su equipo cobre igual lo cambia desde
-        // "Pagos al equipo", sin tocar código.
+        // El local que prefiera repartir el costo del premio con su equipo lo
+        // cambia desde "Pagos al equipo", sin tocar código.
         $this->business->update(['commission_settings' => [
-            'commission_base_loyalty' => CommissionPolicy::BASE_LIST,
+            'commission_base_loyalty' => CommissionPolicy::BASE_CHARGED,
         ]]);
         Sanctum::actingAs($this->admin->fresh());
 
@@ -476,7 +475,7 @@ class LoyaltyTest extends TestCase
             'loyalty_reward_id' => $premio->id,
         ])->assertOk();
 
-        $this->assertEqualsWithDelta(15000, $cobrada->json('commission_total'), 0.01);
+        $this->assertEqualsWithDelta(0, $cobrada->json('commission_total'), 0.01);
     }
 
     public function test_un_descuento_a_mano_si_baja_la_comision(): void

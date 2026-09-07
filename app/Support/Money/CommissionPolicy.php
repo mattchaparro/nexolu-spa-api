@@ -78,8 +78,9 @@ final class CommissionPolicy
             ],
             self::SOURCE_LOYALTY => [
                 'label' => 'Premio de la tarjeta de sellos',
-                'help' => 'Una atención al cliente por su fidelidad. De esa fidelidad vive '
-                    .'también quien lo atiende: un cliente que vuelve es trabajo suyo.',
+                'help' => 'Una promesa que hizo el negocio para que el cliente vuelva. '
+                    .'El trabajo de quien atendió fue el mismo, así que normalmente '
+                    .'lo asume el negocio.',
             ],
             self::SOURCE_CAMPAIGN => [
                 'label' => 'Campaña de temporada',

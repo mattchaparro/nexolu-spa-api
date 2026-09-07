@@ -62,21 +62,25 @@ return [
          * descuento. `charged` = sobre lo cobrado; `list` = sobre el precio de
          * lista, y el descuento lo asume el negocio.
          *
-         * Los tres arrancan en `charged`, que es lo que el sistema ya hacia:
-         * nadie se despierta con la nomina cambiada por un deploy.
+         * MANUAL y COMBO arrancan en `charged`, que es lo que el sistema ya
+         * hacia: nadie se despierta con la nomina cambiada por un deploy.
          *
-         * FIDELIZACION en `charged` por decision del negocio: el premio es una
-         * atencion al cliente por su fidelidad, y de esa fidelidad vive
-         * tambien quien lo atiende -- una clienta que vuelve es trabajo suyo.
-         * Es distinto de una campana de temporada (mes de la madre), que la
-         * decide el negocio para traer gente nueva y por eso la absorbe el
-         * negocio; cuando exista ese modulo, su default sera `list`.
+         * FIDELIZACION arranca en `list`: el premio de la tarjeta lo REGALA EL
+         * NEGOCIO para que la clienta vuelva, y el trabajo de quien atiende fue
+         * exactamente el mismo. Bajarle la comision seria cobrarle a ella una
+         * promesa que hizo el local.
+         *
+         * Este default estuvo en `charged` y se corrigio: es lo que hace el spa
+         * de Luxury desde hace anos (blue-souls-app calcula la comision sobre
+         * el precio de catalogo cuando hay descuento, y registra la diferencia
+         * como gasto "Retencion cliente"), y el sistema nuevo no puede
+         * estrenarse recortandole la nomina al equipo que se va a migrar.
          *
          * Cada negocio puede darlo vuelta desde "Pagos al equipo".
          */
         'commission_base_manual' => 'charged',
         'commission_base_package' => 'charged',
-        'commission_base_loyalty' => 'charged',
+        'commission_base_loyalty' => 'list',
 
         /*
          * La campana SI arranca en `list`: es el unico origen que el negocio
