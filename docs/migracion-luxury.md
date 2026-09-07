@@ -265,6 +265,90 @@ Ninguna la habría encontrado un test:
 - **Calificaciones** (189 filas).
 - **Confirmar las duraciones** servicio por servicio con el negocio.
 
+## La escalera de sellos (2026-09-07)
+
+El sistema nuevo tenía UN modo de tarjeta: junta N sellos, cobra el premio, y
+vuelve a cero. Luxury usa otro, y sus clientas lo conocen. Ahora hay dos, y el
+negocio elige:
+
+| Modo | Cómo funciona |
+|---|---|
+| `card` | Junta N visitas, se lleva el premio, la tarjeta vuelve a empezar. **Los sellos se gastan.** Es el default y lo que hacen hoy todos los programas |
+| `ladder` | A las 5 un premio, a las 10 otro, a las 15 otro. **Los sellos no se gastan nunca** |
+
+La escalera de Luxury, tal como está en el sistema viejo:
+
+| Visitas | Premio |
+|---|---|
+| 5 | 10% |
+| 10 | 10% |
+| 15 | 15% |
+| 20 | 10% |
+| 25 | 15% |
+| 30 | **un producto de la marca** — sin equivalente, ver abajo |
+| 35 | 25% |
+
+### Tres decisiones que se apartan del sistema viejo, y por qué
+
+**1. El hito se alcanza con `>=`, no con `==`.** El sistema viejo exige
+igualdad exacta, así que una clienta cuyo contador salta de 4 a 6 —un ajuste a
+mano, una migración— pierde el premio de las 5 para siempre. Acá basta con
+haberlo pasado.
+
+**2. Un premio ganado NO se vence al llegar el siguiente.** El sistema viejo sí
+lo vence: al desbloquear el de 10, el de 5 sin usar pasa a `expired`. Allá
+tenía una razón —nada marcaba un premio como usado, así que el vencimiento
+hacía de límite—. Acá el canje se registra, y quitarle a una clienta un premio
+que se ganó y todavía no usó sería retirarle una promesa del local.
+
+**3. Un premio se usa UNA vez.** Es la fuga que el sistema viejo tiene abierta:
+como nadie marca `used`, el premio del sello 5 se puede volver a aplicar en los
+servicios 6, 7, 8 y 9. Acá el canje queda enlazado a la cita.
+
+El efecto combinado de (2) y (3) para una clienta habitual es parejo o
+levemente mejor que hoy: pierde la reaplicación, gana que nada se le venza.
+
+### El escalón de 30 visitas no se pudo migrar
+
+Regala "un producto de nuestra marca al azar", y el sistema nuevo solo sabe de
+tres premios: porcentaje, monto fijo y servicio gratis. **No se inventó un
+equivalente**: convertirlo en un descuento sería prometer algo distinto.
+
+No corre prisa —la clienta con más visitas lleva 23—, pero hay que decidir con
+qué reemplazarlo antes de que alguien llegue. La otra opción es agregar un
+cuarto tipo de premio ("regalo físico", con una descripción de texto), que son
+tres columnas nuevas.
+
+### Los premios que se conservaron
+
+| | Legacy | Migrado |
+|---|---|---|
+| Disponibles (hito 5) | 58 | **58** |
+| Disponibles (hito 10) | 10 | **10** |
+| Disponibles (hito 15) | 3 | **3** |
+| Disponibles (hito 20) | 3 | **3** |
+| **Total disponible** | **74** | **74** |
+
+Los 74 se honran **aunque las visitas migradas no alcancen el hito**. Cuatro
+clientas tienen el contador viejo por delante de sus visitas atribuibles —un
+ajuste a mano, una tarjeta creada con un número escrito— y el local ya les
+prometió el premio. Ninguna tiene por qué enterarse de que cambiamos de
+sistema.
+
+Además se anotan **36 premios vencidos**: escalones que la clienta ya pasó y
+de los que el sistema viejo no dejó rastro. Sin ellos, el primer cobro en el
+sistema nuevo se los desbloquearía todos de golpe.
+
+### Los sellos
+
+**1.218**, que es exactamente la suma del contador del sistema viejo. Salen de
+las citas migradas, no del entero suelto de `loyalty_cards.stamps` —ese es el
+que allá se desincronizaba y había que arreglar con `gamification:recalculate`.
+Acá el saldo se cuenta, así que es correcto por construcción.
+
+Las 2.118 atenciones sin clienta no dan sello, igual que allá: no hay a quién
+sumárselas.
+
 ## Decisiones tomadas (2026-09-07)
 
 ### 1. Fidelización: se conserva la escalera, y se cierra una fuga

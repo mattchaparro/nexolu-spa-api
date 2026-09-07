@@ -27,7 +27,7 @@ class LoyaltyReward extends Model
     public const STATUS_EXPIRED = 'expired';
 
     protected $fillable = [
-        'business_id', 'program_id', 'client_id', 'status',
+        'business_id', 'program_id', 'tier_id', 'client_id', 'status',
         'unlocked_at', 'used_at', 'used_on_appointment_id',
         'reward_type', 'reward_value', 'reward_service_id',
     ];

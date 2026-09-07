@@ -6,6 +6,7 @@ use App\Models\Business;
 use App\Services\Migration\Importadores\ImportaCatalogo;
 use App\Services\Migration\Importadores\ImportaClientas;
 use App\Services\Migration\Importadores\ImportaEquipo;
+use App\Services\Migration\Importadores\ImportaFidelizacion;
 use App\Services\Migration\Importadores\ImportaGastos;
 use App\Services\Migration\Importadores\ImportaHistorial;
 use App\Services\Migration\Importadores\ImportaMediosDePago;
@@ -119,6 +120,8 @@ class ImportarLuxury extends Command
             new ImportaMediosDePago($negocio, $map, $reporte, $simular),
             new ImportaClientas($negocio, $map, $reporte, $simular),
             new ImportaHistorial($negocio, $map, $reporte, $simular),
+            // Despues del historial: cada sello cuelga de una cita migrada.
+            new ImportaFidelizacion($negocio, $map, $reporte, $simular),
             new ImportaGastos($negocio, $map, $reporte, $simular),
         ];
 
