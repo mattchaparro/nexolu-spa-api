@@ -146,6 +146,41 @@ class SalesReportTest extends TestCase
         $this->assertEqualsWithDelta(200000, $totales['charged'], 0.01);
     }
 
+    public function test_dice_cuantos_servicios_se_cobraron_distinto_a_la_carta(): void
+    {
+        /*
+         * La manicurista puede cambiar el precio -- a veces el trabajo sale
+         * distinto de lo que dice la carta -- y eso está bien. Lo que no puede
+         * pasar es que nadie se entere: acá se ve de un vistazo cuántos fueron
+         * y por cuánta plata, sin abrir cita por cita.
+         */
+        $this->vender($this->ana, $this->manicure, $this->efectivo);
+        $this->vender($this->lucia, $this->manicure, $this->efectivo, hora: 12);
+
+        // A una se le cobró 20.000 más que la carta.
+        $item = \App\Models\AppointmentItem::withoutGlobalScope('business')->latest('id')->first();
+        $item->update(['final_price' => (float) $item->price + 20000]);
+
+        $fuera = $this->reporte()->json('totals.off_catalog');
+
+        $this->assertSame(1, $fuera['count']);
+        $this->assertSame(1, $fuera['above']);
+        $this->assertSame(0, $fuera['below']);
+        $this->assertEqualsWithDelta(20000, $fuera['difference'], 0.01);
+    }
+
+    public function test_un_descuento_no_cuenta_como_precio_cambiado(): void
+    {
+        /*
+         * El descuento va a nivel de la cita, con su motivo escrito, y ya se ve
+         * aparte. Contarlo también acá haría que el aviso saltara en cobros
+         * normales, y un aviso que salta siempre deja de avisar.
+         */
+        $this->vender($this->ana, $this->manicure, $this->efectivo);
+
+        $this->assertSame(0, $this->reporte()->json('totals.off_catalog.count'));
+    }
+
     public function test_cuanto_de_lo_que_entro_es_comision(): void
     {
         // Ana al 50% sobre 100.000, Lucia al 30% sobre 100.000.

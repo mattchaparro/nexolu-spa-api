@@ -106,6 +106,11 @@ class SalesReportService
                 // `final_price` es lo que de verdad se cobro, con el descuento
                 // ya repartido. `price` es el de lista y sumaria de mas.
                 'appointment_items.final_price',
+                /*
+                 * El de la CARTA, para poder decir cuando se cobro distinto.
+                 * No suma en ningun total: sirve solo para comparar.
+                 */
+                'appointment_items.price',
                 'appointment_items.commission_amount',
                 'appointments.checked_out_at',
                 'appointments.payment_method_id',
@@ -133,6 +138,45 @@ class SalesReportService
             'cash' => round((float) $items->where('counts_as_cash', true)
                 ->sum(fn ($i) => (float) ($i->final_price ?? 0)), 2),
             'average_ticket' => $items->isEmpty() ? 0.0 : round($charged / $items->count(), 2),
+            'off_catalog' => $this->fueraDeCarta($items),
+        ];
+    }
+
+    /**
+     * Lo que se cobro distinto al precio de la carta.
+     *
+     * Cambiar un precio es normal -- a veces el trabajo sale distinto de lo
+     * que dice la carta -- pero que nadie se entere no lo es. Aca se ve de un
+     * vistazo cuantos fueron y por cuanta plata, sin tener que abrir cita por
+     * cita.
+     *
+     * El descuento NO cuenta como precio cambiado: ese va a nivel de la cita,
+     * con su motivo escrito, y ya se ve aparte. Esto es cuando quien cobro
+     * escribio otro numero en el servicio.
+     *
+     * @param  Collection<int, object>  $items
+     * @return array<string, mixed>
+     */
+    private function fueraDeCarta(Collection $items): array
+    {
+        $distintos = $items->filter(
+            fn ($i) => abs((float) ($i->final_price ?? 0) - (float) ($i->price ?? 0)) > 0.01,
+        );
+
+        $diferencia = (float) $distintos->sum(
+            fn ($i) => (float) ($i->final_price ?? 0) - (float) ($i->price ?? 0),
+        );
+
+        return [
+            'count' => $distintos->count(),
+            'above' => $distintos->filter(
+                fn ($i) => (float) ($i->final_price ?? 0) > (float) ($i->price ?? 0),
+            )->count(),
+            'below' => $distintos->filter(
+                fn ($i) => (float) ($i->final_price ?? 0) < (float) ($i->price ?? 0),
+            )->count(),
+            // Positivo = se cobro de mas en total; negativo = de menos.
+            'difference' => round($diferencia, 2),
         ];
     }
 

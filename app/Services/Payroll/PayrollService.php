@@ -47,8 +47,24 @@ class PayrollService
      *
      * @return array<string, mixed>
      */
-    public function preview(Business $business, Resource $resource, CarbonImmutable $until): array
-    {
+    public function preview(
+        Business $business,
+        Resource $resource,
+        CarbonImmutable $until,
+        /*
+         * `false` para el resumen de todo el equipo.
+         *
+         * La plata se calcula igual -- mismo codigo, mismas reglas -- y solo
+         * se saltan las garantias, las calificaciones y el detalle linea por
+         * linea, que son para mirar UNA liquidacion. Pedirlos quince veces
+         * para pintar quince cifras es trabajo que nadie va a leer.
+         *
+         * Duplicar el calculo en un metodo aparte "mas rapido" seria la forma
+         * segura de que un dia el resumen y el detalle digan cosas distintas,
+         * y de que nadie sepa cual creer.
+         */
+        bool $conDetalle = true,
+    ): array {
         $start = $this->periodStartFor($resource, $business);
         $end = $until->startOfDay();
 
@@ -111,7 +127,7 @@ class PayrollService
             'days' => $days,
             'services_count' => $items->count(),
             'charged_total' => round((float) $items->sum('charged'), 2),
-            'items' => $items->values()->all(),
+            'items' => $conDetalle ? $items->values()->all() : [],
 
             /*
              * Las garantias que RECIBIO en el periodo.
@@ -126,7 +142,7 @@ class PayrollService
              * negocio decide multar, lo hace con un ajuste, que queda firmado
              * por quien lo puso.
              */
-            'warranties' => $this->warrantiesFor($business, $resource, $start, $end, $tz),
+            'warranties' => $conDetalle ? $this->warrantiesFor($business, $resource, $start, $end, $tz) : null,
 
             /*
              * Como la calificaron en el periodo, al lado de las garantias.
@@ -137,7 +153,7 @@ class PayrollService
              * Mirar una sin la otra lleva a conclusiones injustas en las dos
              * direcciones.
              */
-            'ratings' => $this->ratingsFor($business, $resource, $start, $end, $tz),
+            'ratings' => $conDetalle ? $this->ratingsFor($business, $resource, $start, $end, $tz) : null,
             'adjustments' => $adjustments->map(fn (PayrollAdjustment $a) => [
                 'id' => $a->id,
                 'date' => $a->date->toDateString(),
@@ -282,7 +298,14 @@ class PayrollService
             ->get()
             ->map(function (Resource $resource) use ($business, $until) {
                 try {
-                    $preview = $this->preview($business, $resource, $until);
+                    /*
+                     * Sin detalle: aca se pintan quince cifras, no quince
+                     * liquidaciones. Las garantias, las calificaciones y el
+                     * renglon por servicio son para mirar UNA. La plata sale
+                     * del mismo codigo, asi que el resumen y el detalle no
+                     * pueden decir cosas distintas.
+                     */
+                    $preview = $this->preview($business, $resource, $until, conDetalle: false);
                 } catch (ValidationException) {
                     // Ya se le liquido mas alla de esta fecha: no tiene nada
                     // pendiente, no es un error.

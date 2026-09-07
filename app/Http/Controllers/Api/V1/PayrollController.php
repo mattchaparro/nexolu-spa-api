@@ -46,9 +46,19 @@ class PayrollController
             return response()->json(['message' => $e->getMessage()], 422);
         }
 
+        $pendientes = $this->payroll->pending($business, $until, $sedes);
+
         return response()->json([
             'until' => $until->toDateString(),
-            'resources' => $this->payroll->pending($business, $until, $sedes),
+            /*
+             * El total y cuantas tienen saldo, para poder mostrarlo en una
+             * tarjeta sin que el front sume una lista que puede venir
+             * filtrada por sede. Sumar en dos lados es garantizar que un dia
+             * digan cifras distintas.
+             */
+            'total' => round(array_sum(array_column($pendientes, 'net_total')), 2),
+            'con_saldo' => count(array_filter($pendientes, fn (array $r) => $r['net_total'] > 0)),
+            'resources' => $pendientes,
             'locations' => Location::where('is_active', true)
                 ->get()
                 ->filter(fn (Location $l) => LocationScope::for($request->user())->allows($l->id))
