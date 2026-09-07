@@ -38,6 +38,7 @@ use App\Http\Controllers\Api\V1\StageController;
 use App\Http\Controllers\Api\V1\SurveyController;
 use App\Http\Controllers\Api\V1\WaitlistAdminController;
 use App\Http\Controllers\Api\V1\WaitlistController;
+use App\Http\Controllers\Api\V1\WhatsappInboxController;
 use App\Http\Controllers\Api\V1\WalkInController;
 use Illuminate\Support\Facades\Route;
 
@@ -370,6 +371,27 @@ Route::prefix('v1')->group(function () {
         | Con `citas.ver` y no con un permiso propio: quien atiende el mostrador
         | es quien manda estos mensajes, y ya tiene ese permiso.
         */
+        /*
+        | La bandeja de WhatsApp.
+        |
+        | Con `citas.ver` y no con un permiso propio, igual que el outbox:
+        | quien atiende el mostrador es quien contesta los WhatsApp, y ya lo
+        | tiene. Un permiso aparte obligaria a repartirlo de nuevo a todo el
+        | equipo el dia que se prenda la bandeja.
+        |
+        | OJO con el limite del empleado: la conversacion trae el nombre de la
+        | clienta, y eso es dato de cliente. El scope de negocio ya impide ver
+        | los de otro local; dentro del local, quien puede ver la agenda ya ve
+        | esos nombres.
+        */
+        Route::prefix('whatsapp/inbox')->middleware('permission:citas.ver')->group(function () {
+            Route::get('/', [WhatsappInboxController::class, 'index']);
+            Route::get('/{conversation}', [WhatsappInboxController::class, 'show']);
+            Route::post('/{conversation}/reply', [WhatsappInboxController::class, 'reply']);
+            Route::post('/{conversation}/resume-agent', [WhatsappInboxController::class, 'resume']);
+            Route::post('/{conversation}/toggle', [WhatsappInboxController::class, 'toggle']);
+        });
+
         Route::prefix('messages')->middleware('permission:citas.ver')->group(function () {
             Route::get('/', [MessageController::class, 'index']);
             Route::post('/{message}/sent', [MessageController::class, 'markSent']);

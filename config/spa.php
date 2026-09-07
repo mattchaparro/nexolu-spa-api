@@ -78,6 +78,19 @@ return [
          *
          * Cada negocio puede darlo vuelta desde "Pagos al equipo".
          */
+        /*
+         * Cuanto se calla el agente de WhatsApp cuando alguien del equipo
+         * contesta a mano, en minutos.
+         *
+         * Dos horas: lo que dura una conversacion de mostrador con sus pausas.
+         * Mas corto y el agente se mete a mitad de la charla; mas largo y una
+         * clienta que escribe esa misma tarde se queda sin respuesta
+         * automatica porque alguien contesto una vez en la manana.
+         *
+         * Se puede soltar antes a mano desde la bandeja.
+         */
+        'whatsapp_agent_pause_min' => 120,
+
         'commission_base_manual' => 'charged',
         'commission_base_package' => 'charged',
         'commission_base_loyalty' => 'list',

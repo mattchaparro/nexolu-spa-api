@@ -279,7 +279,11 @@ class WhatsappWebhookTest extends TestCase
 
         $this->entra('573001112233', 'Hola', '111222333')->assertOk();
 
-        $mensaje = Message::withoutGlobalScopes()->first();
+        // Filtrando por direccion: desde que hay bandeja, `messages` tambien
+        // guarda lo que ESCRIBIO la clienta, y eso llega primero.
+        $mensaje = Message::withoutGlobalScopes()
+            ->where('direction', Message::DIRECTION_OUT)->first();
+
         $this->assertSame(Message::KIND_AGENT, $mensaje->kind);
         $this->assertSame('Claro, tenemos a las 10 y a las 11.', $mensaje->body);
         $this->assertSame($this->luxury->id, $mensaje->business_id);
@@ -304,15 +308,24 @@ class WhatsappWebhookTest extends TestCase
          * "handled" dice que se aceptó, no que ya se contestó -- pensar la
          * respuesta ocurre en la cola, fuera de esta petición.
          *
-         * Lo que se defiende es que ante un Core caído NO salga nada: un
+         * Lo que se defiende es que ante un Core caído NO SALGA nada: un
          * "disculpa, no entendí" automático le enseña a la clienta que el bot
          * no sirve. El silencio deja que una persona conteste.
+         *
+         * Y para que esa persona PUEDA contestar, lo que la clienta escribió
+         * tiene que haber quedado guardado igual. Es justo el caso en que la
+         * bandeja se gana el sueldo: el agente se cayó y alguien del equipo
+         * ve la pregunta y responde.
          */
         Http::fake(['ia-core.test/*' => Http::response([], 500)]);
 
         $this->entra('573001112233', 'Hola', '111222333')->assertOk();
 
-        $this->assertSame(0, Message::withoutGlobalScopes()->count());
+        $this->assertSame(0, Message::withoutGlobalScopes()
+            ->where('direction', Message::DIRECTION_OUT)->count());
+
+        $this->assertSame(1, Message::withoutGlobalScopes()
+            ->where('direction', Message::DIRECTION_IN)->count());
     }
 
     public function test_la_ficha_existente_se_engancha_a_la_conversacion(): void
@@ -349,7 +362,14 @@ class WhatsappWebhookTest extends TestCase
             'button' => ['text' => 'Cambiar la hora', 'payload' => 'cambiar'],
         ])->assertOk()->assertJsonPath('handled', true);
 
-        $this->assertSame(1, Message::withoutGlobalScopes()->count());
+        // Salio una respuesta: el boton llego al agente y contesto.
+        $this->assertSame(1, Message::withoutGlobalScopes()
+            ->where('direction', Message::DIRECTION_OUT)->count());
+
+        // Y el texto del boton quedo en el hilo, para que quien lea la
+        // conversacion entienda a que esta respondiendo el agente.
+        $this->assertSame('Cambiar la hora', Message::withoutGlobalScopes()
+            ->where('direction', Message::DIRECTION_IN)->value('body'));
     }
 
     public function test_tocar_un_boton_interactivo_tambien_llega(): void

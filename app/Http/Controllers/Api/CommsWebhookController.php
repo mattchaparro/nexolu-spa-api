@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\Api;
 
 use App\Jobs\AnswerWhatsappMessageJob;
+use App\Models\Message;
+use App\Models\WhatsappConversation;
 use App\Services\WhatsApp\ConversationRouter;
 use App\Support\ChannelPhone;
 use Illuminate\Http\JsonResponse;
@@ -72,6 +74,31 @@ class CommsWebhookController
         }
 
         /*
+         * LO QUE ENTRA SE GUARDA SIEMPRE, conteste el agente o no.
+         *
+         * Es lo que convierte una respuesta suelta en una conversacion que
+         * alguien puede leer. Sin esto, quien atiende el mostrador ve lo que
+         * el sistema contesto y no lo que le preguntaron -- y contestar a
+         * mano es imposible.
+         *
+         * Va antes de la cola a proposito: si el agente falla, el mensaje de
+         * la clienta ya esta escrito y alguien puede responderlo.
+         */
+        $this->guardarEntrante($conversacion, $texto);
+
+        /*
+         * Si alguien del equipo esta atendiendo, el agente se calla.
+         *
+         * Dos respuestas a la misma pregunta -- una de la empleada y otra del
+         * agente, y contradiciendose -- es peor que no contestar. El relevo
+         * caduca solo (ver `agent_paused_until`), asi que una conversacion
+         * olvidada vuelve al agente en vez de quedarse muda.
+         */
+        if ($conversacion->agentIsPaused()) {
+            return response()->json(['ok' => true, 'handled' => true, 'agent' => 'paused']);
+        }
+
+        /*
          * Pensar la respuesta se va a la COLA, y contestamos ya.
          *
          * Preguntarle al Core es una llamada HTTP que el Core devuelve con
@@ -86,6 +113,45 @@ class CommsWebhookController
         AnswerWhatsappMessageJob::dispatch($conversacion->id, $texto);
 
         return response()->json(['ok' => true, 'handled' => true]);
+    }
+
+    /**
+     * Deja escrito lo que dijo la clienta, y reabre la conversacion.
+     *
+     * `last_inbound_at` se separa de `last_message_at` porque la ventana de
+     * 24 horas de Meta la abre EL MENSAJE DE ELLA, no el nuestro: si
+     * contestamos a las 23 horas, la ventana sigue venciendo a las 24 desde
+     * que ella escribio, no desde que respondimos.
+     *
+     * Y `read_at` vuelve a nulo: llego algo nuevo que nadie ha visto.
+     */
+    private function guardarEntrante(WhatsappConversation $conversacion, string $texto): void
+    {
+        Message::create([
+            'business_id' => $conversacion->business_id,
+            'conversation_id' => $conversacion->id,
+            'client_id' => $conversacion->client_id,
+            'kind' => Message::KIND_INBOUND,
+            'direction' => Message::DIRECTION_IN,
+            'to' => $conversacion->phone,
+            'body' => $texto,
+            /*
+             * Un mensaje entrante nace ENVIADO: ya llego. El outbox trata
+             * `pendiente` como "hay que mandarlo", y dejarlo asi lo pondria
+             * en la cola de salida, de vuelta hacia quien lo escribio.
+             */
+            'status' => Message::STATUS_SENT,
+            'sent_at' => now(),
+        ]);
+
+        $conversacion->update([
+            'last_message_at' => now(),
+            'last_inbound_at' => now(),
+            'read_at' => null,
+            // Una conversacion cerrada que recibe un mensaje y sigue
+            // escondida es una clienta a la que nadie contesta.
+            'status' => WhatsappConversation::STATUS_OPEN,
+        ]);
     }
 
     /**

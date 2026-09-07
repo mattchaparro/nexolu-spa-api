@@ -50,8 +50,19 @@ class Message extends Model
     /** Una difusion: la misma promocion a muchas. */
     public const KIND_BROADCAST = 'difusion';
 
+    /** Lo que escribio la clienta. */
+    public const KIND_INBOUND = 'entrante';
+
+    /** Lo que contesto una persona del equipo desde la bandeja. */
+    public const KIND_HUMAN = 'humano';
+
+    public const DIRECTION_IN = 'in';
+
+    public const DIRECTION_OUT = 'out';
+
     protected $fillable = [
-        'business_id', 'location_id', 'kind', 'to', 'client_id', 'appointment_id',
+        'business_id', 'location_id', 'kind', 'direction', 'to', 'client_id',
+        'conversation_id', 'appointment_id',
         'body', 'template_name', 'template_language', 'template_params', 'broadcast_id',
         'status', 'attempts', 'sent_at', 'failed_at', 'error', 'sent_by_user_id',
     ];

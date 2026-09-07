@@ -89,6 +89,10 @@ class AnswerWhatsappMessageJob implements ShouldQueue
             $respuesta['text'],
             null,
             $conversacion->client,
+            null,
+            null,
+            // Para que la respuesta quede en el hilo y no suelta en el outbox.
+            $conversacion,
         );
     }
 }

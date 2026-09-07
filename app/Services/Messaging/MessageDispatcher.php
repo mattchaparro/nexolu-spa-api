@@ -8,6 +8,7 @@ use App\Models\Broadcast;
 use App\Models\Business;
 use App\Models\Client;
 use App\Models\Message;
+use App\Models\WhatsappConversation;
 use App\Services\Messaging\Contracts\MessagingChannel;
 use App\Support\ChannelPhone;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -55,6 +56,14 @@ class MessageDispatcher
         ?Client $client = null,
         ?MessageTemplate $template = null,
         ?Broadcast $broadcast = null,
+        /*
+         * A que hilo pertenece, cuando lo hay.
+         *
+         * Solo los mensajes de una charla de WhatsApp lo llevan: un
+         * recordatorio o una difusion no son conversacion, y colgarlos del
+         * hilo llenaria la bandeja de cosas que nadie tiene que contestar.
+         */
+        ?WhatsappConversation $conversation = null,
     ): ?Message {
         $phone = $to === null ? null : ChannelPhone::normalize($to, $business->country_code);
 
@@ -69,6 +78,7 @@ class MessageDispatcher
                 'kind' => $kind,
                 'to' => $phone,
                 'client_id' => $client?->id ?? $appointment?->client_id,
+                'conversation_id' => $conversation?->id,
                 'appointment_id' => $appointment?->id,
                 /*
                  * El texto y la plantilla conviven a proposito.
