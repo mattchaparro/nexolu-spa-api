@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Models\Appointment;
 use App\Models\AppointmentItem;
 use App\Models\ServiceRating;
+use App\Support\Ratings\Comentario;
 use App\Support\Ratings\Nota;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
@@ -110,7 +111,14 @@ class MyWorkController
              * que hacer distinto, y "me encanto como me quedaron las uñas" si
              * dice que se esta haciendo bien.
              */
-            'comments' => $notas->whereNotNull('comment')->take(15)->map(fn (ServiceRating $r) => [
+            'comments' => $notas
+                // Solo lo que es una opinion. La ultima pregunta de la
+                // encuesta es abierta y la mayoria contesta "no, gracias":
+                // una lista de "No" no motiva a nadie, parece que le
+                // estuvieran diciendo que no a algo.
+                ->filter(fn (ServiceRating $r) => Comentario::esOpinion($r->comment))
+                ->take(15)
+                ->map(fn (ServiceRating $r) => [
                 'comment' => $r->comment,
                 'attention' => Nota::porcentaje($r->staff_rating, $r->staff_scale),
                 'date' => $r->created_at?->setTimezone($tz)->toDateString(),

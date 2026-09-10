@@ -148,6 +148,27 @@ class MisCalificacionesTest extends TestCase
         }
     }
 
+    public function test_un_no_gracias_no_llega_a_su_pantalla(): void
+    {
+        /*
+         * La ultima pregunta de la encuesta es abierta y la mayoria contesta
+         * que no: 43 de los 60 comentarios de Luxury son "no", "no gracias" o
+         * "gracias". Una lista de "No" "No" "No" parece que las clientas le
+         * estuvieran diciendo que no a algo.
+         *
+         * Y lo corto SI pasa cuando dice algo: "La mejor" tiene ocho letras y
+         * es justo lo que alguien quiere leer.
+         */
+        $this->calificar($this->maria, ['comment' => 'No, muchas gracias 🙏']);
+        $this->calificar($this->maria, ['comment' => 'La mejor']);
+
+        $respuesta = $this->getJson('/api/v1/my-work')->assertOk();
+
+        // Las dos cuentan como calificacion; solo una es una opinion.
+        $this->assertSame(2, $respuesta->json('ratings.count'));
+        $this->assertSame(['La mejor'], array_column($respuesta->json('ratings.comments'), 'comment'));
+    }
+
     public function test_sin_calificaciones_no_inventa_un_cero(): void
     {
         // Un cero grande el primer dia desanima por algo que nadie opino.

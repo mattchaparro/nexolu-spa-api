@@ -11,6 +11,7 @@ use App\Models\PayrollSettlement;
 use App\Models\PayrollSettlementItem;
 use App\Models\Resource;
 use App\Models\ServiceRating;
+use App\Support\Ratings\Comentario;
 use App\Support\Ratings\Nota;
 use App\Models\User;
 use App\Support\Payroll\AdjustmentCatalog;
@@ -491,8 +492,17 @@ class PayrollService
             'staff_average' => $promedio('staff_rating', 'staff_scale'),
             'service_average' => $promedio('service_rating', 'service_scale'),
             'punctuality_average' => $promedio('punctuality_rating', 'punctuality_scale'),
-            // Solo los comentarios escritos: una lista de nulos no dice nada.
-            'comments' => $rows->whereNotNull('comment')->take(10)->map(fn (ServiceRating $r) => [
+            /*
+             * Solo lo que es una opinion.
+             *
+             * No basta con descartar los nulos: la ultima pregunta de la
+             * encuesta es abierta y 43 de los 60 comentarios de Luxury son
+             * "no", "no gracias" o "gracias" -- cortesia, no opinion.
+             */
+            'comments' => $rows
+                ->filter(fn (ServiceRating $r) => Comentario::esOpinion($r->comment))
+                ->take(10)
+                ->map(fn (ServiceRating $r) => [
                 'comment' => $r->comment,
                 'staff_rating' => Nota::sobreCinco(Nota::porcentaje($r->staff_rating, $r->staff_scale)),
                 'date' => $r->created_at?->setTimezone($tz)->toDateString(),
