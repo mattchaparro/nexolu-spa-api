@@ -432,6 +432,92 @@ class PublicBookingController
     }
 
     /**
+     * El primer dia en que toda la visita cabe con UNA SOLA persona.
+     *
+     * Contesta la pregunta que se hace quien esta mirando un dia donde le toca
+     * cambiar de manicurista a mitad de visita: "¿y que dia me atiende una
+     * sola?". Sin esto, la unica forma de averiguarlo es ir tocando dias uno
+     * por uno hasta acertar, y lo que hace la mayoria es cerrar la pagina.
+     *
+     * CORTA EN CUANTO ENCUENTRA UNO. Calcular la cadena de catorce dias no es
+     * gratis -- por eso `days()` solo mira si hay o no hay hueco -- pero acá
+     * el caso normal termina en el primer o segundo dia. Y solo se pide cuando
+     * el dia elegido no tuvo ninguna opcion con una sola persona, no en cada
+     * pantalla.
+     */
+    public function chainSingleDay(Request $request, Business $business): JsonResponse
+    {
+        $this->assertOpenToPublic($business);
+
+        $data = $request->validate([
+            'service_ids' => ['required_without:package_id', 'array', 'min:1', 'max:10'],
+            'service_ids.*' => ['integer'],
+            'package_id' => ['nullable', 'integer'],
+            'from' => ['required', 'date_format:Y-m-d'],
+            // Dos semanas. Mas alla, decir "el 3 del mes que viene" no ayuda a
+            // nadie a decidir hoy.
+            'days' => ['nullable', 'integer', 'min:1', 'max:14'],
+            'resource_id' => ['nullable', 'integer'],
+            'location' => ['nullable', 'string', 'max:120'],
+        ]);
+
+        $package = isset($data['package_id']) ? $this->bookablePackage($business, $data['package_id']) : null;
+
+        $services = $package
+            ? $package->services->map(fn (Service $s) => $this->bookableService($business, $s->id))->all()
+            : array_values(array_filter(array_map(
+                fn (int $id) => $this->bookableService($business, $id),
+                $data['service_ids'] ?? [],
+            )));
+
+        $resource = isset($data['resource_id'])
+            ? $this->bookableResource($business, $data['resource_id'])
+            : null;
+
+        $tz = $business->businessTimezone();
+        $from = CarbonImmutable::parse($data['from'], $tz)->startOfDay();
+        $horizon = (int) $business->schedulingSetting('max_booking_horizon_days');
+
+        for ($i = 1, $total = (int) ($data['days'] ?? 14); $i <= $total; $i++) {
+            $date = $from->addDays($i);
+
+            if ($date->diffInDays(CarbonImmutable::now($tz)->startOfDay()) > $horizon) {
+                break;
+            }
+
+            $slots = $this->availability->slotsForChain(
+                $business,
+                $services,
+                $date,
+                preferredResourceId: $resource?->id,
+                locationId: $this->publicLocation($business, $data['location'] ?? null)?->id,
+            );
+
+            /*
+             * Si pidio a alguien, "una sola persona" significa ESA persona.
+             * Ofrecerle otro dia en el que la atiende una sola, pero otra,
+             * seria contestar una pregunta que no hizo.
+             */
+            $sirven = array_values(array_filter(
+                $slots,
+                fn (array $s) => $resource ? $s['preferred_honored'] : $s['same_person'],
+            ));
+
+            if ($sirven !== []) {
+                return response()->json([
+                    'date' => $date->toDateString(),
+                    'first_label' => $sirven[0]['label'],
+                    'count' => count($sirven),
+                ]);
+            }
+        }
+
+        // Null y no un 404: "no encontre ninguno en dos semanas" es una
+        // respuesta valida, y la pantalla tiene que poder decirlo.
+        return response()->json(['date' => null, 'first_label' => null, 'count' => 0]);
+    }
+
+    /**
      * Que dias tienen algo libre, para no hacer tocar dia por dia.
      *
      * Devuelve solo si hay o no hay, no los huecos: calcular las horas de 60

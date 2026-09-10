@@ -558,6 +558,17 @@ Route::prefix('v1')->group(function () {
             // Varios servicios seguidos, o un combo.
             Route::get('/availability/chain', [PublicBookingController::class, 'chain']);
 
+            /*
+             * "Y si no me puede atender una sola, ¿que dia si?"
+             *
+             * Aparte de `chain` porque contesta otra pregunta: no las horas de
+             * un dia, sino el PRIMER dia en que toda la visita cabe con la
+             * misma persona. Se pide solo cuando hace falta -- cuando el dia
+             * que la clienta eligio no tiene ninguna -- y corta en cuanto
+             * encuentra uno.
+             */
+            Route::get('/availability/chain-single-day', [PublicBookingController::class, 'chainSingleDay']);
+
             // Lo unico que escribe. Con su propio limite, mas apretado que el
             // de lectura: mirar la pagina es gratis, llenar la agenda no.
             Route::post('/appointments', [PublicBookingController::class, 'store'])

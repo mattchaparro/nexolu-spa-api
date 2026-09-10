@@ -683,6 +683,72 @@ class PublicBookingTest extends TestCase
         $this->assertSame('Maria', $slot['legs'][1]['resource_name']);
     }
 
+    public function test_dice_que_dia_la_atiende_una_sola_persona(): void
+    {
+        /*
+         * La pregunta del dueño: "¿y si no se puede con la misma chica, qué
+         * día trae?".
+         *
+         * Sin esto, la unica forma de averiguarlo es ir tocando dias uno por
+         * uno hasta acertar. Lo que hace la mayoria es cerrar la pagina.
+         *
+         * El escenario es el de un local de verdad: el miercoles trabajan dos
+         * personas y cada una hace lo suyo, asi que la visita se parte en dos.
+         * El jueves trabaja una que hace las dos cosas.
+         */
+        $lucia = $this->makeResource($this->business, 'Lucia', '09:00:00', '17:00:00', [3]);
+        $ana = $this->makeResource($this->business, 'Ana', '09:00:00', '17:00:00', [4]);
+
+        $pedicure = $this->makeService($this->business, 60, [$lucia, $ana], name: 'Pedicure');
+        $pedicure->update(['is_bookable_online' => true]);
+
+        // Ana tambien hace el manicure; Maria no hace el pedicure.
+        $this->service->resources()->attach($ana->id);
+
+        $miercoles = $this->wednesday();
+
+        // Ese miercoles, toda hora reparte la visita entre Maria y Lucia.
+        $slots = $this->getJson($this->url('/availability/chain').'?'.http_build_query([
+            'service_ids' => [$this->service->id, $pedicure->id],
+            'date' => $miercoles->format('Y-m-d'),
+        ]))->assertOk()->json('slots');
+
+        $this->assertNotEmpty($slots);
+        $this->assertEmpty(array_filter($slots, fn (array $s) => $s['same_person']));
+
+        // Y la pagina puede decirle cuando SI, sin hacerla adivinar.
+        $this->getJson($this->url('/availability/chain-single-day').'?'.http_build_query([
+            'service_ids' => [$this->service->id, $pedicure->id],
+            'from' => $miercoles->format('Y-m-d'),
+        ]))
+            ->assertOk()
+            ->assertJsonPath('date', $miercoles->addDay()->format('Y-m-d'))
+            ->assertJsonPath('count', fn ($n) => $n > 0);
+    }
+
+    public function test_si_pidio_a_alguien_el_otro_dia_es_con_esa_persona(): void
+    {
+        /*
+         * Ofrecerle "el jueves te atiende una sola" cuando esa una es OTRA no
+         * contesta lo que pregunto. Pidio a Maria.
+         */
+        $ana = $this->makeResource($this->business, 'Ana', '09:00:00', '17:00:00', [4]);
+        $pedicure = $this->makeService($this->business, 60, [$ana], name: 'Pedicure');
+
+        // Ana hace las dos cosas el jueves; Maria no hace el pedicure ningun dia.
+        $this->service->resources()->attach($ana->id);
+
+        $this->getJson($this->url('/availability/chain-single-day').'?'.http_build_query([
+            'service_ids' => [$this->service->id, $pedicure->id],
+            'from' => $this->wednesday()->format('Y-m-d'),
+            'resource_id' => $this->maria->id,
+        ]))
+            ->assertOk()
+            // No hay ningun dia en que Maria haga las dos: se dice que no,
+            // no se ofrece el dia de Ana.
+            ->assertJsonPath('date', null);
+    }
+
     public function test_reservar_un_combo_por_internet_agenda_los_dos_servicios(): void
     {
         $package = $this->combo($this->pedicure());
