@@ -11,6 +11,7 @@ use App\Models\PayrollSettlement;
 use App\Models\PayrollSettlementItem;
 use App\Models\Resource;
 use App\Models\ServiceRating;
+use App\Support\Ratings\Nota;
 use App\Models\User;
 use App\Support\Payroll\AdjustmentCatalog;
 use App\Support\Payroll\PayrollCalculator;
@@ -471,19 +472,29 @@ class PayrollService
             ->orderByDesc('created_at')
             ->get();
 
-        $promedio = fn (string $campo) => $rows->whereNotNull($campo)->isEmpty()
-            ? null
-            : round((float) $rows->whereNotNull($campo)->avg($campo), 2);
+        /*
+         * Cada nota sobre SU escala, no el promedio crudo.
+         *
+         * Antes se promediaban los numeros tal cual, y como la encuesta vieja
+         * preguntaba puntualidad con tres botones y atencion con cinco, esta
+         * pantalla venia diciendo "puntualidad 2,89" al lado de "atencion
+         * 4,96". Se lee como si el local llegara tarde siempre; la verdad es
+         * que 2,89 sobre 3 equivale a 4,79 de 5. El numero estaba bien
+         * guardado y mal leido.
+         */
+        $promedio = fn (string $campo, string $escala) => Nota::sobreCinco(
+            Nota::promedio($rows->map(fn (ServiceRating $r) => [$r->{$campo}, $r->{$escala}])),
+        );
 
         return [
             'count' => $rows->count(),
-            'staff_average' => $promedio('staff_rating'),
-            'service_average' => $promedio('service_rating'),
-            'punctuality_average' => $promedio('punctuality_rating'),
+            'staff_average' => $promedio('staff_rating', 'staff_scale'),
+            'service_average' => $promedio('service_rating', 'service_scale'),
+            'punctuality_average' => $promedio('punctuality_rating', 'punctuality_scale'),
             // Solo los comentarios escritos: una lista de nulos no dice nada.
             'comments' => $rows->whereNotNull('comment')->take(10)->map(fn (ServiceRating $r) => [
                 'comment' => $r->comment,
-                'staff_rating' => $r->staff_rating,
+                'staff_rating' => Nota::sobreCinco(Nota::porcentaje($r->staff_rating, $r->staff_scale)),
                 'date' => $r->created_at?->setTimezone($tz)->toDateString(),
             ])->values()->all(),
         ];

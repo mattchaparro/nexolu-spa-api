@@ -21,6 +21,8 @@ class ServiceRating extends Model
     protected $fillable = [
         'business_id', 'appointment_id', 'appointment_item_id', 'resource_id', 'client_id',
         'service_rating', 'staff_rating', 'punctuality_rating', 'comment', 'raw_payload',
+        // Sobre cuanto fue cada nota. Ver App\Support\Ratings\Nota.
+        'service_scale', 'staff_scale', 'punctuality_scale',
     ];
 
     protected function casts(): array
@@ -29,6 +31,9 @@ class ServiceRating extends Model
             'service_rating' => 'integer',
             'staff_rating' => 'integer',
             'punctuality_rating' => 'integer',
+            'service_scale' => 'integer',
+            'staff_scale' => 'integer',
+            'punctuality_scale' => 'integer',
             'raw_payload' => 'array',
         ];
     }

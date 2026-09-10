@@ -70,13 +70,87 @@ class ImportaCalificaciones extends Importador
         }
     }
 
+    /**
+     * Sobre cuanto pregunta cada cosa la encuesta VIEJA.
+     *
+     * No las tres sobre cinco: la encuesta de ManyChat ofrecia distinta
+     * cantidad de botones por pregunta, y se ve en los datos -- en 242
+     * opiniones nunca hay un 5 en servicio ni un 4 en puntualidad:
+     *
+     *     atencion      1 a 5   (226 de 242 pusieron 5)
+     *     servicio      1 a 4   (237 de 242 pusieron 4)
+     *     puntualidad   1 a 3   (221 de 242 pusieron 3)
+     *
+     * La encuesta propia pregunta las tres sobre 5, asi que sin guardar esto
+     * una nota vieja y una nueva no se pueden comparar: un 3 de 3 es lo mejor
+     * que se puede dar y un 3 de 5 es un reclamo.
+     */
+    private const ESCALAS = ['service' => 4, 'staff' => 5, 'punctuality' => 3];
+
+    /**
+     * Arregla en el sitio una opinion que ya se importo mal.
+     *
+     * Las primeras corridas guardaron `created_at` con la fecha de la
+     * migracion y sin escala. Se corrige aca y no con un comando suelto para
+     * que quede reparado solo en la siguiente sincronizacion, y para que no
+     * haya un parche que alguien tenga que acordarse de correr.
+     *
+     * Solo toca lo que esta mal: si la fila ya quedo bien, no se escribe.
+     */
+    private function repararSiHaceFalta(int $legacyId, object $fila): void
+    {
+        $id = $this->map->idNuevo('rating', $legacyId);
+
+        if ($id === null || $this->simular) {
+            $this->reporte->saltado('Calificaciones');
+
+            return;
+        }
+
+        $nota = ServiceRating::withoutGlobalScope('business')->find($id);
+        $cuando = $this->utc($fila->created_at);
+
+        if ($nota === null || $cuando === null) {
+            $this->reporte->saltado('Calificaciones');
+
+            return;
+        }
+
+        $correcto = [
+            'service_scale' => self::ESCALAS['service'],
+            'staff_scale' => self::ESCALAS['staff'],
+            'punctuality_scale' => self::ESCALAS['punctuality'],
+            'created_at' => $cuando,
+        ];
+
+        $cambia = (int) $nota->service_scale !== $correcto['service_scale']
+            || (int) $nota->staff_scale !== $correcto['staff_scale']
+            || (int) $nota->punctuality_scale !== $correcto['punctuality_scale']
+            || $nota->created_at?->ne($cuando);
+
+        if (! $cambia) {
+            $this->reporte->saltado('Calificaciones');
+
+            return;
+        }
+
+        // `forceFill` + `timestamps=false`: se esta escribiendo `created_at` a
+        // proposito, y dejar que Eloquent toque `updated_at` seria volver a
+        // poner la fecha de hoy en la fila que se acaba de arreglar.
+        $nota->timestamps = false;
+        $nota->forceFill($correcto)->save();
+
+        $this->reporte->actualizado('Calificaciones');
+    }
+
     private function una(object $fila): void
     {
         $legacyId = (int) $fila->id;
 
-        // Una opinion escrita hace ocho meses no cambia.
+        // Una opinion escrita hace ocho meses no cambia. Pero lo que se
+        // GUARDO de ella si puede estar mal, y entonces hay que repararlo.
         if ($this->map->yaExiste('rating', $legacyId)) {
-            $this->reporte->saltado('Calificaciones');
+            $this->repararSiHaceFalta($legacyId, $fila);
 
             return;
         }
@@ -117,6 +191,23 @@ class ImportaCalificaciones extends Importador
             'staff_rating' => $this->nota($fila->employee_calification),
             'punctuality_rating' => $this->nota($fila->service_punctuality),
             'comment' => trim((string) ($fila->opinion ?? '')) ?: null,
+
+            // Sobre cuanto fue cada una. Ver `ESCALAS`.
+            'service_scale' => self::ESCALAS['service'],
+            'staff_scale' => self::ESCALAS['staff'],
+            'punctuality_scale' => self::ESCALAS['punctuality'],
+
+            /*
+             * LA FECHA EN QUE LA CLIENTA OPINO, no la de la migracion.
+             *
+             * Sin esto Eloquent estampa `now()` y los siete meses de opiniones
+             * -- del 19 de febrero al 5 de septiembre -- se aplastan todos al
+             * dia en que se corrio la importacion. Deja de haber historia: no
+             * se puede ver si alguien viene mejorando, que es justamente para
+             * lo que una profesional mira sus calificaciones.
+             */
+            'created_at' => $this->utc($fila->created_at),
+            'updated_at' => $this->utc($fila->updated_at ?? $fila->created_at),
         ])->id;
 
         $this->map->anotar('rating', $legacyId, $id);

@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Models\Appointment;
 use App\Models\AppointmentItem;
+use App\Models\ServiceRating;
+use App\Support\Ratings\Nota;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -42,7 +44,78 @@ class MyWorkController
             // resolver antes de irse.
             'pending_checkout' => $this->pendingCheckout($resource->id, $now),
             'agenda' => $this->agenda($resource->id, $now, $tz),
+            'ratings' => $this->calificaciones($resource->id, $now, $tz),
         ]);
+    }
+
+    /**
+     * Lo que opinaron de ELLA, y nada mas.
+     *
+     * Solo sus notas: ni las del negocio ni las de las compañeras. No es
+     * timidez con el dato -- es que un tablero comparativo entre dos
+     * manicuristas que trabajan a un metro deja de ser una herramienta y pasa
+     * a ser un problema entre ellas. Cada una ve como va, y quien compara es
+     * quien paga.
+     *
+     * SIN NOMBRE NI TELEFONO DE QUIEN OPINO. El comentario solo, que es lo
+     * util: la base de clientas es del negocio.
+     *
+     * @return array<string, mixed>
+     */
+    private function calificaciones(int $resourceId, CarbonImmutable $now, string $tz): array
+    {
+        $desde = $now->startOfMonth()->subMonths(5);
+
+        $notas = ServiceRating::where('resource_id', $resourceId)
+            ->where('created_at', '>=', $desde->utc())
+            ->orderByDesc('created_at')
+            ->get();
+
+        /*
+         * El mes anterior COMPLETO, no "los ultimos 30 dias".
+         *
+         * Un dia 3 del mes lleva tres notas: decir "bajaste" con eso es ruido,
+         * y el aviso que mas rapido deja de creerse es el que se dispara solo.
+         */
+        $mesActual = $notas->filter(fn (ServiceRating $r) => $r->created_at?->setTimezone($tz)->isSameMonth($now));
+        $mesAnterior = $notas->filter(
+            fn (ServiceRating $r) => $r->created_at?->setTimezone($tz)->isSameMonth($now->subMonth()),
+        );
+
+        $atencion = fn ($filas) => Nota::promedio(
+            $filas->map(fn (ServiceRating $r) => [$r->staff_rating, $r->staff_scale]),
+        );
+
+        return [
+            'count' => $notas->count(),
+            'since' => $desde->toDateString(),
+
+            // Las tres cosas que pregunta la encuesta, cada una sobre SU
+            // escala. Ver App\Support\Ratings\Nota.
+            'attention' => $atencion($notas),
+            'service' => Nota::promedio(
+                $notas->map(fn (ServiceRating $r) => [$r->service_rating, $r->service_scale]),
+            ),
+            'punctuality' => Nota::promedio(
+                $notas->map(fn (ServiceRating $r) => [$r->punctuality_rating, $r->punctuality_scale]),
+            ),
+
+            'this_month' => ['count' => $mesActual->count(), 'attention' => $atencion($mesActual)],
+            'previous_month' => ['count' => $mesAnterior->count(), 'attention' => $atencion($mesAnterior)],
+
+            /*
+             * Los comentarios escritos, los mas nuevos primero.
+             *
+             * Son lo que de verdad mueve a alguien: un promedio de 96% no dice
+             * que hacer distinto, y "me encanto como me quedaron las uñas" si
+             * dice que se esta haciendo bien.
+             */
+            'comments' => $notas->whereNotNull('comment')->take(15)->map(fn (ServiceRating $r) => [
+                'comment' => $r->comment,
+                'attention' => Nota::porcentaje($r->staff_rating, $r->staff_scale),
+                'date' => $r->created_at?->setTimezone($tz)->toDateString(),
+            ])->values()->all(),
+        ];
     }
 
     /**
