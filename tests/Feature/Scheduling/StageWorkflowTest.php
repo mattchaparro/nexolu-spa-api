@@ -169,7 +169,16 @@ class StageWorkflowTest extends TestCase
 
         $opciones = $this->getJson("/api/v1/appointments/{$cita->id}/stages")->assertOk();
 
-        $this->assertSame('Sin confirmar', $opciones->json('current.status_label'));
+        /*
+         * "Agendada" y no "Sin confirmar": el estado actual tambien se dice
+         * con las palabras del negocio.
+         *
+         * Antes se afirmaba lo contrario aca, en contra de lo que dice el
+         * comentario tres lineas mas abajo. El resultado en pantalla era que
+         * la misma cita se llamaba de dos formas a la vez: el titulo con el
+         * nombre interno y los botones con los del negocio.
+         */
+        $this->assertSame('Agendada', $opciones->json('current.status_label'));
 
         $etiquetas = array_column($opciones->json('options'), 'label');
 
@@ -211,6 +220,33 @@ class StageWorkflowTest extends TestCase
 
         // Tampoco se ofrece quedarse donde ya está.
         $this->assertNotContains('Agendado', $etiquetas);
+
+        // Y se llama como lo llama el local, tambien arriba.
+        $this->assertSame(
+            'Agendado',
+            $this->getJson("/api/v1/appointments/{$cita->id}/stages")->json('current.status_label'),
+        );
+    }
+
+    public function test_una_cita_vieja_sin_etapa_anotada_no_se_ofrece_a_si_misma(): void
+    {
+        /*
+         * `stage_id` solo se llena al mover la cita POR el flujo. Toda cita
+         * anterior a que el negocio tuviera uno lo tiene nulo -- las 3.340 de
+         * Luxury el dia que se le asigno el flujo.
+         *
+         * Sin resolver la etapa por el estado, a una cita agendada se le
+         * ofrecia "Agendado" como si moverla ahi fuera a hacer algo.
+         */
+        $this->business->update(['appointment_workflow_id' => FlujoSinConfirmacion::sync()->id]);
+
+        $cita = $this->agendar();
+        $cita->forceFill(['stage_id' => null])->save();
+
+        $respuesta = $this->getJson("/api/v1/appointments/{$cita->id}/stages")->assertOk();
+
+        $this->assertSame('Agendado', $respuesta->json('current.status_label'));
+        $this->assertNotContains('Agendado', array_column($respuesta->json('options'), 'label'));
     }
 
     public function test_completado_no_cobra(): void

@@ -50,10 +50,26 @@ class StageController
     /** A donde puede ir ESTA cita desde donde esta. */
     public function options(Appointment $appointment): JsonResponse
     {
+        /*
+         * El estado actual con el vocabulario del negocio, no con el interno.
+         *
+         * Toda la gracia del flujo es que la pantalla diga "Agendado" y no
+         * "Sin confirmar". Decia el nombre interno arriba y los del negocio en
+         * los botones, asi que la misma cita se llamaba de dos formas a la vez.
+         *
+         * Se resuelve por el estado cuando la cita no tiene etapa anotada, que
+         * es el caso de toda cita anterior a que el negocio tuviera flujo.
+         */
+        $etapa = $appointment->stage_id === null
+            ? $appointment->business?->appointmentWorkflow?->loadMissing('stages')
+                ->stageForStatus($appointment->status)
+            : $appointment->business?->appointmentWorkflow?->loadMissing('stages')
+                ->stages->firstWhere('id', $appointment->stage_id);
+
         return response()->json([
             'current' => [
                 'status' => $appointment->status,
-                'status_label' => AppointmentStateMachine::label($appointment->status),
+                'status_label' => $etapa?->label ?? AppointmentStateMachine::label($appointment->status),
                 'stage_id' => $appointment->stage_id,
             ],
             'options' => $this->transitions->availableStages($appointment),

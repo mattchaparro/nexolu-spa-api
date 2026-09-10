@@ -91,8 +91,24 @@ class StageTransitionService
             ], AppointmentStateMachine::allowedFrom($appointment->status));
         }
 
+        /*
+         * En que etapa esta HOY, incluso si nunca se le anoto una.
+         *
+         * `stage_id` solo se llena al mover la cita por el flujo, asi que toda
+         * cita anterior a que el negocio tuviera flujo -- las 3.340 de Luxury,
+         * por ejemplo -- lo tiene nulo. Sin esta resolucion, a una cita
+         * agendada se le ofrecia "Agendado" como si fuera un movimiento.
+         *
+         * Se resuelve por el estado y NO se cambia por `maps_to_status` en el
+         * filtro: un negocio puede tener dos etapas que apuntan al mismo
+         * estado nucleo, y esconderlas todas dejaria sin ofrecer una etapa
+         * hermana que si es un movimiento real.
+         */
+        $actual = $appointment->stage_id
+            ?? $workflow->loadMissing('stages')->stageForStatus($appointment->status)?->id;
+
         return $workflow->loadMissing('stages')->stages
-            ->filter(fn (AppointmentWorkflowStage $s) => $s->id !== $appointment->stage_id
+            ->filter(fn (AppointmentWorkflowStage $s) => $s->id !== $actual
                 && AppointmentStateMachine::canTransition($appointment->status, $s->maps_to_status))
             ->map(fn (AppointmentWorkflowStage $s) => [
                 'stage_id' => $s->id,
