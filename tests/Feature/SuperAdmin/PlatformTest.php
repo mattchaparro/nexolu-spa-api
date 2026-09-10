@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\SuperAdmin;
 
+use App\Models\AppointmentWorkflow;
 use App\Models\Business;
 use App\Models\PaymentMethod;
 use App\Models\Service;
@@ -176,6 +177,48 @@ class PlatformTest extends TestCase
 
         // Con granularidad de 30 en vez de 60 caben mas horarios de inicio.
         $this->assertGreaterThan($antes, $despues);
+    }
+
+    public function test_se_le_puede_asignar_un_flujo_a_un_negocio_que_ya_existe(): void
+    {
+        /*
+         * El flujo solo se asignaba AL CREAR el negocio.
+         *
+         * Luxury se creo por la migracion, no por este panel, asi que quedo
+         * con `appointment_workflow_id` nulo y cayendo al conjunto de estados
+         * internos -- sin ninguna forma, en el API ni en el panel, de darle
+         * uno. La configuracion existia y no habia como aplicarla.
+         */
+        $this->actAsPlatform();
+
+        $business = $this->makeBusiness();
+        $workflow = AppointmentWorkflow::create([
+            'name' => 'Flujo de prueba',
+            'is_default' => false,
+            'is_active' => true,
+        ]);
+
+        $this->patchJson("/api/v1/superadmin/businesses/{$business->id}", [
+            'appointment_workflow_id' => $workflow->id,
+        ])->assertOk();
+
+        $this->assertSame($workflow->id, $business->fresh()->appointment_workflow_id);
+
+        // `null` es una opcion valida: vuelve a los estados del nucleo.
+        $this->patchJson("/api/v1/superadmin/businesses/{$business->id}", [
+            'appointment_workflow_id' => null,
+        ])->assertOk();
+
+        $this->assertNull($business->fresh()->appointment_workflow_id);
+    }
+
+    public function test_no_se_le_puede_asignar_un_flujo_que_no_existe(): void
+    {
+        $this->actAsPlatform();
+
+        $this->patchJson("/api/v1/superadmin/businesses/{$this->makeBusiness()->id}", [
+            'appointment_workflow_id' => 9999,
+        ])->assertStatus(422);
     }
 
     public function test_suspender_un_negocio_no_toca_sus_datos(): void

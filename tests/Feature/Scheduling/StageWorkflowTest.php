@@ -17,6 +17,7 @@ use App\Models\User;
 use App\Services\Messaging\Contracts\MessagingChannel;
 use App\Support\PermissionCatalog;
 use App\Support\Scheduling\DefaultWorkflow;
+use App\Support\Scheduling\FlujoSinConfirmacion;
 use App\Support\Scheduling\StageActionCatalog;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
@@ -178,6 +179,59 @@ class StageWorkflowTest extends TestCase
         $this->assertContains('No asistió', $etiquetas);
         // Y no se ofrece quedarse donde ya está.
         $this->assertNotContains('Agendada', $etiquetas);
+    }
+
+    public function test_el_flujo_sin_confirmacion_no_ofrece_confirmar(): void
+    {
+        /*
+         * El flujo de Luxury, dicho por su dueño:
+         *
+         *     Agendado -> En curso -> Completado
+         *     Agendado -> Cancelado
+         *     Agendado -> No asistió
+         *
+         * "Confirmada" no está, y esa es toda la gracia: en ese local nadie
+         * llama a confirmar, así que una etapa que nunca se usa sólo agrega un
+         * botón que confunde a quien atiende.
+         */
+        $this->business->update(['appointment_workflow_id' => FlujoSinConfirmacion::sync()->id]);
+
+        $cita = $this->agendar();
+
+        $etiquetas = array_column(
+            $this->getJson("/api/v1/appointments/{$cita->id}/stages")->assertOk()->json('options'),
+            'label',
+        );
+
+        $this->assertNotContains('Confirmada', $etiquetas);
+
+        foreach (['En curso', 'Completado', 'Cancelado', 'No asistió'] as $esperada) {
+            $this->assertContains($esperada, $etiquetas);
+        }
+
+        // Tampoco se ofrece quedarse donde ya está.
+        $this->assertNotContains('Agendado', $etiquetas);
+    }
+
+    public function test_completado_no_cobra(): void
+    {
+        /*
+         * El nombre importa: el flujo estándar llama a esta etapa "Lista y
+         * cobrada" y tampoco cobra. Prometer un cobro que no ocurre es como se
+         * termina con un servicio atendido, marcado como listo, y sin cobrar.
+         */
+        $this->business->update(['appointment_workflow_id' => FlujoSinConfirmacion::sync()->id]);
+
+        $cita = $this->agendar();
+
+        $this->postJson("/api/v1/appointments/{$cita->id}/stage", [
+            'status' => Appointment::STATUS_COMPLETED,
+        ])->assertOk();
+
+        $cita->refresh();
+
+        $this->assertSame(Appointment::STATUS_COMPLETED, $cita->status);
+        $this->assertNull($cita->checked_out_at, 'Mover de etapa no puede cobrar.');
     }
 
     public function test_mover_de_etapa_cambia_el_estado_nucleo(): void

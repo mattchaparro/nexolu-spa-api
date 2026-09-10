@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1\SuperAdmin;
 
 use App\Models\Appointment;
+use App\Models\AppointmentWorkflow;
 use App\Models\Business;
 use App\Models\PaymentMethod;
 use App\Models\Resource;
@@ -167,6 +168,20 @@ class BusinessesController
             'scheduling_settings.min_cancellation_notice_min' => ['nullable', 'integer', 'min:0'],
             'scheduling_settings.max_booking_horizon_days' => ['nullable', 'integer', 'min:1', 'max:365'],
             'scheduling_settings.no_show_penalty_amount' => ['nullable', 'numeric', 'min:0'],
+
+            /*
+             * El flujo de etapas del negocio.
+             *
+             * Hasta ahora solo se asignaba AL CREAR el negocio, asi que un
+             * negocio ya existente no tenia como recibir uno: Luxury quedo con
+             * `appointment_workflow_id` nulo y cayendo al conjunto de estados
+             * internos, sin forma de cambiarlo desde ningun lado.
+             *
+             * `null` es una opcion valida y significa "sin flujo propio": la
+             * app usa los estados del nucleo. No es lo mismo que no mandar la
+             * llave, que significa "no lo toques".
+             */
+            'appointment_workflow_id' => ['sometimes', 'nullable', 'integer', 'exists:appointment_workflows,id'],
         ]);
 
         if (isset($data['feature_flags'])) {
@@ -270,6 +285,22 @@ class BusinessesController
             'resolved_limits' => $business->resolvedPlanLimits(),
             'plan_usage' => $business->planUsage(),
             'scheduling_settings' => $business->scheduling_settings ?? config('spa.defaults'),
+
+            // Cual flujo de etapas rige. `null` = los estados del nucleo.
+            'appointment_workflow_id' => $business->appointment_workflow_id,
+
+            /*
+             * Los flujos que hay para elegir, aca mismo.
+             *
+             * Van con el detalle y no en una llamada aparte: son tres filas y
+             * el panel las necesita siempre que muestre esta pantalla.
+             */
+            'workflows' => AppointmentWorkflow::query()
+                ->where('is_active', true)
+                ->orderByDesc('is_default')
+                ->orderBy('name')
+                ->get(['id', 'name'])
+                ->all(),
             /*
              * TODO el equipo, no solo los dueños. Soporte casi nunca entra
              * como el dueño: el problema que reportan es "a mi recepcionista
