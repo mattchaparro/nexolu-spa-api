@@ -92,6 +92,11 @@ Route::prefix('v1')->group(function () {
         Route::put('/services/bulk-commission', [ServiceCategoryController::class, 'bulkCommission'])
             ->middleware('permission:servicios.gestionar');
 
+        // Esconder o mostrar en la pagina publica, de a varios. El caso real:
+        // renuncio la lashista y hay que sacar las nueve pestañas de internet.
+        Route::put('/services/bulk-visibility', [ServiceCategoryController::class, 'bulkVisibility'])
+            ->middleware('permission:servicios.gestionar');
+
         /*
          * Combos. Tabla propia y no un servicio con bandera: un combo no tiene
          * duracion ni precio propios -- salen de sus partes -- y meterlo entre

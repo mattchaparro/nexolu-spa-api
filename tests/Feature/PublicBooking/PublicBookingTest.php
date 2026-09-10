@@ -683,6 +683,67 @@ class PublicBookingTest extends TestCase
         $this->assertSame('Maria', $slot['legs'][1]['resource_name']);
     }
 
+    public function test_un_servicio_sin_nadie_que_lo_preste_no_se_publica(): void
+    {
+        /*
+         * El caso que pregunto el dueño: renuncio la lashista.
+         *
+         * Antes, dar de baja a la unica persona que hacia pestañas dejaba los
+         * servicios de pestañas publicados. La clienta los elegia, pasaba el
+         * paso de "con quien" sin nadie a quien elegir, y llegaba a un
+         * calendario que no ofrece una sola hora: un callejon con tres pasos
+         * de camino.
+         */
+        $lashista = $this->makeResource($this->business, 'Sara', '09:00:00', '17:00:00', [3]);
+        $pestanas = $this->makeService($this->business, 60, [$lashista], name: 'Lifting de pestañas');
+
+        $this->assertContains(
+            'Lifting de pestañas',
+            array_column($this->getJson($this->url())->json('services'), 'name'),
+        );
+
+        $lashista->update(['is_active' => false]);
+
+        $publicados = array_column($this->getJson($this->url())->json('services'), 'name');
+
+        $this->assertNotContains('Lifting de pestañas', $publicados);
+        // Y lo que si tiene quien lo haga sigue en pie.
+        $this->assertContains('Manicure clásico', $publicados);
+    }
+
+    public function test_esconder_de_internet_no_apaga_el_servicio(): void
+    {
+        /*
+         * Son dos cosas distintas y confundirlas cuesta caro. Escondido de la
+         * pagina, el servicio sigue existiendo: se sigue cobrando en el
+         * mostrador y sus citas viejas siguen contando en los reportes.
+         */
+        $pestanas = $this->makeService($this->business, 60, [$this->maria], name: 'Lifting de pestañas');
+
+        $admin = User::create([
+            'business_id' => $this->business->id, 'name' => 'Ana',
+            'email' => 'ana.catalogo@prueba.test', 'password' => Hash::make('password123'),
+            'is_active' => true,
+        ]);
+        PermissionCatalog::applyRole($admin, PermissionCatalog::ROLE_ADMIN);
+        Sanctum::actingAs($admin->fresh());
+
+        $this->putJson('/api/v1/services/bulk-visibility', [
+            'service_ids' => [$pestanas->id],
+            'is_bookable_online' => false,
+        ])->assertOk()->assertJsonPath('updated', 1);
+
+        $pestanas->refresh();
+
+        $this->assertFalse((bool) $pestanas->is_bookable_online);
+        $this->assertTrue((bool) $pestanas->is_active, 'Esconderlo de internet no puede apagarlo.');
+
+        $this->assertNotContains(
+            'Lifting de pestañas',
+            array_column($this->getJson($this->url())->json('services'), 'name'),
+        );
+    }
+
     public function test_dice_que_dia_la_atiende_una_sola_persona(): void
     {
         /*

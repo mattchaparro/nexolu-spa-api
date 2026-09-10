@@ -135,6 +135,45 @@ class ServiceCategoryController
         ]);
     }
 
+    /**
+     * Esconder o volver a mostrar varios servicios en la pagina publica.
+     *
+     * El caso que lo pidio: renuncio la lashista. Hasta hoy, sacar las nueve
+     * pestañas de internet era abrir servicio por servicio y apagar el mismo
+     * interruptor nueve veces -- y volver a ponerlas, otras nueve. Lo que pasa
+     * de verdad en ese caso es que nadie lo hace, y la pagina sigue vendiendo
+     * algo que el local ya no presta.
+     *
+     * SOLO toca `is_bookable_online`, no `is_active`. Son cosas distintas y
+     * confundirlas cuesta caro: el servicio sigue existiendo, se sigue pudiendo
+     * cobrar en el mostrador, y sus citas viejas siguen contando en los
+     * reportes. Lo unico que cambia es que deja de ofrecerse por internet.
+     */
+    public function bulkVisibility(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'service_ids' => ['required', 'array', 'min:1'],
+            'service_ids.*' => ['integer'],
+            'is_bookable_online' => ['required', 'boolean'],
+        ]);
+
+        // Con el scope del negocio puesto: los ids ajenos no coinciden y no se
+        // tocan.
+        $afectados = DB::transaction(
+            fn () => Service::whereIn('id', $data['service_ids'])
+                ->update(['is_bookable_online' => $data['is_bookable_online']]),
+        );
+
+        $verbo = $data['is_bookable_online'] ? 'muestra' : 'esconde';
+
+        return response()->json([
+            'updated' => $afectados,
+            'message' => $afectados === 1
+                ? "Se {$verbo} 1 servicio en la página."
+                : "Se {$verbo}n {$afectados} servicios en la página.",
+        ]);
+    }
+
     /** @return array<string, mixed> */
     private function validated(Request $request): array
     {

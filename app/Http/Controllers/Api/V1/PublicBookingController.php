@@ -265,6 +265,23 @@ class PublicBookingController
             ->orderBy('sort_order')
             ->orderBy('name')
             ->get()
+            /*
+             * Y que quede ALGUIEN que lo preste.
+             *
+             * Sin esto, dar de baja a quien hacia pestañas dejaba los nueve
+             * servicios de pestañas publicados: la clienta los elegia, pasaba
+             * el paso de "con quien" sin nadie a quien elegir, y llegaba a un
+             * calendario que no ofrece una sola hora. Un callejon con tres
+             * pasos de camino.
+             *
+             * Se calcula sobre lo que YA se cargo con `with('resources')`, asi
+             * que no cuesta una consulta mas.
+             */
+            ->filter(fn (Service $s) => $s->resources
+                ->where('is_active', true)
+                ->where('is_bookable_online', true)
+                ->isNotEmpty())
+            ->values()
             ->map(fn (Service $s) => [
                 'id' => $s->id,
                 'name' => $s->name,
