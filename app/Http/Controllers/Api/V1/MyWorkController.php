@@ -69,7 +69,26 @@ class MyWorkController
     private function pendingCheckout(int $resourceId, CarbonImmutable $now): array
     {
         return Appointment::query()
-            ->whereIn('status', [Appointment::STATUS_PENDING, Appointment::STATUS_CONFIRMED, Appointment::STATUS_IN_PROGRESS])
+            /*
+             * `completed` TAMBIEN cuenta, y es el caso que mas duele.
+             *
+             * Marcar la cita como completada no cobra: son dos actos
+             * distintos a proposito. Pero mientras esta lista no la incluyo,
+             * marcarla "Completada" la sacaba de este aviso -- el servicio
+             * quedaba atendido, sin cobrar, invisible, fuera de la venta del
+             * dia y fuera de su comision. La unica forma de enterarse era que
+             * a fin de mes le faltara plata.
+             *
+             * Lo que define "pendiente de cobro" es `checked_out_at`, no el
+             * estado. Cancelada y no-asistio quedan fuera porque ahi no hay
+             * nada que cobrar.
+             */
+            ->whereIn('status', [
+                Appointment::STATUS_PENDING,
+                Appointment::STATUS_CONFIRMED,
+                Appointment::STATUS_IN_PROGRESS,
+                Appointment::STATUS_COMPLETED,
+            ])
             ->whereNull('checked_out_at')
             // Ya paso su hora: una cita de mas tarde no esta "pendiente de
             // cobro", simplemente todavia no ocurrio.

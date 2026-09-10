@@ -276,10 +276,20 @@ class CashController
                 'completed' => $appointments->where('status', 'completed')->count(),
                 'cancelled' => $appointments->where('status', 'cancelled')->count(),
                 'no_show' => $appointments->where('status', 'no_show')->count(),
-                // Lo que todavia falta cobrar hoy: la accion pendiente mas
-                // comun al cerrar la jornada.
+                /*
+                 * Lo que todavia falta cobrar hoy: la accion pendiente mas
+                 * comun al cerrar la jornada.
+                 *
+                 * Se mide por `checked_out_at`, NO por el estado. Marcar
+                 * "Completada" no cobra -- son dos actos distintos a
+                 * proposito -- asi que filtrar por estado dejaba fuera
+                 * justo el caso peligroso: el servicio atendido, marcado
+                 * como listo, y nunca cobrado. Desaparecia del cierre sin
+                 * que nadie lo notara.
+                 */
                 'pending_checkout' => $appointments
-                    ->whereIn('status', ['pending', 'confirmed', 'in_progress'])
+                    ->whereNotIn('status', ['cancelled', 'no_show'])
+                    ->whereNull('checked_out_at')
                     ->count(),
             ],
             'by_resource' => array_values($byResource),

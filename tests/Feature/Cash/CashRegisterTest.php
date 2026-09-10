@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Cash;
 
+use App\Models\Appointment;
 use App\Models\Business;
 use App\Models\Expense;
 use App\Models\PaymentMethod;
@@ -334,6 +335,40 @@ class CashRegisterTest extends TestCase
         ])->assertCreated();
 
         // La accion pendiente mas comun al cerrar la jornada.
+        $this->getJson("/api/v1/daily-summary?date={$fecha}")
+            ->assertOk()
+            ->assertJsonPath('appointments.pending_checkout', 1);
+    }
+
+    public function test_marcarla_completada_sin_cobrarla_no_la_saca_del_aviso(): void
+    {
+        /*
+         * Marcar "Completada" NO cobra: son dos actos distintos a proposito.
+         *
+         * Pero el aviso contaba por estado, asi que marcarla completada la
+         * hacia desaparecer del cierre: el servicio quedaba atendido, sin
+         * cobrar, y fuera de la venta del dia y de la comision de quien lo
+         * hizo. La unica forma de enterarse era que a fin de mes faltara
+         * plata.
+         */
+        $fecha = $this->laboral()->toDateString();
+
+        $cita = $this->postJson('/api/v1/appointments', [
+            'service_id' => $this->service->id,
+            'resource_id' => $this->maria->id,
+            'starts_at' => "{$fecha} 15:00:00",
+            'client_name' => 'Atendida sin cobrar',
+        ])->assertCreated()->json('id');
+
+        $this->postJson("/api/v1/appointments/{$cita}/stage", [
+            'status' => Appointment::STATUS_COMPLETED,
+        ])->assertOk();
+
+        $this->assertNull(
+            Appointment::withoutGlobalScope('business')->find($cita)->checked_out_at,
+            'Mover de etapa no debe cobrar.',
+        );
+
         $this->getJson("/api/v1/daily-summary?date={$fecha}")
             ->assertOk()
             ->assertJsonPath('appointments.pending_checkout', 1);
