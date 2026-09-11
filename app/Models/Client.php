@@ -42,6 +42,19 @@ class Client extends Model
         return $this->hasMany(Appointment::class);
     }
 
+    /**
+     * Las visitas que de verdad ocurrieron y se cobraron.
+     *
+     * Relacion propia y no un `where` suelto porque `has('...', '>=', 5)`
+     * necesita una relacion con nombre para contar. Y son COBRADAS: una cita
+     * agendada y no atendida no dice nada de nadie, y contarla convertiria a
+     * quien nunca aparece en "clienta frecuente".
+     */
+    public function completedAppointments(): HasMany
+    {
+        return $this->hasMany(Appointment::class)->whereNotNull('checked_out_at');
+    }
+
     public function photos(): HasMany
     {
         return $this->hasMany(ClientPhoto::class)->orderByDesc('taken_at');

@@ -147,6 +147,10 @@ class BroadcastController
             'audience.location_id' => ['nullable', 'integer'],
             'audience.visited_since' => ['nullable', 'date_format:Y-m-d'],
             'audience.not_visited_since' => ['nullable', 'date_format:Y-m-d'],
+            // Por cuantas veces vino: "a las frecuentes" o "a las que solo
+            // vinieron una vez" son dos campañas distintas.
+            'audience.min_visits' => ['nullable', 'integer', 'min:1', 'max:500'],
+            'audience.max_visits' => ['nullable', 'integer', 'min:0', 'max:500'],
         ]);
 
         if (! empty($data['scheduled_at'])) {

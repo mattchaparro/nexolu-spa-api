@@ -9,7 +9,9 @@ use App\Models\Client;
 use App\Models\ClientPhoto;
 use App\Services\ClientPortalService;
 use App\Support\ChannelPhone;
+use App\Support\Clients\Segmento;
 use App\Support\ImageStorage;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -43,6 +45,15 @@ class ClientProfileController
                 });
             })
             ->withCount(['appointments as visits' => fn ($q) => $q->where('status', Appointment::STATUS_COMPLETED)])
+            /*
+             * Cuando vino por ultima vez.
+             *
+             * Por `checked_out_at` y no por la fecha de la cita: una cita
+             * agendada y no atendida no dice que la clienta vino.
+             */
+            ->addSelect(['last_visit_at' => Appointment::selectRaw('MAX(checked_out_at)')
+                ->whereColumn('appointments.client_id', 'clients.id')
+                ->whereNotNull('checked_out_at')])
             ->orderBy('name')
             ->paginate(30);
 
@@ -53,6 +64,20 @@ class ClientProfileController
                 'phone' => $c->phone,
                 'email' => $c->email,
                 'visits' => $c->visits,
+
+                /*
+                 * La etiqueta, calculada y no escrita a mano: una etiqueta
+                 * manual sobre 759 fichas queda vieja al mes siguiente. Ver
+                 * App\Support\Clients\Segmento.
+                 */
+                'segment' => $segmento = Segmento::porVisitas((int) $c->visits),
+                'segment_label' => Segmento::etiqueta($segmento),
+
+                'last_visit_at' => $c->last_visit_at,
+                'days_since_visit' => $c->last_visit_at === null
+                    ? null
+                    : CarbonImmutable::parse($c->last_visit_at)->diffInDays(CarbonImmutable::now()),
+
                 'is_active' => (bool) $c->is_active,
             ]),
             'meta' => [

@@ -67,6 +67,25 @@ class BroadcastService
                 fn ($q) => $q->whereDoesntHave('appointments', fn ($qq) => $qq
                     ->whereNotNull('checked_out_at')
                     ->where('checked_out_at', '>=', $filtros['not_visited_since'])),
+            )
+            /*
+             * Por CUANTAS veces vino, no solo por cuando.
+             *
+             * Es la otra mitad de "a quien le mando esto": una promocion de
+             * cumpleaños va a las frecuentes, y una de "vuelve, te extrañamos"
+             * a quien vino una sola vez. Con solo fechas, las dos campañas le
+             * llegaban a la misma gente.
+             *
+             * Se cuentan las visitas COBRADAS, igual que arriba: una cita
+             * agendada y no atendida no dice nada de nadie.
+             */
+            ->when(
+                ! empty($filtros['min_visits']),
+                fn ($q) => $q->has('completedAppointments', '>=', (int) $filtros['min_visits']),
+            )
+            ->when(
+                isset($filtros['max_visits']) && $filtros['max_visits'] !== null,
+                fn ($q) => $q->has('completedAppointments', '<=', (int) $filtros['max_visits']),
             );
     }
 

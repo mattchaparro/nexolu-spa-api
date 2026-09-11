@@ -97,6 +97,34 @@ class BroadcastTest extends TestCase
         ], $overrides));
     }
 
+    /**
+     * Le crea N visitas pasadas, cobradas salvo que se diga lo contrario.
+     *
+     * Cada visita ocupa un hueco distinto: dos clientas el mismo dia a la
+     * misma hora chocan contra el indice anti-solape, que es justo lo que ese
+     * indice existe para hacer.
+     */
+    private function visitar(Client $cliente, int $cuantas, bool $cobrar = true): void
+    {
+        for ($i = 1; $i <= $cuantas; $i++) {
+            $cita = $this->app->make(BookingService::class)->book(
+                $this->business,
+                [['service_id' => $this->manicure->id, 'resource_id' => $this->maria->id,
+                    'starts_at' => CarbonImmutable::now('America/Bogota')
+                        ->subDays($i)->setTime(8 + (self::$hueco++ % 8), 0)]],
+                $cliente,
+                enforceSchedule: false,
+            );
+
+            if ($cobrar) {
+                $cita->forceFill(['checked_out_at' => now()->subDays($i)])->save();
+            }
+        }
+    }
+
+    /** Contador de huecos, para que dos visitas nunca caigan en el mismo. */
+    private static int $hueco = 0;
+
     private function service(): BroadcastService
     {
         return $this->app->make(BroadcastService::class);
@@ -192,6 +220,62 @@ class BroadcastTest extends TestCase
         // Solo Lucia, que nunca ha venido. Carolina vino hace tres dias.
         $nombres = Message::withoutGlobalScopes()->with('client')->get()->pluck('client.name');
         $this->assertSame(['Lucia'], $nombres->all());
+    }
+
+    public function test_se_puede_mandar_solo_a_las_frecuentes(): void
+    {
+        /*
+         * La otra mitad de "¿a quién le mando esto?".
+         *
+         * Con solo fechas, "premiar a la fiel" y "traer de vuelta a la que
+         * vino una vez" le llegaban a la misma gente: las dos son "vino hace
+         * poco". Lo que las separa es cuántas veces.
+         */
+        $fiel = $this->clienta('Carolina');
+        $unaVez = $this->clienta('Lucia');
+
+        $this->visitar($fiel, 5);
+        $this->visitar($unaVez, 1);
+
+        $this->service()->dispatch($this->difusion([
+            'audience' => ['min_visits' => 5],
+        ]));
+
+        $nombres = Message::withoutGlobalScopes()->with('client')->get()->pluck('client.name');
+        $this->assertSame(['Carolina'], $nombres->all());
+    }
+
+    public function test_se_puede_mandar_solo_a_las_que_vinieron_una_vez(): void
+    {
+        $fiel = $this->clienta('Carolina');
+        $unaVez = $this->clienta('Lucia');
+
+        $this->visitar($fiel, 5);
+        $this->visitar($unaVez, 1);
+
+        $this->service()->dispatch($this->difusion([
+            'audience' => ['max_visits' => 1],
+        ]));
+
+        $nombres = Message::withoutGlobalScopes()->with('client')->get()->pluck('client.name');
+        $this->assertSame(['Lucia'], $nombres->all());
+    }
+
+    public function test_una_cita_agendada_y_no_atendida_no_hace_frecuente_a_nadie(): void
+    {
+        /*
+         * Se cuentan las visitas COBRADAS. Sin eso, quien agenda y nunca
+         * aparece terminaria en la campaña de las fieles.
+         */
+        $fantasma = $this->clienta('Carolina');
+
+        $this->visitar($fantasma, 6, cobrar: false);
+
+        $this->service()->dispatch($this->difusion([
+            'audience' => ['min_visits' => 5],
+        ]));
+
+        $this->assertSame(0, Message::withoutGlobalScopes()->count());
     }
 
     /*
