@@ -21,6 +21,7 @@ use App\Http\Controllers\Api\V1\BroadcastController;
 use App\Http\Controllers\Api\V1\CashController;
 use App\Http\Controllers\Api\V1\CheckoutController;
 use App\Http\Controllers\Api\V1\ClientController;
+use App\Http\Controllers\Api\V1\ClientLookupController;
 use App\Http\Controllers\Api\V1\ClientPortalController;
 use App\Http\Controllers\Api\V1\ClientProfileController;
 use App\Http\Controllers\Api\V1\DepositController;
@@ -171,6 +172,16 @@ Route::prefix('v1')->group(function () {
             Route::post('/', [AppointmentController::class, 'store'])->middleware('permission:citas.crear');
             Route::patch('/{appointment}/reschedule', [AppointmentController::class, 'reschedule'])->middleware('permission:citas.editar');
             Route::post('/{appointment}/cancel', [AppointmentController::class, 'cancel'])->middleware('permission:citas.cancelar');
+            /*
+             * Decir de QUIEN es una cita que se agendo sin ficha.
+             *
+             * Con `clientes.identificar` y no con `citas.editar`: quien cobra
+             * tiene que poder hacerlo -- es el momento en que la clienta esta
+             * delante -- sin que eso le abra la agenda entera.
+             */
+            Route::patch('/{appointment}/client', [ClientLookupController::class, 'attach'])
+                ->middleware('permission:clientes.identificar');
+
             Route::post('/{appointment}/checkout', [CheckoutController::class, 'store'])->middleware('permission:caja.cobrar');
             Route::delete('/{appointment}/checkout', [CheckoutController::class, 'destroy'])->middleware('permission:caja.cobrar');
 
@@ -322,6 +333,19 @@ Route::prefix('v1')->group(function () {
         Route::prefix('clients')->middleware('feature:clients')->group(function () {
             // Buscador del mostrador: minimo, para elegir en un desplegable.
             Route::get('/search', [ClientController::class, 'index'])->middleware('permission:clientes.ver');
+
+            /*
+             * Identificar a quien se tiene delante, SIN abrir la base.
+             *
+             * Detras de su propio permiso y en su propio controlador porque es
+             * otra cosa que `search`: se pregunta por un telefono completo, se
+             * responde de a una, y la respuesta no trae telefono ni correo.
+             * Ver ClientLookupController.
+             */
+            Route::middleware('permission:clientes.identificar')->group(function () {
+                Route::get('/lookup', [ClientLookupController::class, 'show']);
+                Route::post('/quick', [ClientLookupController::class, 'store']);
+            });
             Route::post('/', [ClientController::class, 'store'])->middleware('permission:clientes.gestionar');
 
             // La ficha completa. Va detras de su propio permiso: ver el

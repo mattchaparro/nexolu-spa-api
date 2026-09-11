@@ -64,6 +64,24 @@ class PermissionCatalog
             ['name' => 'clientes.gestionar', 'category' => 'clientes', 'label' => 'Gestionar clientes', 'description' => 'Crear y editar clientes.'],
             ['name' => 'clientes.historial', 'category' => 'clientes', 'label' => 'Ver historial', 'description' => 'Consultar el historial de servicios de un cliente.', 'feature' => 'client_history'],
 
+            /*
+             * Identificar a QUIEN TIENE DELANTE, sin abrir la base.
+             *
+             * Nace de dos cosas que se contradicen solo en apariencia. El dueño
+             * no quiere que su equipo pueda ver ni llevarse su base de
+             * clientas -- es el activo del negocio. Pero 2.112 de 3.331 visitas
+             * se cobraron sin ficha, y sin ficha no hay sello, ni encuesta, ni
+             * historial: el programa de fidelizacion solo funciona para un
+             * tercio de las visitas.
+             *
+             * Se resuelve por la FORMA de la busqueda, no por el permiso: con
+             * esto solo se puede preguntar por un telefono COMPLETO, uno a la
+             * vez, y la respuesta es un nombre de pila. No hay listado, no hay
+             * busqueda por nombre, no hay telefonos de vuelta. Sirve para
+             * "¿usted ya esta registrada?" y no sirve para llevarse nada.
+             */
+            ['name' => 'clientes.identificar', 'category' => 'clientes', 'label' => 'Identificar al cobrar', 'description' => 'Buscar por teléfono completo y asociar la clienta a la cita. No permite ver ni listar la base.'],
+
             // Catalogo
             ['name' => 'servicios.gestionar', 'category' => 'catalogo', 'label' => 'Gestionar servicios', 'description' => 'Crear y editar el catalogo, precios y duraciones.'],
             ['name' => 'recursos.gestionar', 'category' => 'catalogo', 'label' => 'Gestionar equipo y recursos', 'description' => 'Administrar al equipo, sillas y cabinas.'],
@@ -134,6 +152,9 @@ class PermissionCatalog
                 'citas.ver',
                 'servicios.registrar',
                 'caja.cobrar',
+                // Identificar a quien tiene delante para que la visita cuente.
+                // NO es acceso a la base: ver el comentario del permiso.
+                'clientes.identificar',
                 'ia.usar',
             ],
 
@@ -143,7 +164,7 @@ class PermissionCatalog
             self::ROLE_RECEPTION => [
                 'citas.ver', 'citas.ver_todas', 'citas.crear', 'citas.editar', 'citas.cancelar',
                 'servicios.registrar',
-                'clientes.ver', 'clientes.gestionar', 'clientes.historial',
+                'clientes.ver', 'clientes.gestionar', 'clientes.historial', 'clientes.identificar',
                 'caja.cobrar', 'caja.turno',
                 'ia.usar',
             ],
