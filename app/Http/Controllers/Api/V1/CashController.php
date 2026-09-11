@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Models\Appointment;
 use App\Models\CashClosing;
 use App\Models\CashShift;
+use App\Models\ProductSale;
 use App\Services\Cash\CashShiftService;
 use App\Services\Cash\CashTotalsService;
 use App\Services\Cash\DailyClosingService;
@@ -268,9 +269,42 @@ class CashController
 
         usort($byResource, fn ($a, $b) => $b['charged'] <=> $a['charged']);
 
+        /*
+         * La venta de producto tambien es ingreso del dia.
+         *
+         * En el sistema viejo esto existia y NO entraba en ningun reporte: se
+         * vendio 1.070.000 en producto en año y medio y el dueño no lo veia
+         * por ningun lado. Un cierre que solo cuenta servicios dice que entro
+         * menos plata de la que entro.
+         */
+        $producto = ProductSale::query()
+            /*
+             * Las sin sede cuentan igual.
+             *
+             * `whereIn` deja fuera los nulos, y una venta sin sede -- una
+             * importada, o hecha antes de que el negocio tuviera sedes -- se
+             * caia del cierre sin que nadie lo notara. Nulo significa "del
+             * negocio", no "de ninguno".
+             */
+            ->when($sedes !== null, fn ($q) => $q->where(
+                fn ($qq) => $qq->whereIn('location_id', $sedes)->orWhereNull('location_id'),
+            ))
+            ->whereBetween('sold_at', [$date->startOfDay()->utc(), $date->addDay()->startOfDay()->utc()])
+            ->get();
+
         return response()->json([
             'date' => $date->toDateString(),
             'totals' => $totals,
+
+            // Aparte de `totals` y no sumado adentro: quien mira el cierre
+            // necesita saber CUANTO entro por servicio y cuanto por producto,
+            // que son dos negocios con margenes distintos.
+            'products' => [
+                'sales' => $producto->count(),
+                'units' => (int) $producto->sum('quantity'),
+                'charged' => round((float) $producto->sum('total'), 2),
+            ],
+
             'appointments' => [
                 'total' => $appointments->count(),
                 'completed' => $appointments->where('status', 'completed')->count(),

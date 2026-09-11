@@ -22,6 +22,7 @@ use App\Http\Controllers\Api\V1\CashController;
 use App\Http\Controllers\Api\V1\CheckoutController;
 use App\Http\Controllers\Api\V1\ClientController;
 use App\Http\Controllers\Api\V1\ClientLookupController;
+use App\Http\Controllers\Api\V1\ProductController;
 use App\Http\Controllers\Api\V1\RecurringExpenseController;
 use App\Http\Controllers\Api\V1\ClientPortalController;
 use App\Http\Controllers\Api\V1\ClientProfileController;
@@ -292,6 +293,30 @@ Route::prefix('v1')->group(function () {
          */
         Route::get('/reports/sales', [SalesReportController::class, 'index'])
             ->middleware(['feature:reports', 'permission:reportes.ver']);
+
+        /*
+         * Producto: catalogo, inventario y venta.
+         *
+         * Detras de `feature:product_sales`, que ya existia como bandera sin
+         * nada detras. Los permisos se reusan a proposito: quien gestiona el
+         * catalogo de servicios gestiona el de producto, y quien puede cobrar
+         * puede vender una crema. Inventar dos permisos nuevos para lo mismo
+         * solo agrega casillas que nadie sabe marcar.
+         */
+        Route::prefix('products')->middleware('feature:product_sales')->group(function () {
+            Route::get('/', [ProductController::class, 'index'])->middleware('permission:citas.ver');
+            Route::get('/sales', [ProductController::class, 'sales'])->middleware('permission:reportes.ver');
+
+            Route::post('/{product}/sell', [ProductController::class, 'sell'])
+                ->middleware('permission:caja.cobrar');
+
+            Route::middleware('permission:servicios.gestionar')->group(function () {
+                Route::post('/', [ProductController::class, 'store']);
+                Route::post('/{product}', [ProductController::class, 'update']);
+                Route::delete('/{product}', [ProductController::class, 'destroy']);
+                Route::post('/{product}/stock', [ProductController::class, 'adjust']);
+            });
+        });
 
         Route::prefix('expenses')->middleware('feature:expenses')->group(function () {
             Route::get('/types', [ExpenseController::class, 'types']);
