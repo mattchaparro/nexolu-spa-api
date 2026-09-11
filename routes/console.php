@@ -76,6 +76,20 @@ Schedule::command('historias:publicar')
  * vieja. Un negocio sin convivencia no tiene de dónde traer nada, y programar
  * un comando que siempre falla llena los logs de ruido que nadie lee.
  */
+/*
+ * Los gastos que se repiten cada mes, puestos en los libros solos.
+ *
+ * Todos los dias y no solo el primero: una plantilla creada un 12 tiene que
+ * causarse ese mes, no esperar al siguiente. El par (plantilla, mes) es unico
+ * en la base, asi que correrlo a diario no puede duplicar nada.
+ *
+ * A las 00:30 para que el gasto ya este cuando alguien abra el cierre del dia.
+ */
+Schedule::command('gastos:fijos')
+    ->dailyAt('00:30')
+    ->withoutOverlapping()
+    ->runInBackground();
+
 if (filled(config('spa.defaults.legacy_sync_business'))
     && filled(config('database.connections.legacy.username'))) {
     Schedule::command('luxury:importar', [

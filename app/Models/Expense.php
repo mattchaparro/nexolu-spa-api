@@ -24,6 +24,9 @@ class Expense extends Model
     protected $fillable = [
         'business_id', 'location_id', 'expense_type_id', 'date', 'description', 'value',
         'scope', 'payment_method_id', 'receipt_path', 'created_by_user_id',
+        // De que plantilla de gasto fijo salio, y de que mes. Ver
+        // App\Services\Expenses\GeneradorDeGastosFijos.
+        'recurring_expense_id', 'recurring_period',
     ];
 
     protected function casts(): array
