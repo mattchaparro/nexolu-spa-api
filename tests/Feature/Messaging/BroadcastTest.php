@@ -222,6 +222,43 @@ class BroadcastTest extends TestCase
         $this->assertSame(['Lucia'], $nombres->all());
     }
 
+    public function test_un_nombre_que_no_es_un_nombre_no_se_manda(): void
+    {
+        /*
+         * 120 de las 759 fichas de Luxury traen un nombre que puso ManyChat:
+         * emojis, una letra, un punto. Una se llama literalmente ".".
+         *
+         * "Hola ., vuelve" parece un error del sistema, y lo es. En una
+         * difusion a 500 personas sale 120 veces.
+         */
+        $this->clienta('🌸');
+
+        $this->service()->dispatch($this->difusion([
+            'body_template' => 'Hola {nombre}, vuelve pronto.',
+        ]));
+
+        $cuerpo = Message::withoutGlobalScopes()->first()->body;
+
+        $this->assertStringNotContainsString('🌸', $cuerpo);
+        // Y sin la coma huerfana que deja el marcador vacio.
+        $this->assertSame('Hola, vuelve pronto.', $cuerpo);
+    }
+
+    public function test_a_quien_si_tiene_nombre_se_le_saluda_por_el(): void
+    {
+        $this->clienta('Laura Bello');
+
+        $this->service()->dispatch($this->difusion([
+            'body_template' => 'Hola {nombre}, vuelve pronto.',
+        ]));
+
+        // Solo el primer nombre: "Hola Laura Bello" no lo escribe nadie.
+        $this->assertSame(
+            'Hola Laura, vuelve pronto.',
+            Message::withoutGlobalScopes()->first()->body,
+        );
+    }
+
     public function test_se_puede_mandar_solo_a_las_frecuentes(): void
     {
         /*

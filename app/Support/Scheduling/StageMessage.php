@@ -5,6 +5,7 @@ namespace App\Support\Scheduling;
 use App\Models\Appointment;
 use App\Models\AppointmentWorkflowStage;
 use App\Services\ClientPortalService;
+use App\Support\NombreDePila;
 use Carbon\CarbonImmutable;
 
 /**
@@ -51,9 +52,15 @@ final class StageMessage
 
         $item = $appointment->items->first();
 
-        // Solo el primer nombre: "Hola Maria Fernanda Restrepo" no lo escribe
-        // nadie por WhatsApp.
-        $nombre = trim(explode(' ', (string) $appointment->client_name)[0] ?? '');
+        /*
+         * Solo el primer nombre, y solo si de verdad lo es.
+         *
+         * "Hola Maria Fernanda Restrepo" no lo escribe nadie por WhatsApp. Y
+         * 120 fichas de Luxury traen un nombre que puso ManyChat -- emojis,
+         * una letra, un punto -- con el que saludar queda peor que no
+         * saludar. Ver App\Support\NombreDePila.
+         */
+        $nombre = NombreDePila::deSaludo($appointment->client_name) ?? '';
 
         return [
             'cliente' => $nombre,

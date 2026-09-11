@@ -4,6 +4,7 @@ namespace App\Services\Messaging;
 
 use App\Models\Broadcast;
 use App\Models\Client;
+use App\Support\NombreDePila;
 use App\Models\Message;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
@@ -179,9 +180,30 @@ class BroadcastService
     /** Los marcadores que puede usar quien escribe la difusion. */
     private function render(string $texto, Broadcast $broadcast, Client $cliente): string
     {
-        return strtr($texto, [
-            '{nombre}' => $cliente->name ?: 'Hola',
+        /*
+         * Si el nombre no sirve para saludar, el marcador se cae y el mensaje
+         * arranca con "Hola" a secas.
+         *
+         * 120 de las 759 fichas de Luxury tienen un nombre que vino de
+         * ManyChat -- emojis, una letra, un punto. En una difusion a 500
+         * personas, "Hola ., gracias por venir tanto" sale 120 veces.
+         *
+         * `{nombre}` se reemplaza por el nombre a secas; quien escribe la
+         * plantilla pone el "Hola". Por eso acá se devuelve '' y no 'Hola':
+         * meterlo dejaría "Hola Hola" en la mayoría de los mensajes.
+         */
+        $pila = NombreDePila::deSaludo($cliente->name);
+
+        $rendido = strtr($texto, [
+            '{nombre}' => $pila ?? '',
             '{negocio}' => $broadcast->business->name,
         ]);
+
+        /*
+         * Y se limpia lo que el marcador vacío deja atrás: "Hola , vuelve" o
+         * "Hola  vuelve". Sin esto, tapar el nombre feo deja una coma huérfana
+         * que se lee igual de mal.
+         */
+        return trim(preg_replace(['/\s+,/u', '/\s{2,}/u'], [',', ' '], $rendido) ?? $rendido);
     }
 }
