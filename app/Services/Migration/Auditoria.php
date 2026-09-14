@@ -99,8 +99,23 @@ class Auditoria
             'Conteos', 'Citas agendadas a futuro',
             $es('employee_services')->where('status_id', 4)->whereNull('deleted_at')
                 ->whereDate('date', '>=', CarbonImmutable::now(self::ZONA)->toDateString())->count(),
+            /*
+             * A FUTURO de los dos lados.
+             *
+             * Sin el filtro de fecha, este lado contaba TODAS las pendientes
+             * -- incluidas las que ya pasaron y nadie cerro -- contra las
+             * futuras del origen. Son dos cosas distintas, y la comprobacion
+             * gritaba "sobran 7" sobre datos que cuadraban perfecto: 3 y 3.
+             *
+             * Una cita pasada que sigue agendada NO es un error de migracion;
+             * es un dia que se cerro sin cerrarla, y cancelarla sola seria
+             * inventarse una decision que nadie tomo (ver ImportaCitasFuturas).
+             * Por eso no se cuenta aca ni alla.
+             */
             DB::table('appointments')->where('business_id', $this->business->id)
-                ->where('status', 'pending')->count(),
+                ->where('status', 'pending')
+                ->where('starts_at', '>=', CarbonImmutable::now(self::ZONA)->startOfDay()->utc())
+                ->count(),
             'Si sobran aca, alguna se cancelo alla y no se reconcilio.',
         );
     }
