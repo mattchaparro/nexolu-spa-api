@@ -123,6 +123,22 @@ class WalkInController
                         ? [$appointment->items->first()->id => (float) $data['final_price']]
                         : [];
 
+                    /*
+                     * Si el servicio es de otro dia, la plata entro ESE dia.
+                     *
+                     * El cierre de caja se arma por la fecha del cobro. Sin
+                     * esto, ponerse al dia el miercoles con lo del sabado le
+                     * mete al arqueo del miercoles un dinero que no esta en el
+                     * cajon, y deja el sabado corto para siempre. Se usa el fin
+                     * del servicio, que es cuando se paga en el mostrador.
+                     *
+                     * A UTC antes de guardar, como hace `BookingService` con
+                     * `starts_at`: Eloquent formatea el Carbon en la zona que
+                     * traiga, asi que una hora de Bogota se guardaria como si
+                     * fuera UTC y el cobro caeria cinco horas corrido.
+                     */
+                    $finDelServicio = $startedAt->addMinutes($service->duration_min);
+
                     $appointment = $this->checkout->checkout(
                         $appointment,
                         $method,
@@ -130,6 +146,7 @@ class WalkInController
                         (float) ($data['discount_amount'] ?? 0),
                         null,
                         $itemPrices,
+                        cobradoEn: $finDelServicio->isToday() ? null : $finDelServicio->utc(),
                     );
                 }
 

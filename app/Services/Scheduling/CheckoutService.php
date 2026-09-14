@@ -8,6 +8,7 @@ use App\Models\PaymentMethod;
 use App\Models\User;
 use App\Services\Loyalty\LoyaltyService;
 use App\Support\Money\DiscountAllocator;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -47,6 +48,7 @@ class CheckoutService
         array $itemPrices = [],
         bool $transition = true,
         ?float $commissionDiscount = null,
+        ?CarbonImmutable $cobradoEn = null,
     ): Appointment {
         if ($appointment->checked_out_at !== null) {
             throw new \DomainException('Esta cita ya fue cobrada.');
@@ -60,7 +62,20 @@ class CheckoutService
             throw new \DomainException('El descuento no puede ser negativo.');
         }
 
-        return DB::transaction(function () use ($appointment, $paymentMethod, $by, $discountAmount, $discountReason, $itemPrices, $transition, $commissionDiscount) {
+        /*
+         * Cuando entro la plata, que no siempre es ahora.
+         *
+         * El cierre de caja se arma por `checked_out_at`. Quien se pone al dia
+         * y sube el miercoles lo que atendio y COBRO el sabado, estaria metiendo
+         * esa plata en el cierre del miercoles: el arqueo de hoy pide un dinero
+         * que no esta en el cajon, y el del sabado quedo corto para siempre.
+         *
+         * Solo lo usa el registro de servicios pasados. Un cobro normal no pasa
+         * nada y sigue siendo `now()`.
+         */
+        $cobradoEn ??= CarbonImmutable::now();
+
+        return DB::transaction(function () use ($appointment, $paymentMethod, $by, $discountAmount, $discountReason, $itemPrices, $transition, $commissionDiscount, $cobradoEn) {
             $items = $appointment->items()->lockForUpdate()->get();
 
             $subtotal = 0.0;
@@ -123,7 +138,7 @@ class CheckoutService
 
             $appointment->update([
                 'payment_method_id' => $paymentMethod->id,
-                'checked_out_at' => now(),
+                'checked_out_at' => $cobradoEn,
                 'checked_out_by_user_id' => $by->id,
                 'subtotal' => round($subtotal, 2),
                 'discount_amount' => round($discountAmount, 2),

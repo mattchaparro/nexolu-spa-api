@@ -253,6 +253,67 @@ class WalkInAndMethodsTest extends TestCase
         $this->assertEqualsWithDelta(45000, $preview->json('by_resource.0.cash'), 0.01);
     }
 
+    public function test_ponerse_al_dia_deja_el_servicio_y_la_plata_en_su_dia(): void
+    {
+        /*
+         * Alejandra empezo a usar la aplicacion con una semana de servicios sin
+         * subir. Los sube el miercoles, pero los presto el sabado.
+         *
+         * Dos cosas tienen que caer en el SABADO: el servicio -- del que sale
+         * su comision de ese corte -- y la plata, porque el cierre de caja se
+         * arma por la fecha del cobro y ese dinero entro al cajon el sabado. Si
+         * cae hoy, el arqueo del miercoles pide una plata que no esta y el del
+         * sabado queda corto para siempre.
+         */
+        Sanctum::actingAs($this->manicurista);
+
+        $tz = $this->business->businessTimezone();
+        $efectivo = PaymentMethod::withoutGlobalScope('business')
+            ->where('business_id', $this->business->id)->where('name', 'Efectivo')->first();
+
+        $sabado = CarbonImmutable::now($tz)->subDays(4)->setTime(14, 0);
+
+        $this->postJson('/api/v1/walk-in', [
+            'service_id' => $this->service->id,
+            'client_name' => 'Sin cita',
+            'started_at' => $sabado->format('Y-m-d\TH:i'),
+            'payment_method_id' => $efectivo->id,
+        ])->assertCreated();
+
+        Sanctum::actingAs($this->admin);
+
+        $eseDia = $this->getJson('/api/v1/cash/closing/preview?date='.$sabado->toDateString())->assertOk();
+        $this->assertEqualsWithDelta(45000, $eseDia->json('total_charged'), 0.01);
+
+        $hoy = CarbonImmutable::now($tz)->toDateString();
+        $this->assertEqualsWithDelta(
+            0,
+            $this->getJson("/api/v1/cash/closing/preview?date={$hoy}")->json('total_charged'),
+            0.01,
+            'La plata del sabado no puede aparecer en el cierre de hoy.',
+        );
+    }
+
+    public function test_registrar_lo_de_un_dia_sin_jornada_no_se_rechaza(): void
+    {
+        /*
+         * Registrar no es agendar. Si el servicio se presto un dia en que ella
+         * no tenia horario -- o fuera de el --, el sistema no puede negarse: ya
+         * paso, y hay que cobrarlo y comisionarlo igual. La jornada protege la
+         * agenda del futuro.
+         */
+        Sanctum::actingAs($this->manicurista);
+
+        $tz = $this->business->businessTimezone();
+        $aDestiempo = CarbonImmutable::now($tz)->subDays(3)->setTime(23, 0);
+
+        $this->postJson('/api/v1/walk-in', [
+            'service_id' => $this->service->id,
+            'client_name' => 'Sin cita',
+            'started_at' => $aDestiempo->format('Y-m-d\TH:i'),
+        ])->assertCreated();
+    }
+
     public function test_el_cierre_separa_lo_que_cada_profesional_cobro_en_efectivo(): void
     {
         Sanctum::actingAs($this->manicurista);
@@ -261,6 +322,17 @@ class WalkInAndMethodsTest extends TestCase
             ->where('business_id', $this->business->id)->where('name', 'Efectivo')->first();
         $datafono = PaymentMethod::withoutGlobalScope('business')
             ->where('business_id', $this->business->id)->where('name', 'Datáfono')->first();
+
+        /*
+         * Con el reloj quieto a media tarde.
+         *
+         * La prueba dice "hace tres horas" queriendo decir "hoy", y eso es
+         * mentira si corre a las 00:24: hace tres horas era ayer, y el cobro
+         * cae -- con razon -- en el cierre de ayer. Se congela el reloj para
+         * que lo que se prueba sea el reparto por medio de pago y no la hora a
+         * la que alguien lanzo la suite.
+         */
+        $this->travelTo(CarbonImmutable::now($this->business->businessTimezone())->setTime(15, 0));
 
         $now = CarbonImmutable::now($this->business->businessTimezone());
 
