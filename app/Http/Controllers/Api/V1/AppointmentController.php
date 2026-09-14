@@ -40,6 +40,27 @@ class AppointmentController
     }
 
     /**
+     * Una cita suelta, por id.
+     *
+     * Hace falta porque "lo que atendio y no cobro" NO cabe en un dia. Mi dia
+     * lista las citas sin cobrar sin importar cuando fueron -- ese es el
+     * punto, que no se pierda ninguna -- pero para abrir el cobro el front
+     * buscaba la cita dentro de la lista del dia de HOY. Una del jueves nunca
+     * estaba ahi, y quien cobraba veia "no encontramos esa cita, recarga la
+     * pagina", que ademas no se arreglaba recargando.
+     *
+     * Con `citas.ver`: quien puede ver la agenda puede ver una cita suya. El
+     * telefono de la clienta ya viaja detras de su propio permiso dentro del
+     * recurso.
+     */
+    public function show(Appointment $appointment): AppointmentResource
+    {
+        return new AppointmentResource(
+            $appointment->load(['items.service', 'items.resource', 'paymentMethod', 'business']),
+        );
+    }
+
+    /**
      * Las citas de un dia, en la zona del negocio.
      */
     public function index(Request $request): AnonymousResourceCollection

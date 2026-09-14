@@ -28,10 +28,21 @@ final class DiscountAllocator
             return [];
         }
 
+        /*
+         * Todo en PESOS ENTEROS, desde la entrada.
+         *
+         * En Colombia no circulan centavos: nadie cobra 49.210,53 ni paga una
+         * comision de 24.605,26. Redondeando tambien lo que entra, la garantia
+         * de que la suma cuadre vuelve a ser exacta -- con precios en centavos
+         * y partes enteras no podia cuadrar nunca.
+         */
+        $prices = array_map(fn ($p) => round((float) $p), $prices);
+        $discount = round($discount);
+
         $subtotal = array_sum($prices);
 
         if ($discount <= 0 || $subtotal <= 0) {
-            return array_map(fn (float $p) => round($p, 2), $prices);
+            return array_map(fn (float $p) => round($p), $prices);
         }
 
         if ($discount > $subtotal) {
@@ -47,13 +58,13 @@ final class DiscountAllocator
                 // La ultima linea se lleva lo que quede, no su proporcion
                 // redondeada: es lo que garantiza que la suma de las partes
                 // sea exactamente el total.
-                $share = round($discount - $distributed, 2);
+                $share = round($discount - $distributed);
             } else {
-                $share = round($discount * ($price / $subtotal), 2);
+                $share = round($discount * ($price / $subtotal));
                 $distributed += $share;
             }
 
-            $charged[] = round($price - $share, 2);
+            $charged[] = round($price - $share);
         }
 
         return $charged;
@@ -74,7 +85,7 @@ final class DiscountAllocator
         $result = [];
 
         foreach ($charged as $i => $amount) {
-            $result[] = round($amount * (float) ($rates[$i] ?? 0), 2);
+            $result[] = round($amount * (float) ($rates[$i] ?? 0));
         }
 
         return $result;

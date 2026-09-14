@@ -29,8 +29,10 @@ class RepartoTest extends TestCase
          */
         $partes = Reparto::proporcional(100, [1, 1, 1]);
 
+        // En PESOS ENTEROS: en Colombia no circulan centavos, y una comision
+        // de 33,33 no la paga nadie. La ultima absorbe el peso que sobra.
         $this->assertSame(100.0, array_sum($partes));
-        $this->assertSame([33.33, 33.33, 33.34], $partes);
+        $this->assertSame([33.0, 33.0, 34.0], $partes);
     }
 
     public function test_ningun_reparto_pierde_ni_gana_plata(): void
@@ -40,8 +42,14 @@ class RepartoTest extends TestCase
             foreach ([[45000, 40000], [20000, 30000], [1, 2, 7], [55000, 40000]] as $pesos) {
                 $partes = Reparto::proporcional((float) $monto, $pesos);
 
+                /*
+                 * Contra el monto REDONDEADO: se reparte en pesos enteros, asi
+                 * que un monto con centavos no puede repartirse en partes que
+                 * sumen sus centavos. La garantia que importa sigue en pie --
+                 * no se pierde ni se gana un peso.
+                 */
                 $this->assertEqualsWithDelta(
-                    (float) $monto,
+                    round((float) $monto),
                     array_sum($partes),
                     0.001,
                     "Se perdio plata repartiendo {$monto} entre ".count($pesos).' partes',

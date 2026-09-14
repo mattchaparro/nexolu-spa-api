@@ -48,12 +48,24 @@ class DiscountAllocatorTest extends TestCase
         $prices = [33333.33, 16666.67, 25000, 25000];
         $charged = DiscountAllocator::allocate($prices, 7777.77);
 
+        /*
+         * Contra los valores REDONDEADOS: se reparte en pesos enteros, asi que
+         * unos precios con centavos no pueden dar partes que sumen centavos.
+         * La garantia que importa sigue en pie -- ni se pierde ni se gana un
+         * peso -- y ademas ya no queda ningun centavo dando vueltas.
+         */
+        $esperado = array_sum(array_map(fn ($p) => round($p), $prices)) - round(7777.77);
+
         $this->assertEqualsWithDelta(
-            array_sum($prices) - 7777.77,
+            $esperado,
             array_sum($charged),
             0.001,
             'La suma de lo cobrado debe ser el subtotal menos el descuento, sin residuo.',
         );
+
+        foreach ($charged as $monto) {
+            $this->assertSame(round($monto), $monto, 'Quedaron centavos en una linea.');
+        }
     }
 
     public function test_un_descuento_igual_al_total_deja_todo_en_cero(): void

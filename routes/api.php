@@ -171,6 +171,15 @@ Route::prefix('v1')->group(function () {
 
         Route::prefix('appointments')->middleware('feature:scheduling')->group(function () {
             Route::get('/', [AppointmentController::class, 'index'])->middleware('permission:citas.ver');
+
+            /*
+             * Una cita suelta. Lo que atendio y no cobro NO cabe en un dia:
+             * para abrir el cobro de una cita de la semana pasada hay que
+             * poder pedirla por id. Antes del `/{appointment}/...` de abajo
+             * por orden, aunque no colisionen.
+             */
+            Route::get('/{appointment}', [AppointmentController::class, 'show'])
+                ->middleware('permission:citas.ver');
             Route::post('/', [AppointmentController::class, 'store'])->middleware('permission:citas.crear');
             Route::patch('/{appointment}/reschedule', [AppointmentController::class, 'reschedule'])->middleware('permission:citas.editar');
             Route::post('/{appointment}/cancel', [AppointmentController::class, 'cancel'])->middleware('permission:citas.cancelar');

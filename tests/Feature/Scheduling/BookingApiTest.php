@@ -2,11 +2,14 @@
 
 namespace Tests\Feature\Scheduling;
 
+use Carbon\CarbonImmutable;
+use App\Models\Appointment;
 use App\Models\Business;
 use App\Models\Client;
 use App\Models\User;
 use App\Support\PermissionCatalog;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
@@ -47,6 +50,61 @@ class BookingApiTest extends TestCase
     private function actAsAdmin(): void
     {
         Sanctum::actingAs($this->admin);
+    }
+
+    public function test_se_puede_pedir_una_cita_de_otro_dia_por_id(): void
+    {
+        /*
+         * Lo que atendio y no cobro NO cabe en un dia.
+         *
+         * "Mi dia" lista las citas sin cobrar sin importar cuando fueron --
+         * ese es el punto, que no se pierda ninguna -- pero para abrir el
+         * cobro el front buscaba la cita dentro de la lista del dia de HOY.
+         * Una del jueves nunca estaba ahi, y quien cobraba veia "no
+         * encontramos esa cita, recarga la pagina": un mensaje que ademas
+         * proponia una solucion que no funcionaba.
+         */
+        $this->actAsAdmin();
+
+        $haceUnaSemana = CarbonImmutable::now($this->business->businessTimezone())
+            ->subWeek()->setTime(10, 0);
+
+        $cita = Appointment::create([
+            'business_id' => $this->business->id,
+            'client_name' => 'Carolina',
+            'starts_at' => $haceUnaSemana->utc(),
+            'ends_at' => $haceUnaSemana->addHour()->utc(),
+        ]);
+
+        $this->getJson("/api/v1/appointments/{$cita->id}")
+            ->assertOk()
+            ->assertJsonPath('id', $cita->id)
+            ->assertJsonPath('client_name', 'Carolina');
+    }
+
+    public function test_una_cita_de_otro_negocio_no_se_puede_pedir(): void
+    {
+        $otro = $this->makeBusiness();
+        $desde = CarbonImmutable::now($otro->businessTimezone());
+
+        /*
+         * Insertada a mano y ANTES de autenticarse: con sesion abierta, el
+         * hook `creating` le reescribe el business_id al del usuario y la
+         * prueba terminaria comprobando que un negocio ve lo suyo.
+         */
+        $id = DB::table('appointments')->insertGetId([
+            'business_id' => $otro->id,
+            'client_name' => 'De otro spa',
+            'status' => Appointment::STATUS_PENDING,
+            'starts_at' => $desde->utc(),
+            'ends_at' => $desde->addHour()->utc(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->actAsAdmin();
+
+        $this->getJson("/api/v1/appointments/{$id}")->assertNotFound();
     }
 
     public function test_login_devuelve_token_usuario_permisos_y_features(): void
