@@ -110,6 +110,41 @@ class DiscountAllocatorTest extends TestCase
         $this->assertSame([15000.0, 20000.0], $commissions);
     }
 
+    public function test_la_comision_de_la_visita_no_gana_un_peso_al_partirse(): void
+    {
+        /*
+         * El caso real que lo destapo, con los numeros de Luxury.
+         *
+         * Combo "Semi Rubber Manos + Semi Pies": carta 95.000, se cobra
+         * 85.000, comision al 50%. El sistema viejo lo cobra en UNA linea y
+         * guarda 42.500.
+         *
+         * Nexolu lo parte en sus dos servicios -- hace falta para saber quien
+         * hizo cada mitad -- y redondeando cada comision por su cuenta daba
+         * 24.606 + 17.895 = 42.501. Un peso de mas por visita, que en la
+         * nomina del mes son los pesos que nadie sabe explicar.
+         */
+        $cobrado = DiscountAllocator::allocate([55000, 40000], 10000);
+
+        $this->assertSame([49211.0, 35789.0], $cobrado);
+        $this->assertSame(85000.0, array_sum($cobrado));
+
+        $comisiones = DiscountAllocator::commissions($cobrado, [0.5, 0.5]);
+
+        $this->assertSame(42500.0, array_sum($comisiones), 'La comision de la visita es 42.500.');
+    }
+
+    public function test_ninguna_comision_queda_negativa(): void
+    {
+        // Deducir la ultima no puede convertirla en un descuento que nadie
+        // pidio, por raros que sean los porcentajes.
+        foreach ([[0.9, 0.01], [1.0, 0.0], [0.0, 1.0]] as $tasas) {
+            foreach (DiscountAllocator::commissions([7, 3], $tasas) as $c) {
+                $this->assertGreaterThanOrEqual(0, $c);
+            }
+        }
+    }
+
     public function test_una_linea_sin_porcentaje_no_genera_comision(): void
     {
         $this->assertSame([0.0, 15000.0], DiscountAllocator::commissions([50000, 50000], [null, 0.30]));

@@ -82,11 +82,52 @@ final class DiscountAllocator
      */
     public static function commissions(array $charged, array $rates): array
     {
-        $result = [];
+        if ($charged === []) {
+            return [];
+        }
+
+        /*
+         * La ULTIMA se deduce, igual que en `Reparto`.
+         *
+         * Redondear cada linea por su cuenta gana o pierde un peso. El caso
+         * que lo destapo: un combo de 85.000 al 50% partido en dos servicios
+         * daba 24.606 + 17.895 = 42.501, cuando la comision de esa visita es
+         * 42.500 -- y eso es exactamente lo que el sistema viejo, que cobra el
+         * combo en UNA linea, tenia guardado.
+         *
+         * El total exacto se calcula ANTES de redondear nada y la ultima linea
+         * absorbe la diferencia. Asi la suma de las comisiones es siempre la
+         * comision de la visita, aunque cada linea tenga su propio porcentaje.
+         */
+        $exactas = [];
+        $total = 0.0;
 
         foreach ($charged as $i => $amount) {
-            $result[] = round($amount * (float) ($rates[$i] ?? 0));
+            $exacta = (float) $amount * (float) ($rates[$i] ?? 0);
+            $exactas[] = $exacta;
+            $total += $exacta;
         }
+
+        $result = [];
+        $acumulado = 0.0;
+        $ultima = count($exactas) - 1;
+
+        foreach ($exactas as $i => $exacta) {
+            if ($i === $ultima) {
+                break;
+            }
+
+            $parte = round($exacta);
+            $acumulado += $parte;
+            $result[] = $parte;
+        }
+
+        /*
+         * Nunca negativa. Con porcentajes muy distintos y montos chicos, la
+         * deduccion podria dar -1 y una comision negativa es un descuento que
+         * nadie pidio.
+         */
+        $result[] = max(0.0, round($total) - $acumulado);
 
         return $result;
     }
