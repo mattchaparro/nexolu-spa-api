@@ -38,7 +38,30 @@ final class StageMessage
             $template = str_replace('{'.$key.'}', $value, $template);
         }
 
-        return $template;
+        return self::limpiar($template);
+    }
+
+    /**
+     * Lo que deja atras un marcador vacio.
+     *
+     * `{cliente}` se cae cuando la ficha no trae un nombre con el que saludar
+     * -- 120 de las 759 de Luxury vienen de ManyChat con emojis o un punto.
+     * Sin esto, "¡Gracias por venir, {cliente}!" queda en "¡Gracias por venir,
+     * !", que se lee tan mal como el nombre feo que se quiso tapar.
+     *
+     * Aparecio mandando una encuesta de verdad: el arreglo estaba puesto en
+     * las difusiones y faltaba aca.
+     */
+    private static function limpiar(string $texto): string
+    {
+        // Signo pegado a la coma: "venir, !" -> "venir!". Y de paso "venir, ."
+        $texto = preg_replace('/,\s*([!?.])/u', '$1', $texto) ?? $texto;
+
+        // Coma o espacio sobrante antes de un cierre o del final.
+        $texto = preg_replace('/\s+,/u', ',', $texto) ?? $texto;
+        $texto = preg_replace('/\s{2,}/u', ' ', $texto) ?? $texto;
+
+        return trim($texto);
     }
 
     /** @return array<string, string> */

@@ -19,6 +19,7 @@ use App\Support\PermissionCatalog;
 use App\Support\Scheduling\DefaultWorkflow;
 use App\Support\Scheduling\FlujoSinConfirmacion;
 use App\Support\Scheduling\StageActionCatalog;
+use App\Support\Scheduling\StageMessage;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Laravel\Sanctum\Sanctum;
@@ -188,6 +189,43 @@ class StageWorkflowTest extends TestCase
         $this->assertContains('No asistió', $etiquetas);
         // Y no se ofrece quedarse donde ya está.
         $this->assertNotContains('Agendada', $etiquetas);
+    }
+
+    public function test_sin_nombre_usable_el_mensaje_no_queda_cojo(): void
+    {
+        /*
+         * 120 de las 759 fichas de Luxury traen un nombre que puso ManyChat:
+         * emojis, una letra, un punto. El saludo se cae, y sin limpiar lo que
+         * deja atras la plantilla queda en "¡Gracias por venir, !" -- que se
+         * lee tan mal como el nombre feo que se quiso tapar.
+         *
+         * Aparecio mandando una encuesta de verdad: el arreglo estaba puesto
+         * en las difusiones y faltaba en los avisos de la cita.
+         */
+        $cita = $this->agendar();
+        $cita->forceFill(['client_name' => '.Jeni'])->save();
+
+        $texto = StageMessage::render(
+            '¡Gracias por venir, {cliente}! ¿Nos cuentas cómo te fue?',
+            $cita->fresh(['items.service', 'items.resource', 'business']),
+        );
+
+        $this->assertSame('¡Gracias por venir! ¿Nos cuentas cómo te fue?', $texto);
+    }
+
+    public function test_con_nombre_usable_se_saluda_normal(): void
+    {
+        $cita = $this->agendar();
+        $cita->forceFill(['client_name' => 'Laura Bello'])->save();
+
+        // Solo el primer nombre: "Hola Laura Bello" no lo escribe nadie.
+        $this->assertSame(
+            '¡Gracias por venir, Laura! ¿Nos cuentas cómo te fue?',
+            StageMessage::render(
+                '¡Gracias por venir, {cliente}! ¿Nos cuentas cómo te fue?',
+                $cita->fresh(['items.service', 'items.resource', 'business']),
+            ),
+        );
     }
 
     public function test_el_flujo_sin_confirmacion_no_ofrece_confirmar(): void
