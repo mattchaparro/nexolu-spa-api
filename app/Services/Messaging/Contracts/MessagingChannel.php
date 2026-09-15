@@ -32,7 +32,19 @@ interface MessagingChannel
      * para que el llamante los declare junto al resto de argumentos del
      * envio, no en un paso aparte facil de olvidar.
      */
-    public function sendText(string $to, string $body, ?int $businessId = null, string $type = 'generico'): bool;
+    public function sendText(
+        string $to,
+        string $body,
+        ?int $businessId = null,
+        string $type = 'generico',
+        /*
+         * Clave de idempotencia hacia el canal. Nexolu Communications la
+         * respeta (header Idempotency-Key): reintentar el MISMO mensaje
+         * (misma clave) devuelve la respuesta original sin reenviar - un
+         * timeout + retry deja de significar un mensaje doble a la clienta.
+         */
+        ?string $idempotencyKey = null,
+    ): bool;
 
     /**
      * Mensaje de plantilla: via para mensajes iniciados por el negocio (OTP,
@@ -48,6 +60,7 @@ interface MessagingChannel
         array $components = [],
         ?int $businessId = null,
         string $type = 'generico',
+        ?string $idempotencyKey = null,
     ): bool;
 
     /**

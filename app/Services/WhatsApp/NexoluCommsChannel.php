@@ -29,14 +29,19 @@ class NexoluCommsChannel implements MessagingChannel
         return ! empty(config('services.comms_core.api_key')) && ! empty(config('services.comms_core.base_url'));
     }
 
-    public function sendText(string $to, string $body, ?int $businessId = null, string $type = 'generico'): bool
-    {
+    public function sendText(
+        string $to,
+        string $body,
+        ?int $businessId = null,
+        string $type = 'generico',
+        ?string $idempotencyKey = null,
+    ): bool {
         /*
          * Texto libre = mensaje de SERVICIO para Meta: solo se entrega dentro
          * de la ventana de 24h y no se cobra. Marcarlo como utility inflaria
          * el costo reportado con conversaciones que fueron gratis.
          */
-        return $this->send($to, ['text' => $body], $businessId, 'service');
+        return $this->send($to, ['text' => $body], $businessId, 'service', $idempotencyKey);
     }
 
     /**
@@ -49,6 +54,7 @@ class NexoluCommsChannel implements MessagingChannel
         array $components = [],
         ?int $businessId = null,
         string $type = 'generico',
+        ?string $idempotencyKey = null,
     ): bool {
         // Una plantilla es un mensaje que INICIA el negocio: Meta lo cobra, y
         // las nuestras son de utilidad (recordatorios, cupos), no publicidad.
@@ -58,7 +64,7 @@ class NexoluCommsChannel implements MessagingChannel
                 'language' => $languageCode,
                 'components' => $components,
             ],
-        ], $businessId, 'utility');
+        ], $businessId, 'utility', $idempotencyKey);
     }
 
     /**
@@ -134,8 +140,13 @@ class NexoluCommsChannel implements MessagingChannel
     /**
      * @param  array<string, mixed>  $extra  campos propios de este envio (text, whatsapp_template, whatsapp_flow)
      */
-    private function send(string $to, array $extra, ?int $businessId = null, ?string $category = null): bool
-    {
+    private function send(
+        string $to,
+        array $extra,
+        ?int $businessId = null,
+        ?string $category = null,
+        ?string $idempotencyKey = null,
+    ): bool {
         if (! $this->isConfigured()) {
             $this->logSafe('warning', 'Nexolu Communications: intento de envio sin credenciales', ['to' => $to]);
 
@@ -149,7 +160,19 @@ class NexoluCommsChannel implements MessagingChannel
              * balde: justo el dato que hace falta para cobrarle a cada local
              * lo suyo, y que no se puede reconstruir despues.
              */
-            $response = $this->client()->post('/v1/notifications/send', array_filter(array_merge([
+            /*
+             * Idempotencia del lado de Communications: reintentar el MISMO
+             * mensaje (misma clave) devuelve la respuesta original sin
+             * reenviar. La clave es del llamante (aca: el id de la fila de
+             * la bandeja) - un timeout + "volver a enviar" deja de poder
+             * duplicarle el mensaje a la clienta.
+             */
+            $client = $this->client();
+            if ($idempotencyKey !== null) {
+                $client = $client->withHeaders(['Idempotency-Key' => $idempotencyKey]);
+            }
+
+            $response = $client->post('/v1/notifications/send', array_filter(array_merge([
                 'channels' => ['whatsapp'],
                 'to' => ['whatsapp' => $to],
                 'business_id' => $businessId === null ? null : (string) $businessId,

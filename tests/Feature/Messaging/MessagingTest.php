@@ -223,6 +223,26 @@ class MessagingTest extends TestCase
         $this->assertCount(1, $canal->sent);
     }
 
+    public function test_cada_envio_viaja_con_su_clave_de_idempotencia(): void
+    {
+        /*
+         * La clave ES la fila de la bandeja: reintentar el mismo Message
+         * (boton "volver a enviar", un job que corre dos veces) llega a
+         * Nexolu Communications con la misma clave, y alla no se duplica.
+         */
+        $canal = $this->canalQueFunciona();
+        $this->business->update(['messaging_mode' => 'auto']);
+
+        $mensaje = $this->dispatcher()->queue(
+            $this->business->fresh(),
+            Message::KIND_REMINDER,
+            '+573001112233',
+            'Hola Carolina',
+        );
+
+        $this->assertSame('spa-msg:'.$mensaje->id, $canal->sent[0]['idempotency_key']);
+    }
+
     public function test_sin_canal_configurado_no_promete_envio(): void
     {
         /*

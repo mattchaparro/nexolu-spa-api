@@ -165,6 +165,14 @@ class MessageDispatcher
              * texto es que Meta lo rechace -- silenciosamente, salvo por el
              * motivo que queda en la bandeja.
              */
+            /*
+             * La clave de idempotencia ES la fila de la bandeja: reintentar
+             * este mismo Message (boton "volver a enviar", el job que corre
+             * dos veces) no puede duplicarle el mensaje a la clienta - el
+             * canal (Nexolu Communications) devuelve la respuesta original.
+             */
+            $idempotencyKey = 'spa-msg:'.$message->id;
+
             $ok = $message->usesTemplate()
                 ? $this->channel->sendTemplate(
                     $message->to,
@@ -173,12 +181,14 @@ class MessageDispatcher
                     $this->bodyComponents($message->template_params ?? []),
                     $message->business_id,
                     $message->kind,
+                    $idempotencyKey,
                 )
                 : $this->channel->sendText(
                     $message->to,
                     $message->body,
                     $message->business_id,
                     $message->kind,
+                    $idempotencyKey,
                 );
 
             if (! $ok) {

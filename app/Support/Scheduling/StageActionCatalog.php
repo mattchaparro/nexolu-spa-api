@@ -35,6 +35,9 @@ final class StageActionCatalog
     /** Mandarle al cliente el enlace de la encuesta. */
     public const SEND_SURVEY = 'send_survey';
 
+    /** Iniciar un flujo de conversacion de Nexolu Connect (botones, ramas). */
+    public const TRIGGER_CONNECT_FLOW = 'trigger_connect_flow';
+
     /*
      * NO estan en el catalogo, a proposito, hasta que exista con que
      * ejecutarlas: pedir anticipo (falta el enlace de pago de Wompi) y sumar
@@ -81,6 +84,15 @@ final class StageActionCatalog
             'critical' => false,
             'feature' => 'no_show_penalties',
             'config' => [],
+        ],
+        self::TRIGGER_CONNECT_FLOW => [
+            'label' => 'Iniciar un flujo de WhatsApp',
+            'help' => 'Arranca una conversación automática de Nexolú Connect (botones para '
+                .'cancelaciones, garantías, gestionar la cita...). El flujo se crea en el panel '
+                .'de Connect y aquí va su nombre.',
+            'critical' => false,
+            'feature' => 'reminders',
+            'config' => ['flow'],
         ],
         self::SEND_SURVEY => [
             'label' => 'Preguntarle cómo le fue',

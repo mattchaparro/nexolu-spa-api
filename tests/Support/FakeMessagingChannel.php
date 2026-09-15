@@ -56,8 +56,13 @@ class FakeMessagingChannel implements MessagingChannel
         return $this->configured;
     }
 
-    public function sendText(string $to, string $body, ?int $businessId = null, string $type = 'generico'): bool
-    {
+    public function sendText(
+        string $to,
+        string $body,
+        ?int $businessId = null,
+        string $type = 'generico',
+        ?string $idempotencyKey = null,
+    ): bool {
         if ($this->throws !== null) {
             throw new \RuntimeException($this->throws);
         }
@@ -66,7 +71,14 @@ class FakeMessagingChannel implements MessagingChannel
             return false;
         }
 
-        $this->sent[] = ['to' => $to, 'body' => $body, 'type' => $type, 'template' => null, 'params' => []];
+        $this->sent[] = [
+            'to' => $to,
+            'body' => $body,
+            'type' => $type,
+            'template' => null,
+            'params' => [],
+            'idempotency_key' => $idempotencyKey,
+        ];
 
         return true;
     }
@@ -78,6 +90,7 @@ class FakeMessagingChannel implements MessagingChannel
         array $components = [],
         ?int $businessId = null,
         string $type = 'generico',
+        ?string $idempotencyKey = null,
     ): bool {
         if ($this->throws !== null) {
             throw new RuntimeException($this->throws);

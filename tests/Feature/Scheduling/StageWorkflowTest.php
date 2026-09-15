@@ -117,14 +117,14 @@ class StageWorkflowTest extends TestCase
                 return true;
             }
 
-            public function sendText(string $to, string $body, ?int $businessId = null, string $type = 'generico'): bool
+            public function sendText(string $to, string $body, ?int $businessId = null, string $type = 'generico', ?string $idempotencyKey = null): bool
             {
                 $this->sent[] = ['to' => $to, 'body' => $body];
 
                 return true;
             }
 
-            public function sendTemplate(string $to, string $name, string $languageCode, array $components = [], ?int $businessId = null, string $type = 'generico'): bool
+            public function sendTemplate(string $to, string $name, string $languageCode, array $components = [], ?int $businessId = null, string $type = 'generico', ?string $idempotencyKey = null): bool
             {
                 return true;
             }
@@ -454,12 +454,12 @@ class StageWorkflowTest extends TestCase
                 return true;
             }
 
-            public function sendText(string $to, string $body, ?int $businessId = null, string $type = 'generico'): bool
+            public function sendText(string $to, string $body, ?int $businessId = null, string $type = 'generico', ?string $idempotencyKey = null): bool
             {
                 throw new \RuntimeException('Timeout hablando con el proveedor');
             }
 
-            public function sendTemplate(string $to, string $name, string $languageCode, array $components = [], ?int $businessId = null, string $type = 'generico'): bool
+            public function sendTemplate(string $to, string $name, string $languageCode, array $components = [], ?int $businessId = null, string $type = 'generico', ?string $idempotencyKey = null): bool
             {
                 return true;
             }

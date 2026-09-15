@@ -286,6 +286,7 @@ class StageTransitionService
             Actions\ReleaseSlotAction::class,
             Actions\ApplyNoShowPenaltyAction::class,
             Actions\SendSurveyAction::class,
+            Actions\TriggerConnectFlowAction::class,
         ])
             ->map(fn (string $class) => app($class))
             ->keyBy(fn (StageAction $action) => $action->type())
