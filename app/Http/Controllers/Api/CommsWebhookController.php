@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Jobs\AnswerWhatsappMessageJob;
+use App\Models\Business;
 use App\Models\Message;
 use App\Models\WhatsappConversation;
 use App\Services\WhatsApp\ConversationRouter;
@@ -35,7 +36,19 @@ class CommsWebhookController
             return response()->json(['error' => 'invalid_signature'], 401);
         }
 
-        $entrante = $this->firstIncomingMessage($request->json()->all());
+        $payload = $request->json()->all();
+
+        /*
+         * No todo lo que manda Communications es un sobre de Meta: el nodo
+         * de Acciones de un flujo de Connect ("notificar a la app") llega
+         * como un evento propio. Es el relevo a humano: la clienta pidio
+         * hablar con alguien, o el flujo decidio que esto lo ve una persona.
+         */
+        if (($payload['object'] ?? null) === 'nexolu-comms' && ($payload['event'] ?? null) === 'flow_notify') {
+            return $this->flowNotify($payload);
+        }
+
+        $entrante = $this->firstIncomingMessage($payload);
 
         /*
          * Siempre 200, incluso cuando no hay nada que hacer.
@@ -87,6 +100,17 @@ class CommsWebhookController
         $this->guardarEntrante($conversacion, $texto);
 
         /*
+         * Si un flujo de Connect ya atendio este mensaje (avanzo botones,
+         * arranco por keyword), el agente se calla: dos respuestas a la
+         * misma pregunta -- la del flujo y la del modelo -- confunden mas
+         * que ayudar. El header lo pone Communications; sin header (motor
+         * viejo o caido) se sigue como siempre.
+         */
+        if ($request->header('X-Nexolu-Flow-Handled') === '1') {
+            return response()->json(['ok' => true, 'handled' => true, 'agent' => 'flow']);
+        }
+
+        /*
          * Si alguien del equipo esta atendiendo, el agente se calla.
          *
          * Dos respuestas a la misma pregunta -- una de la empleada y otra del
@@ -113,6 +137,77 @@ class CommsWebhookController
         AnswerWhatsappMessageJob::dispatch($conversacion->id, $texto);
 
         return response()->json(['ok' => true, 'handled' => true]);
+    }
+
+    /**
+     * El relevo a humano que pide un flujo de Connect.
+     *
+     * El flujo ya le dijo a la clienta "ya te contacto con alguien" (y
+     * Connect ya mando el correo a los agentes). Lo que falta es del lado
+     * de ACA: callar al bot para que la persona que llegue no compita con
+     * el, dejar una nota visible en el hilo con el motivo, y reabrir la
+     * conversacion como no-leida para que salte en la bandeja.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    private function flowNotify(array $payload): JsonResponse
+    {
+        $phone = ChannelPhone::normalize((string) ($payload['contact']['phone'] ?? ''));
+
+        if ($phone === null) {
+            return response()->json(['ok' => true, 'handled' => false]);
+        }
+
+        $business = Business::find((int) ($payload['business_id'] ?? 0));
+
+        $conversacion = $business !== null
+            ? WhatsappConversation::withoutGlobalScope('business')->firstOrCreate(
+                ['business_id' => $business->id, 'phone' => $phone],
+            )
+            /*
+             * Numero compartido sin negocio declarado en el flujo: la
+             * conversacion mas reciente de ese telefono es la que esta
+             * viva. Si tampoco existe, no hay a quien avisar aca (el
+             * correo de Connect ya salio de todas formas).
+             */
+            : WhatsappConversation::withoutGlobalScope('business')
+                ->where('phone', $phone)
+                ->orderByDesc('last_message_at')
+                ->first();
+
+        if ($conversacion === null) {
+            Log::info('comms.flow_notify: sin conversacion que lo reciba', ['phone' => $phone]);
+
+            return response()->json(['ok' => true, 'handled' => false]);
+        }
+
+        $conversacion->pauseAgent();
+
+        Message::create([
+            'business_id' => $conversacion->business_id,
+            'conversation_id' => $conversacion->id,
+            'client_id' => $conversacion->client_id,
+            'kind' => Message::KIND_STAFF,
+            'direction' => Message::DIRECTION_OUT,
+            'to' => $conversacion->phone,
+            'body' => sprintf(
+                '⚑ %s (flujo «%s» de Connect — el bot queda en pausa, responde tú)',
+                (string) ($payload['message'] ?? 'La clienta pidió hablar con una persona.'),
+                (string) ($payload['flow'] ?? '?'),
+            ),
+            // Nota interna del hilo, no un envio: nace "enviada" para que
+            // el outbox jamas la ponga en la cola de salida.
+            'status' => Message::STATUS_SENT,
+            'sent_at' => now(),
+        ]);
+
+        $conversacion->update([
+            'last_message_at' => now(),
+            'read_at' => null,
+            'status' => WhatsappConversation::STATUS_OPEN,
+        ]);
+
+        return response()->json(['ok' => true, 'handled' => true, 'event' => 'flow_notify']);
     }
 
     /**

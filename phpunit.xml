@@ -41,5 +41,15 @@
         -->
         <env name="COMMS_CORE_API_KEY" value=""/>
         <env name="COMMS_CORE_BASE_URL" value=""/>
+        <env name="COMMS_CORE_TOOLS_KEY" value=""/>
+        <!--
+            Misma regla para el IA Core: con la llave del .env filtrada, un
+            ia-core corriendo en localhost:8001 (el rig de integracion local)
+            CONTESTA los webhooks de los tests y aparece un mensaje de mas
+            en los hilos. Cada test que quiera agente lo configura a mano
+            con config()->set() y Http::fake(), como WhatsappWebhookTest.
+        -->
+        <env name="IA_CORE_API_KEY" value=""/>
+        <env name="IA_CORE_BASE_URL" value=""/>
     </php>
 </phpunit>

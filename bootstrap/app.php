@@ -4,6 +4,7 @@ use App\Http\Middleware\EnsureBusinessAdmin;
 use App\Http\Middleware\EnsureBusinessFeatureEnabled;
 use App\Http\Middleware\EnsureBusinessPermission;
 use App\Http\Middleware\EnsureSuperAdmin;
+use App\Http\Middleware\EnsureValidConnectKey;
 use App\Http\Middleware\EnsureValidIaCoreKey;
 use App\Http\Middleware\SentryBusinessContext;
 use Illuminate\Foundation\Application;
@@ -29,6 +30,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'feature' => EnsureBusinessFeatureEnabled::class,
             'superadmin' => EnsureSuperAdmin::class,
             'ia-core.key' => EnsureValidIaCoreKey::class,
+            'connect.key' => EnsureValidConnectKey::class,
             'permission' => EnsureBusinessPermission::class,
             'business-admin' => EnsureBusinessAdmin::class,
             'sentry.context' => SentryBusinessContext::class,

@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\AiToolInvokeController;
 use App\Http\Controllers\Api\CommsWebhookController;
+use App\Http\Controllers\Api\ConnectToolsController;
 use App\Http\Controllers\Api\V1\Admin\BreakController;
 use App\Http\Controllers\Api\V1\Admin\BusinessPaymentMethodController;
 use App\Http\Controllers\Api\V1\Admin\CampaignController;
@@ -680,6 +681,18 @@ Route::prefix('v1')->group(function () {
 Route::prefix('ai')->middleware('ia-core.key')->group(function () {
     Route::get('/tools/catalog', [AiToolInvokeController::class, 'catalog']);
     Route::post('/tools/invoke', [AiToolInvokeController::class, 'invoke']);
+});
+
+/*
+|--------------------------------------------------------------------------
+| Herramientas para flujos de Connect (fase 06)
+|--------------------------------------------------------------------------
+| La accion "Solicitud externa" de un flujo consulta aca (Bearer =
+| COMMS_CORE_TOOLS_KEY) y guarda el `resumen` en un custom field del
+| contacto. Solo lecturas: agendar es del agente IA o la pagina publica.
+*/
+Route::prefix('connect')->middleware('connect.key')->group(function () {
+    Route::get('/disponibilidad', [ConnectToolsController::class, 'disponibilidad']);
 });
 
 /*

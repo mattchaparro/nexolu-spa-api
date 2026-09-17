@@ -24,6 +24,10 @@ return [
         'api_key' => env('COMMS_CORE_API_KEY'),
         'base_url' => env('COMMS_CORE_BASE_URL', 'http://localhost:8010'),
         'webhook_secret' => env('COMMS_CORE_WEBHOOK_SECRET'),
+        // La que un flujo de Connect manda como Bearer en su "Solicitud
+        // externa" (GET /api/connect/*). Distinta de api_key a proposito:
+        // esta viaja escrita en definiciones de flujo.
+        'tools_key' => env('COMMS_CORE_TOOLS_KEY'),
     ],
 
     /*
