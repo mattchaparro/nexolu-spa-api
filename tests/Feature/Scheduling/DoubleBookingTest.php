@@ -29,6 +29,7 @@ class DoubleBookingTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        $this->freezeClockBeforeWednesday();
         $this->booking = app(BookingService::class);
         $this->availability = app(AvailabilityService::class);
     }

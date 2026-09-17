@@ -48,6 +48,7 @@ class PublicBookingTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        $this->freezeClockBeforeWednesday();
 
         /*
          * El limitador vive en cache, no en la base, asi que `RefreshDatabase`

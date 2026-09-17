@@ -17,6 +17,8 @@ use Carbon\CarbonImmutable;
  */
 trait SchedulingScenario
 {
+    private const SCENARIO_WEDNESDAY = '2026-09-16';
+
     protected function makeBusiness(array $settings = [], string $timezone = 'America/Bogota'): Business
     {
         return Business::create([
@@ -107,10 +109,44 @@ trait SchedulingScenario
         return $service;
     }
 
-    /** Un miercoles cualquiera, lejos de cualquier borde de mes o de año. */
+    /**
+     * Un miercoles cualquiera, lejos de cualquier borde de mes o de año.
+     *
+     * Es una fecha fija y la agenda nunca ofrece horas pasadas, asi que solo
+     * sirve con el reloj anclado antes (ver freezeClockBeforeWednesday). El
+     * chequeo existe porque sin el la falla no dice nada: la disponibilidad
+     * vuelve vacia y la prueba se cae comparando contra [].
+     */
     protected function wednesday(): CarbonImmutable
     {
-        return CarbonImmutable::parse('2026-09-16', 'America/Bogota')->startOfDay();
+        $miercoles = CarbonImmutable::parse(self::SCENARIO_WEDNESDAY, 'America/Bogota')->startOfDay();
+
+        if (CarbonImmutable::now()->greaterThan($miercoles->endOfDay())) {
+            $this->fail(
+                'El reloj ya paso el miercoles del escenario. '
+                .'Llama $this->freezeClockBeforeWednesday() en el setUp de '.static::class.'.',
+            );
+        }
+
+        return $miercoles;
+    }
+
+    /**
+     * Ancla el reloj el lunes antes de wednesday(), a las 08:00 hora Bogota.
+     *
+     * El 17 de septiembre de 2026 ese miercoles quedo en el pasado y medio
+     * centenar de pruebas se cayo de golpe sin que cambiara una linea de
+     * codigo. Se congela el reloj en vez de correr la fecha porque correrla
+     * solo aplaza la misma bomba, y porque hay pruebas que afirman sobre la
+     * fecha literal. Lunes y no el mismo miercoles: deja margen de sobra para
+     * la anticipacion minima de reserva y de cancelacion, y "hoy" sigue
+     * siendo un dia en que el recurso trabaja.
+     */
+    protected function freezeClockBeforeWednesday(): void
+    {
+        $this->travelTo(
+            CarbonImmutable::parse(self::SCENARIO_WEDNESDAY, 'America/Bogota')->subDays(2)->setTime(8, 0),
+        );
     }
 
     /** Las horas de inicio devueltas, en formato HH:MM y hora local. */

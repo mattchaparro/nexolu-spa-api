@@ -30,6 +30,7 @@ class ConcurrentBookingTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        $this->freezeClockBeforeWednesday();
 
         // Segunda conexion al mismo esquema: es "el otro proceso".
         config([

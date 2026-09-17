@@ -38,6 +38,7 @@ class ClientProfileTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        $this->freezeClockBeforeWednesday();
 
         PermissionCatalog::sync();
         Storage::fake('public');
