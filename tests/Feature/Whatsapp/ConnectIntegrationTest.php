@@ -197,6 +197,84 @@ class ConnectIntegrationTest extends TestCase
 
     /*
     |--------------------------------------------------------------------------
+    | human_reply: contestaron desde la bandeja de Connect
+    |--------------------------------------------------------------------------
+    */
+
+    private function humanReplyPayload(string $texto = 'Sí, te esperamos a las 4pm.'): array
+    {
+        return [
+            'object' => 'nexolu-comms',
+            'event' => 'human_reply',
+            'business_id' => (string) $this->luxury->id,
+            'contact' => ['name' => 'Valentina', 'phone' => '573001112233'],
+            'message' => ['type' => 'text', 'text' => $texto, 'template' => null],
+            'status' => 'sent',
+        ];
+    }
+
+    public function test_una_respuesta_humana_desde_connect_calla_al_agente(): void
+    {
+        Http::fake(['ia-core.test/*' => Http::response([
+            'conversation_id' => 'conv-1', 'text' => 'No deberia salir', 'tools_used' => [],
+        ])]);
+
+        $this->firmado($this->humanReplyPayload())->assertOk()->assertJsonPath('event', 'human_reply');
+
+        $conv = WhatsappConversation::withoutGlobalScopes()->first();
+        $this->assertTrue($conv->agentIsPaused());
+
+        // Y lo que entre despues tampoco despierta al agente.
+        $this->firmado($this->sobreDeMeta('¿entonces a las 4?'))
+            ->assertOk()->assertJsonPath('agent', 'paused');
+        $this->assertSame(0, Message::withoutGlobalScopes()
+            ->where('kind', Message::KIND_AGENT)->count());
+    }
+
+    public function test_lo_contestado_en_connect_queda_en_el_hilo_del_spa(): void
+    {
+        /*
+         * Con dos bandejas, lo peor no es la duplicación: es que quien abra
+         * la del spa lea la pregunta y no la respuesta que un compañero ya
+         * mandó desde Connect, y conteste lo mismo otra vez.
+         */
+        $this->firmado($this->humanReplyPayload('Claro, tenemos a las 4pm.'))->assertOk();
+
+        $mensaje = Message::withoutGlobalScopes()->where('direction', Message::DIRECTION_OUT)->first();
+        $this->assertSame(Message::KIND_HUMAN, $mensaje->kind);
+        $this->assertSame('Claro, tenemos a las 4pm.', $mensaje->body);
+        // Ya salió por Connect: si naciera pendiente, el outbox lo enviaría otra vez.
+        $this->assertSame(Message::STATUS_SENT, $mensaje->status);
+
+        $conv = WhatsappConversation::withoutGlobalScopes()->first();
+        $this->assertNotNull($conv->read_at);
+    }
+
+    public function test_una_plantilla_enviada_desde_connect_queda_anotada_como_tal(): void
+    {
+        $payload = $this->humanReplyPayload('[plantilla recordatorio_cita] Valentina · 4pm');
+        $payload['message'] = [
+            'type' => 'template',
+            'text' => '[plantilla recordatorio_cita] Valentina · 4pm',
+            'template' => 'recordatorio_cita',
+        ];
+
+        $this->firmado($payload)->assertOk();
+
+        $this->assertSame('recordatorio_cita', Message::withoutGlobalScopes()
+            ->where('direction', Message::DIRECTION_OUT)->value('template_name'));
+    }
+
+    public function test_un_evento_desconocido_de_connect_no_es_un_error(): void
+    {
+        // Responder error haría que Connect reintente algo que este spa
+        // simplemente todavía no atiende.
+        $this->firmado(['object' => 'nexolu-comms', 'event' => 'algo_nuevo'])
+            ->assertOk()->assertJsonPath('handled', false);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
     | GET /api/connect/disponibilidad (la "Solicitud externa" de un flujo)
     |--------------------------------------------------------------------------
     */

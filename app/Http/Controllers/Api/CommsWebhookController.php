@@ -44,8 +44,18 @@ class CommsWebhookController
          * como un evento propio. Es el relevo a humano: la clienta pidio
          * hablar con alguien, o el flujo decidio que esto lo ve una persona.
          */
-        if (($payload['object'] ?? null) === 'nexolu-comms' && ($payload['event'] ?? null) === 'flow_notify') {
-            return $this->flowNotify($payload);
+        if (($payload['object'] ?? null) === 'nexolu-comms') {
+            return match ($payload['event'] ?? null) {
+                'flow_notify' => $this->flowNotify($payload),
+                /*
+                 * Alguien del equipo contesto desde la bandeja de Connect.
+                 * Aca no llega por el webhook de Meta (ese solo trae lo que
+                 * ENTRA), asi que sin este aviso el agente seguiria
+                 * contestando encima de la persona que esta atendiendo.
+                 */
+                'human_reply' => $this->humanReply($payload),
+                default => response()->json(['ok' => true, 'handled' => false]),
+            };
         }
 
         $entrante = $this->firstIncomingMessage($payload);
@@ -152,32 +162,9 @@ class CommsWebhookController
      */
     private function flowNotify(array $payload): JsonResponse
     {
-        $phone = ChannelPhone::normalize((string) ($payload['contact']['phone'] ?? ''));
-
-        if ($phone === null) {
-            return response()->json(['ok' => true, 'handled' => false]);
-        }
-
-        $business = Business::find((int) ($payload['business_id'] ?? 0));
-
-        $conversacion = $business !== null
-            ? WhatsappConversation::withoutGlobalScope('business')->firstOrCreate(
-                ['business_id' => $business->id, 'phone' => $phone],
-            )
-            /*
-             * Numero compartido sin negocio declarado en el flujo: la
-             * conversacion mas reciente de ese telefono es la que esta
-             * viva. Si tampoco existe, no hay a quien avisar aca (el
-             * correo de Connect ya salio de todas formas).
-             */
-            : WhatsappConversation::withoutGlobalScope('business')
-                ->where('phone', $phone)
-                ->orderByDesc('last_message_at')
-                ->first();
+        $conversacion = $this->conversacionDe($payload);
 
         if ($conversacion === null) {
-            Log::info('comms.flow_notify: sin conversacion que lo reciba', ['phone' => $phone]);
-
             return response()->json(['ok' => true, 'handled' => false]);
         }
 
@@ -208,6 +195,95 @@ class CommsWebhookController
         ]);
 
         return response()->json(['ok' => true, 'handled' => true, 'event' => 'flow_notify']);
+    }
+
+    /**
+     * Contestaron desde la bandeja de Connect: el agente se calla y el
+     * mensaje queda en ESTE hilo.
+     *
+     * Las dos cosas importan. La pausa evita las dos voces; guardar el
+     * mensaje evita el otro problema de tener dos bandejas -- que quien
+     * abra la del spa lea la pregunta de la clienta y no lo que ya le
+     * respondio un compañero desde Connect, y conteste lo mismo otra vez.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    private function humanReply(array $payload): JsonResponse
+    {
+        $conversacion = $this->conversacionDe($payload);
+
+        if ($conversacion === null) {
+            return response()->json(['ok' => true, 'handled' => false]);
+        }
+
+        $conversacion->pauseAgent();
+
+        $texto = trim((string) ($payload['message']['text'] ?? ''));
+
+        Message::create([
+            'business_id' => $conversacion->business_id,
+            'conversation_id' => $conversacion->id,
+            'client_id' => $conversacion->client_id,
+            'kind' => Message::KIND_HUMAN,
+            'direction' => Message::DIRECTION_OUT,
+            'to' => $conversacion->phone,
+            'body' => $texto !== '' ? $texto : '(mensaje enviado desde Connect)',
+            'template_name' => $payload['message']['template'] ?? null,
+            /*
+             * Nace con el desenlace que YA tuvo en Connect: el envio ocurrio
+             * alla. Ponerlo pendiente lo mandaria por el outbox y la clienta
+             * recibiria el mismo mensaje dos veces.
+             */
+            'status' => ($payload['status'] ?? null) === 'sent'
+                ? Message::STATUS_SENT
+                : Message::STATUS_FAILED,
+            'sent_at' => now(),
+        ]);
+
+        $conversacion->update([
+            'last_message_at' => now(),
+            // Alguien la atendio: deja de estar pendiente de lectura.
+            'read_at' => now(),
+            'status' => WhatsappConversation::STATUS_OPEN,
+        ]);
+
+        return response()->json(['ok' => true, 'handled' => true, 'event' => 'human_reply']);
+    }
+
+    /**
+     * La conversacion de la que habla un evento propio de Connect.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    private function conversacionDe(array $payload): ?WhatsappConversation
+    {
+        $phone = ChannelPhone::normalize((string) ($payload['contact']['phone'] ?? ''));
+
+        if ($phone === null) {
+            return null;
+        }
+
+        $business = Business::find((int) ($payload['business_id'] ?? 0));
+
+        $conversacion = $business !== null
+            ? WhatsappConversation::withoutGlobalScope('business')->firstOrCreate(
+                ['business_id' => $business->id, 'phone' => $phone],
+            )
+            /*
+             * Numero compartido sin negocio declarado: la conversacion mas
+             * reciente de ese telefono es la que esta viva. Si tampoco
+             * existe, no hay a quien avisarle aca.
+             */
+            : WhatsappConversation::withoutGlobalScope('business')
+                ->where('phone', $phone)
+                ->orderByDesc('last_message_at')
+                ->first();
+
+        if ($conversacion === null) {
+            Log::info('comms: evento sin conversacion que lo reciba', ['phone' => $phone]);
+        }
+
+        return $conversacion;
     }
 
     /**
