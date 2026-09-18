@@ -45,13 +45,32 @@ class ServicesCapability implements Capability
             ->orderBy('name')
             ->get();
 
+        $moneda = $caller->business->currency ?? 'COP';
+
         return [
+            'moneda' => $moneda,
             'servicios' => $servicios->map(fn (Service $s) => [
                 'nombre' => $s->name,
-                'precio' => (float) $s->price,
+                /*
+                 * El precio va ESCRITO, no como número suelto.
+                 *
+                 * Con `precio => 180000.0` el modelo escribió "$180.00" en un
+                 * chat real: leyó los miles como decimales y le cotizó a una
+                 * clienta mil veces menos. Un número sin unidades es una
+                 * invitación a que lo reformatee mal; el texto ya formateado
+                 * no deja margen.
+                 */
+                'precio' => $this->precio((float) $s->price, $moneda),
+                'precio_valor' => (float) $s->price,
                 'duracion_min' => $s->duration_min,
                 'categoria' => $s->category?->name,
             ])->all(),
         ];
+    }
+
+    /** Como lo escribe el local: 180.000 COP (miles con punto, sin decimales). */
+    private function precio(float $valor, string $moneda): string
+    {
+        return number_format($valor, 0, ',', '.').' '.$moneda;
     }
 }

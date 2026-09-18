@@ -261,7 +261,20 @@ class AiToolInvokeTest extends TestCase
         $servicios = $this->invoke('servicios')->assertOk()->json('data.servicios');
 
         $this->assertSame('Manicure clasico', $servicios[0]['nombre']);
-        $this->assertEquals(45000, $servicios[0]['precio']);
+        $this->assertEquals(45000, $servicios[0]['precio_valor']);
+    }
+
+    public function test_el_precio_va_escrito_con_su_moneda(): void
+    {
+        /*
+         * Pasó de verdad en una prueba: con `precio => 180000.0` el modelo
+         * escribió "$180.00" en el chat -- leyó los miles como decimales y
+         * cotizó mil veces menos. Un número suelto invita a reformatearlo;
+         * el texto ya formateado, no.
+         */
+        $servicios = $this->invoke('servicios')->assertOk()->json('data.servicios');
+
+        $this->assertSame('45.000 COP', $servicios[0]['precio']);
     }
 
     public function test_la_disponibilidad_sale_del_motor_de_verdad(): void
