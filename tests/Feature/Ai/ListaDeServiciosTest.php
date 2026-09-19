@@ -22,7 +22,8 @@ use Tests\TestCase;
  * Luxury tiene veintitrés. Antes se mandaban diez y se le decía «hay 13
  * más, si no ves el tuyo escríbelo»: escribirlo es deletrear un nombre
  * de catálogo, que es justo lo que esta pantalla vino a evitar. Ahora la
- * décima fila dice «No veo el mío» y trae la siguiente tanda.
+ * décima fila dice «Muéstrame más servicios» y trae la siguiente
+ * tanda.
  *
  * Y cada fila lleva la duración y el precio, que es lo que se pregunta
  * antes de elegir. Un nombre suelto -- «Capping» -- no le dice a nadie
@@ -128,9 +129,9 @@ class ListaDeServiciosTest extends TestCase
         $filas = $this->ultimaLista();
 
         $this->assertCount(10, $filas);
-        $this->assertSame('No veo el mío', $filas[9]['title']);
+        $this->assertSame('Muéstrame más servicios', $filas[9]['title']);
         // Y dice cuántos son, para que tocar no sea a ciegas.
-        $this->assertSame('Te muestro los otros 5', $filas[9]['description']);
+        $this->assertSame('Quedan 5 más', $filas[9]['description']);
     }
 
     public function test_cada_servicio_dice_cuanto_dura_y_cuanto_vale(): void
@@ -145,13 +146,13 @@ class ListaDeServiciosTest extends TestCase
         $this->assertSame('60 min · 1.000 COP', $this->ultimaLista()[0]['description']);
     }
 
-    public function test_tocar_no_veo_el_mio_manda_los_que_faltaban(): void
+    public function test_tocar_muestrame_mas_manda_los_que_faltaban(): void
     {
         $this->invoke('disponibilidad', ['servicio' => 'las manitos', 'fecha' => $this->manana()]);
         $primeros = collect($this->ultimaLista())->pluck('title')->slice(0, 9);
 
         $respuesta = $this->invoke('disponibilidad', [
-            'servicio' => 'No veo el mío',
+            'servicio' => 'Muéstrame más servicios',
             'fecha' => $this->manana(),
         ])->assertOk();
 
@@ -180,15 +181,15 @@ class ListaDeServiciosTest extends TestCase
         $filas = collect($this->ultimaLista())->pluck('title');
 
         $this->assertCount(3, $filas);
-        $this->assertFalse($filas->contains('No veo el mío'));
+        $this->assertFalse($filas->contains('Muéstrame más servicios'));
     }
 
     public function test_pedir_los_demas_sin_una_lista_antes_no_rompe_nada(): void
     {
-        // Alguien que escribe "no veo el mío" de la nada: no hay nada
+        // Alguien que escribe "muéstrame más" de la nada: no hay nada
         // guardado, así que se trata como cualquier otra palabra suya.
         $this->invoke('disponibilidad', [
-            'servicio' => 'No veo el mío',
+            'servicio' => 'Muéstrame más servicios',
             'fecha' => $this->manana(),
         ])->assertOk();
 

@@ -251,7 +251,7 @@ class AvailabilityCapability implements Capability
         /*
          * Una lista de WhatsApp aguanta diez filas y Manicure tiene
          * veintitres servicios. Se mandan los NUEVE mas pedidos y la
-         * decima fila dice "No veo el mio", que trae la siguiente tanda.
+         * decima fila los trae a todos.
          *
          * Antes esa decima fila era un texto en la cabecera: "hay 13
          * mas, si no ves el tuyo escribelo". Escribirlo es deletrear un
@@ -272,7 +272,7 @@ class AvailabilityCapability implements Capability
             $filas[] = [
                 'id' => 'mas',
                 'title' => ServiciosPendientes::VER_MAS,
-                'description' => 'Te muestro los otros '.count($faltan),
+                'description' => 'Quedan '.count($faltan).' más',
             ];
         }
 
