@@ -2,6 +2,7 @@
 
 namespace App\Services\WhatsApp;
 
+use App\Ai\LoQueMasPiden;
 use App\Models\Business;
 use App\Models\Service;
 use App\Models\ServiceCategory;
@@ -72,8 +73,8 @@ class MenuDeServicios
             $filas[] = ['id' => 'agendar', 'title' => 'Ya sé qué quiero', 'next' => 'agendar'];
             $nodos['agendar'] = [
                 'type' => 'message',
-                'text' => "¡Perfecto! Cuéntame qué servicio quieres y para qué día, "
-                    ."y te busco las horas libres 😊",
+                'text' => '¡Perfecto! Cuéntame qué servicio quieres y para qué día, '
+                    .'y te busco las horas libres 😊',
             ];
         }
 
@@ -205,13 +206,24 @@ class MenuDeServicios
     /** @return Collection<int, array{id: int, nombre: string, servicios: list<array>}> */
     private function categoriasConServicios(Business $business): Collection
     {
-        $servicios = Service::withoutGlobalScope('business')
-            ->where('business_id', $business->id)
-            ->where('is_active', true)
-            ->where('is_bookable_online', true)
-            ->orderBy('sort_order')
-            ->orderBy('name')
-            ->get();
+        /*
+         * Ordenado por lo que de verdad pide la gente, igual que la lista
+         * que manda el bot: una lista de WhatsApp aguanta diez filas y
+         * Manicure tiene veintitres, asi que el orden decide que ve la
+         * clienta y que no. Con el alfabeto veia "Cambio de esmalte"
+         * antes que Tradicional y Semipermanente, que son mil de las
+         * citas del local.
+         */
+        $servicios = LoQueMasPiden::ordenar(
+            $business->id,
+            Service::withoutGlobalScope('business')
+                ->where('business_id', $business->id)
+                ->where('is_active', true)
+                ->where('is_bookable_online', true)
+                ->orderBy('sort_order')
+                ->orderBy('name')
+                ->get(),
+        );
 
         $categorias = ServiceCategory::withoutGlobalScope('business')
             ->where('business_id', $business->id)
