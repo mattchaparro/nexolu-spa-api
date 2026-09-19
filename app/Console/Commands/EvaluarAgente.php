@@ -161,12 +161,16 @@ class EvaluarAgente extends Command
             }
         }
 
-        // Lo esperado es un AVISO: no está roto, está mediocre -- y esta
-        // lista es justo lo próximo a mejorar.
-        foreach ($caso['espera'] as $herramienta) {
-            if (! in_array($herramienta, $usadas, true)) {
-                $avisos[] = "no llamó `{$herramienta}` (llamó: ".(implode(', ', $usadas) ?: 'nada').')';
-            }
+        /*
+         * Lo esperado es un AVISO, y basta con UNA de las alternativas:
+         * a veces hay dos formas buenas de atender el mismo mensaje
+         * (consultar la agenda, u ofrecer primero las variantes del
+         * servicio). Exigirlas todas convierte el reporte en ruido y
+         * castiga al bot por acertar de otra manera.
+         */
+        if ($caso['espera'] !== [] && array_intersect($caso['espera'], $usadas) === []) {
+            $avisos[] = 'no llamó '.implode(' ni ', array_map(fn ($h) => "`{$h}`", $caso['espera']))
+                .' (llamó: '.(implode(', ', $usadas) ?: 'nada').')';
         }
 
         return [$fallas, $avisos, $respuestas];

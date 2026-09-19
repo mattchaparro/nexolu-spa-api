@@ -136,7 +136,7 @@ final class CasosReales
                     'Buenas tardes es posible que me agenden para hoy a las 5 de la tarde o 4:40 pm',
                     'Para semipermanente',
                 ],
-                'espera' => ['disponibilidad'],
+                'espera' => ['disponibilidad', 'ofrecer_opciones'],
                 'prohibido' => ['crear_cita'],
                 'nota' => 'Dos horas concretas HOY y el servicio dicho. Si ninguna está libre '
                     .'tiene que ofrecer las cercanas, no solo decir que no. (Sin el servicio '
