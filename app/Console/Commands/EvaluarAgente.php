@@ -175,7 +175,14 @@ class EvaluarAgente extends Command
     /** Una cita próxima, para los casos de cancelar/mover/consultar. */
     private function citaDePrueba(Business $business, Client $cliente): void
     {
-        $servicio = $business->services()->where('is_active', true)->first();
+        /*
+         * El primer servicio del catálogo puede no tener a nadie que lo
+         * preste: hay que buscar uno que SÍ, o la cita de prueba no se
+         * crea y el caso mide otra cosa (pasó: el bot contestaba "no
+         * tienes citas" y la evaluación lo daba por bueno).
+         */
+        $servicio = $business->services()->where('is_active', true)->get()
+            ->first(fn ($s) => $s->resources()->exists());
         $recurso = $servicio?->resources()->first();
 
         if ($servicio === null || $recurso === null) {

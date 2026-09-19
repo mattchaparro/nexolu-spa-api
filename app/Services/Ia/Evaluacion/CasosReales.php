@@ -132,11 +132,15 @@ final class CasosReales
             // ---------------------------------------------------------
             [
                 'nombre' => 'para hoy, en una hora',
-                'mensajes' => ['Buenas tardes es posible que me agenden para hoy a las 5 de la tarde o 4:40 pm'],
+                'mensajes' => [
+                    'Buenas tardes es posible que me agenden para hoy a las 5 de la tarde o 4:40 pm',
+                    'Para semipermanente',
+                ],
                 'espera' => ['disponibilidad'],
-                'prohibido' => [],
-                'nota' => 'Dos horas concretas HOY. Si ninguna está libre tiene que ofrecer '
-                    .'las cercanas, no solo decir que no.',
+                'prohibido' => ['crear_cita'],
+                'nota' => 'Dos horas concretas HOY y el servicio dicho. Si ninguna está libre '
+                    .'tiene que ofrecer las cercanas, no solo decir que no. (Sin el servicio '
+                    .'preguntarlo es correcto: por eso va en el mismo caso.)',
             ],
             [
                 'nombre' => 'reclamo: el trabajo se dañó',
