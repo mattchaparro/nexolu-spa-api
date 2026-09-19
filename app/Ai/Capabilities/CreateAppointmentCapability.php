@@ -9,7 +9,10 @@ use App\Ai\FechaDicha;
 use App\Ai\HoraLegible;
 use App\Ai\Resolves;
 use App\Models\Appointment;
+use App\Models\Business;
 use App\Models\Client;
+use App\Models\Location;
+use App\Models\Service;
 use App\Services\ClientResolver;
 use App\Services\Scheduling\AvailabilityService;
 use App\Services\Scheduling\BookingService;
@@ -195,11 +198,11 @@ class CreateAppointmentCapability implements Capability
      * mama agendada y a la hija afuera es peor que no agendar nada --
      * llegan las dos y solo cabe una.
      *
-     * @param  list<\App\Models\Service>  $servicios
+     * @param  list<Service>  $servicios
      */
     private function citasSimultaneas(
         AiCaller $caller,
-        \App\Models\Business $business,
+        Business $business,
         array $servicios,
         CarbonImmutable $inicio,
         ?int $sedeId,
@@ -277,11 +280,11 @@ class CreateAppointmentCapability implements Capability
      * lo que se reserva es exactamente lo que se prometio. Vacio = a esa
      * hora la cadena no cabe.
      *
-     * @param  list<\App\Models\Service>  $servicios
+     * @param  list<Service>  $servicios
      * @return list<array{service_id: int, resource_id: int, starts_at: CarbonImmutable}>
      */
     private function cadena(
-        \App\Models\Business $business,
+        Business $business,
         array $servicios,
         CarbonImmutable $inicio,
         ?int $preferidaId,
@@ -311,7 +314,7 @@ class CreateAppointmentCapability implements Capability
 
     private function variasSedes(int $businessId): bool
     {
-        return \App\Models\Location::withoutGlobalScope('business')
+        return Location::withoutGlobalScope('business')
             ->where('business_id', $businessId)
             ->where('is_active', true)
             ->count() > 1;

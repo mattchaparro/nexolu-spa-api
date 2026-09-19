@@ -28,7 +28,32 @@ trait Resolves
             ->where('is_bookable_online', true)
             ->get();
 
-        return $this->pickByName($servicios, $nombre, 'servicio');
+        try {
+            return $this->pickByName($servicios, $nombre, 'servicio');
+        } catch (AiArgumentException $noSeParece) {
+            /*
+             * El catalogo no se llama como la gente pide. "Las manitos",
+             * "hacerme las unas", "los pieses": ninguna de esas palabras
+             * esta en un nombre de servicio, asi que sin esto el agente
+             * respondia preguntandole a la clienta como se llama lo que
+             * quiere -- que es pedirle que adivine nuestro vocabulario.
+             */
+            $candidatos = ComoLoPide::candidatos($servicios, $nombre);
+
+            if ($candidatos->count() === 1) {
+                return $candidatos->first();
+            }
+
+            if ($candidatos->count() > 1) {
+                throw new AiArgumentException(
+                    "«{$nombre}» puede ser varias cosas: ".$candidatos->pluck('name')->implode(', ')
+                    .'. Pregúntale a la clienta cuál.',
+                    $candidatos->pluck('name')->all(),
+                );
+            }
+
+            throw $noSeParece;
+        }
     }
 
     /** @throws AiArgumentException */
@@ -130,7 +155,8 @@ trait Resolves
 
         throw new AiArgumentException(
             "«{$nombre}» puede ser varias cosas: ".$parciales->pluck('name')->implode(', ')
-            .'. Pregúntale a la clienta cuál.'
+            .'. Pregúntale a la clienta cuál.',
+            $parciales->pluck('name')->all(),
         );
     }
 

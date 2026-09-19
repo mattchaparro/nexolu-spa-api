@@ -13,7 +13,6 @@ use App\Services\ClientPortalService;
 use App\Services\Scheduling\BookingService;
 use App\Services\Scheduling\Exceptions\OutsideWorkingHoursException;
 use App\Services\Scheduling\Exceptions\SlotUnavailableException;
-use Carbon\CarbonImmutable;
 
 /**
  * Mover una cita de hora.

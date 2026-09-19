@@ -2,6 +2,7 @@
 
 namespace App\Ai\Capabilities;
 
+use App\Ai\AiArgumentException;
 use App\Ai\AiCaller;
 use App\Ai\Capability;
 use App\Ai\FechaDicha;
@@ -109,7 +110,25 @@ class AvailabilityCapability implements Capability
         }
 
         $nombres = $arguments['servicios'] ?? [$arguments['servicio']];
-        $servicios = array_map(fn (string $n) => $this->resolveService($business->id, $n), $nombres);
+
+        try {
+            $servicios = array_map(fn (string $n) => $this->resolveService($business->id, $n), $nombres);
+        } catch (AiArgumentException $cualDeTodos) {
+            /*
+             * Pidio algo que puede ser varias cosas ("hacerme las unas").
+             * Elegir entre servicios que existen es exactamente lo que se
+             * toca, no lo que se conversa: le llegan los nombres reales
+             * como botones y de paso nadie tiene que deletrear el del
+             * catalogo.
+             */
+            $elegir = $this->queEligaServicio($caller, $cualDeTodos->opciones);
+
+            if ($elegir === null) {
+                throw $cualDeTodos;
+            }
+
+            return $elegir;
+        }
 
         $sede = $this->resolveLocation($business->id, $arguments['sede'] ?? null);
         $persona = isset($arguments['empleado'])
@@ -183,6 +202,55 @@ class AvailabilityCapability implements Capability
                     .'vacía. Cuando toque una, te llega como su próximo mensaje.'
                 : 'Ofrécele dos o tres de `ofrecidas` usando el campo `hora`, nunca `hora_24`.',
         ], fn ($v) => $v !== null);
+    }
+
+    /**
+     * Los servicios que encajan, tocables, cuando lo que dijo da para
+     * varios.
+     *
+     * Devuelve null si no se pudieron mandar (una empleada, un telefono
+     * raro, el canal caido): ahi el que llama vuelve a lanzar el error y
+     * el modelo pregunta escribiendo, como antes.
+     *
+     * @param  list<string>  $opciones
+     * @return array<string, mixed>|null
+     */
+    private function queEligaServicio(AiCaller $caller, array $opciones): ?array
+    {
+        $phone = ChannelPhone::normalize((string) $caller->phone, $caller->business->country_code ?? 'CO');
+
+        // Mas de diez no caben en una lista de WhatsApp, y una lista de
+        // diez tampoco se lee: ahi es mejor que el modelo acote hablando.
+        if ($opciones === [] || count($opciones) > 10 || $phone === null || $caller->isStaff()) {
+            return null;
+        }
+
+        $enviado = $this->channel->sendOptions(
+            $phone,
+            '¿Cuál de estos quieres? 💅',
+            array_map(fn (string $nombre, int $i) => [
+                'id' => 's'.$i,
+                'title' => mb_substr($nombre, 0, 24),
+            ], $opciones, array_keys($opciones)),
+            $caller->business->id,
+            'Ver servicios',
+        );
+
+        if (! $enviado) {
+            return null;
+        }
+
+        OpcionesEnviadas::marcar($phone);
+
+        return [
+            'horas' => [],
+            'eligiendo_servicio' => $opciones,
+            'instruccion' => 'Todavía no se puede mirar la agenda: lo que pidió puede ser '
+                .'varios servicios. Los nombres YA le llegaron como botones y los está '
+                .'viendo. NO los escribas ni preguntes nada: responde con una cadena '
+                .'vacía. Cuando toque uno, te llega como su próximo mensaje y ahí vuelves '
+                .'a llamarme con ese nombre y el mismo día.',
+        ];
     }
 
     /**
