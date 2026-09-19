@@ -154,4 +154,57 @@ class MenuDeServiciosTest extends TestCase
 
         Http::assertNothingSent();
     }
+
+    public function test_el_aviso_del_negocio_sale_arriba_del_menu(): void
+    {
+        /*
+         * "Alejandra no estará el jueves" es justo lo que hay que saber
+         * ANTES de elegir, no después de haber elegido. El negocio lo
+         * escribe una vez y se entera todo el que escriba.
+         */
+        $categoria = $this->categoria('Manicure');
+        $this->servicio($categoria, 'Semipermanente');
+        $this->business->update(['public_profile' => [
+            'comunicado' => 'Alejandra no estará el jueves 25',
+            'comunicado_hasta' => now()->addDays(7)->format('Y-m-d'),
+        ]]);
+
+        $definicion = app(MenuDeServicios::class)->definicion($this->business);
+
+        $this->assertStringContainsString(
+            'Alejandra no estará el jueves 25',
+            $definicion['nodes']['categorias']['text'],
+        );
+    }
+
+    public function test_un_aviso_vencido_no_se_muestra(): void
+    {
+        // Un aviso viejo es peor que no tener aviso: a la semana sigue
+        // diciendo que alguien no viene y ya volvió.
+        $categoria = $this->categoria('Manicure');
+        $this->servicio($categoria, 'Semipermanente');
+        $this->business->update(['public_profile' => [
+            'comunicado' => 'Cerrado por vacaciones',
+            'comunicado_hasta' => now()->subDay()->format('Y-m-d'),
+        ]]);
+
+        $this->assertStringNotContainsString(
+            'vacaciones',
+            app(MenuDeServicios::class)->definicion($this->business)['nodes']['categorias']['text'],
+        );
+    }
+
+    public function test_un_aviso_sin_fecha_se_muestra_siempre(): void
+    {
+        // Sin fecha es un aviso permanente ("parqueadero en la esquina"):
+        // válido, y el negocio lo quita cuando quiera.
+        $categoria = $this->categoria('Manicure');
+        $this->servicio($categoria, 'Semipermanente');
+        $this->business->update(['public_profile' => ['comunicado' => 'Recibimos Nequi']]);
+
+        $this->assertStringContainsString(
+            'Recibimos Nequi',
+            app(MenuDeServicios::class)->definicion($this->business)['nodes']['categorias']['text'],
+        );
+    }
 }

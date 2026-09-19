@@ -82,6 +82,8 @@ class PublicPageController
             'maps_url' => ['nullable', 'string', 'max:500'],
             'google_review_url' => ['nullable', 'string', 'max:500'],
             'show_staff_ratings' => ['nullable', 'boolean'],
+            'comunicado' => ['nullable', 'string', 'max:300'],
+            'comunicado_hasta' => ['nullable', 'date_format:Y-m-d'],
             'cover' => ImageStorage::rules(),
         ]);
 

@@ -5,6 +5,7 @@ namespace App\Services\Ia;
 use App\Models\Business;
 use App\Models\Location;
 use App\Models\ResourceSchedule;
+use Carbon\CarbonImmutable;
 
 /**
  * Quien es el negocio, en palabras, para que el agente no hable como un
@@ -27,8 +28,13 @@ class BusinessProfile
 
     public function for(Business $business): string
     {
+        $aviso = self::comunicado($business);
+
         $lineas = array_filter([
             'Negocio: '.$business->name.'.',
+            // Primero el aviso vigente: es lo que cambio HOY y lo que la
+            // clienta necesita saber antes que nada.
+            $aviso === null ? null : 'AVISO VIGENTE (mencionalo si viene al caso): '.$aviso,
             $this->about($business),
             $this->sedes($business),
             $this->horario($business),
@@ -45,6 +51,39 @@ class BusinessProfile
         $texto = trim((string) ($perfil['about'] ?? ''));
 
         return $texto === '' ? null : 'Sobre el negocio: '.$texto;
+    }
+
+    /**
+     * El aviso del momento, si hay uno vigente.
+     *
+     * "Alejandra no estara el jueves", "ya volvimos de vacaciones". El
+     * negocio lo escribe una vez y se entera todo el que escriba, sin que
+     * nadie tenga que repetirlo veinte veces al dia.
+     *
+     * Va con fecha de vencimiento porque un aviso viejo es peor que no
+     * tener aviso: a la semana sigue diciendo que alguien no viene y ya
+     * volvio.
+     */
+    public static function comunicado(Business $business): ?string
+    {
+        $perfil = $business->public_profile ?? [];
+        $texto = trim((string) ($perfil['comunicado'] ?? ''));
+
+        if ($texto === '') {
+            return null;
+        }
+
+        $hasta = trim((string) ($perfil['comunicado_hasta'] ?? ''));
+
+        if ($hasta !== '') {
+            $vence = CarbonImmutable::parse($hasta, $business->businessTimezone())->endOfDay();
+
+            if ($vence->isPast()) {
+                return null;
+            }
+        }
+
+        return $texto;
     }
 
     private function sedes(Business $business): ?string

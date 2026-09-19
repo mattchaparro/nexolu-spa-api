@@ -24,6 +24,18 @@ final class PublicProfile
         'maps_url' => 'Enlace de Google Maps',
         'google_review_url' => 'Enlace para dejar reseña en Google',
         'show_staff_ratings' => 'Mostrar la puntuación de cada persona',
+        /*
+         * El aviso del momento: "Alejandra no estará el jueves", "ya
+         * volvimos de vacaciones". Lo lee el agente de WhatsApp y sale en
+         * el saludo del menú, así que el negocio avisa una vez y se entera
+         * todo el que escriba.
+         */
+        'comunicado' => 'Aviso para las clientas',
+        /*
+         * Hasta cuándo vale. Un aviso sin fecha se vuelve mentira: a la
+         * semana sigue diciendo que alguien no viene, y ya volvió.
+         */
+        'comunicado_hasta' => 'El aviso se muestra hasta',
     ];
 
     /**

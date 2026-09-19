@@ -5,6 +5,7 @@ namespace App\Services\WhatsApp;
 use App\Models\Business;
 use App\Models\Service;
 use App\Models\ServiceCategory;
+use App\Services\Ia\BusinessProfile;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -95,9 +96,17 @@ class MenuDeServicios
             ];
         }
 
+        /*
+         * El aviso del momento va ARRIBA del menú: "Alejandra no estará el
+         * jueves" es justo lo que hay que saber antes de elegir, no después
+         * de haber elegido.
+         */
+        $aviso = BusinessProfile::comunicado($business);
+
         $nodos['categorias'] = [
             'type' => 'list',
-            'text' => "¡Hola! 💅 Esto es lo que hacemos en {$business->name}. "
+            'text' => ($aviso === null ? '' : "📣 *{$aviso}*\n\n")
+                ."¡Hola! 💅 Esto es lo que hacemos en {$business->name}. "
                 .'Elige lo que te interese y seguimos:',
             'button' => 'Ver servicios',
             'rows' => array_slice($filas, 0, self::MAX_FILAS),
