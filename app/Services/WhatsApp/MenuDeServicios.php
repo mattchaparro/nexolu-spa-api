@@ -176,7 +176,11 @@ class MenuDeServicios
             'rows' => array_map(fn (array $s) => [
                 'id' => 'srv_'.$s['id'],
                 'title' => TituloCorto::de($s['nombre'], self::MAX_TITULO),
-                'description' => $s['precio'].' · '.$s['duracion'].' min',
+                // La duracion primero, igual que en la lista que manda el
+                // bot: es lo que decide si cabe hoy. Quien sale del
+                // trabajo a las 5:30 necesita saber si alcanza antes que
+                // cuanto cuesta.
+                'description' => $s['duracion'].' min · '.$s['precio'],
                 'next' => 'srv_'.$s['id'],
             ], array_slice($categoria['servicios'], 0, self::MAX_FILAS)),
         ];

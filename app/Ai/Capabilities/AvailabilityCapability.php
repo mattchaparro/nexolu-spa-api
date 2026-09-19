@@ -9,6 +9,7 @@ use App\Ai\FechaDicha;
 use App\Ai\HoraLegible;
 use App\Ai\OpcionesEnviadas;
 use App\Ai\Resolves;
+use App\Ai\ServiciosPendientes;
 use App\Models\Location;
 use App\Models\Service;
 use App\Services\Scheduling\AvailabilityService;
@@ -46,6 +47,10 @@ class AvailabilityCapability implements Capability
     // Cuantas se ofrecen. Mas que esto se lee como un formulario; menos,
     // parece que no hay agenda.
     private const MAX_OPCIONES = 4;
+
+    // Tope de Meta para las filas de una lista. Cuando sobran servicios,
+    // la ultima se gasta en "No veo el mio".
+    private const MAX_FILAS = 10;
 
     public function __construct(
         private readonly AvailabilityService $availability,
@@ -111,6 +116,22 @@ class AvailabilityCapability implements Capability
         }
 
         $nombres = $arguments['servicios'] ?? [$arguments['servicio']];
+
+        /*
+         * "No veo el mio": la fila que se gasta cuando los servicios de
+         * una categoria no caben en una lista. De la fila tocada solo
+         * vuelve el TITULO -- WhatsApp no dice en que pagina iba -- asi
+         * que los que faltaban quedaron guardados al mandar la primera
+         * tanda. Sin eso, esto volveria a buscar desde cero y le
+         * mostraria los mismos diez otra vez.
+         */
+        if (count($nombres) === 1 && ServiciosPendientes::pideVerMas((string) $nombres[0])) {
+            $siguientes = $this->siguienteTanda($caller);
+
+            if ($siguientes !== null) {
+                return $siguientes;
+            }
+        }
 
         try {
             $servicios = array_map(fn (string $n) => $this->resolveService($business->id, $n), $nombres);
@@ -216,8 +237,11 @@ class AvailabilityCapability implements Capability
      * @param  list<string>  $opciones
      * @return array<string, mixed>|null
      */
-    private function queEligaServicio(AiCaller $caller, array $opciones): ?array
-    {
+    private function queEligaServicio(
+        AiCaller $caller,
+        array $opciones,
+        string $titulo = '¿Cuál de estos quieres? 💅',
+    ): ?array {
         $phone = ChannelPhone::normalize((string) $caller->phone, $caller->business->country_code ?? 'CO');
 
         if ($opciones === [] || $phone === null || $caller->isStaff()) {
@@ -225,24 +249,37 @@ class AvailabilityCapability implements Capability
         }
 
         /*
-         * Una lista de WhatsApp aguanta diez filas. "Manicure" tiene
-         * veintitres servicios, asi que se muestran los primeros en el
-         * ORDEN QUE PUSO EL LOCAL -- que es el que sabe que ofrecer
-         * primero -- y se dice que hay mas. Mandar una lista cortada sin
-         * avisar es peor que cortarla: parece que eso es todo lo que hay.
+         * Una lista de WhatsApp aguanta diez filas y Manicure tiene
+         * veintitres servicios. Se mandan los NUEVE mas pedidos y la
+         * decima fila dice "No veo el mio", que trae la siguiente tanda.
+         *
+         * Antes esa decima fila era un texto en la cabecera: "hay 13
+         * mas, si no ves el tuyo escribelo". Escribirlo es deletrear un
+         * nombre de catalogo -- justo lo que esta pantalla vino a
+         * evitar. Lo que se puede tocar no se escribe.
          */
-        $caben = array_slice($opciones, 0, 10);
-        $faltan = count($opciones) - count($caben);
+        $caben = array_slice($opciones, 0, self::MAX_FILAS);
+        $faltan = [];
+
+        if (count($opciones) > self::MAX_FILAS) {
+            $caben = array_slice($opciones, 0, self::MAX_FILAS - 1);
+            $faltan = array_slice($opciones, self::MAX_FILAS - 1);
+        }
+
+        $filas = $this->filasDeServicios($caller, $caben);
+
+        if ($faltan !== []) {
+            $filas[] = [
+                'id' => 'mas',
+                'title' => ServiciosPendientes::VER_MAS,
+                'description' => 'Te muestro los otros '.count($faltan),
+            ];
+        }
 
         $enviado = $this->channel->sendOptions(
             $phone,
-            $faltan > 0
-                ? '¿Cuál de estos quieres? 💅 (hay '.$faltan.' más, si no ves el tuyo escríbelo)'
-                : '¿Cuál de estos quieres? 💅',
-            array_map(fn (string $nombre, int $i) => [
-                'id' => 's'.$i,
-                'title' => TituloCorto::de($nombre),
-            ], $caben, array_keys($caben)),
+            $titulo,
+            $filas,
             $caller->business->id,
             'Ver servicios',
         );
@@ -252,16 +289,97 @@ class AvailabilityCapability implements Capability
         }
 
         OpcionesEnviadas::marcar($phone);
+        ServiciosPendientes::guardar($phone, $faltan);
 
         return [
             'horas' => [],
-            'eligiendo_servicio' => $opciones,
+            'eligiendo_servicio' => $caben,
+            'faltan_por_mostrar' => count($faltan),
             'instruccion' => 'Todavía no se puede mirar la agenda: lo que pidió puede ser '
                 .'varios servicios. Los nombres YA le llegaron como botones y los está '
                 .'viendo. NO los escribas ni preguntes nada: responde con una cadena '
                 .'vacía. Cuando toque uno, te llega como su próximo mensaje y ahí vuelves '
-                .'a llamarme con ese nombre y el mismo día.',
+                .'a llamarme con ese nombre y el mismo día. Si toca «'
+                .ServiciosPendientes::VER_MAS.'», vuelve a llamarme con ESAS mismas '
+                .'palabras en `servicio` y te mando los que faltan.',
         ];
+    }
+
+    /**
+     * Los servicios que no cupieron en la lista anterior.
+     *
+     * Devuelve null si no hay ninguno guardado -- se le vencio la
+     * memoria, o toco "No veo el mio" sin que hubiera una lista antes --
+     * y entonces esto sigue su camino normal y trata sus palabras como
+     * el nombre de un servicio.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function siguienteTanda(AiCaller $caller): ?array
+    {
+        $phone = ChannelPhone::normalize((string) $caller->phone, $caller->business->country_code ?? 'CO');
+
+        if ($phone === null) {
+            return null;
+        }
+
+        $faltan = ServiciosPendientes::ver($phone);
+
+        if ($faltan === []) {
+            return null;
+        }
+
+        return $this->queEligaServicio($caller, $faltan, 'Estos son los demás 💅');
+    }
+
+    /**
+     * Cada servicio con lo que la clienta necesita para decidir.
+     *
+     * Un nombre suelto -- "Capping", "Semi + Rubber" -- no le dice a
+     * nadie cuanto cuesta ni cuanto se va a demorar, que es exactamente
+     * lo que se pregunta antes de elegir. Con el precio y la duracion
+     * debajo, elegir deja de ser adivinar.
+     *
+     * @param  list<string>  $nombres
+     * @return list<array{id: string, title: string, description?: string}>
+     */
+    private function filasDeServicios(AiCaller $caller, array $nombres): array
+    {
+        $moneda = $caller->business->currency ?? 'COP';
+
+        $datos = Service::withoutGlobalScope('business')
+            ->where('business_id', $caller->business->id)
+            ->whereIn('name', $nombres)
+            ->get()
+            ->keyBy('name');
+
+        return array_values(array_map(function (string $nombre, int $i) use ($datos, $moneda) {
+            $servicio = $datos->get($nombre);
+
+            return array_filter([
+                'id' => 's'.$i,
+                'title' => TituloCorto::de($nombre),
+                'description' => $servicio === null ? null : $this->comoSeLee($servicio, $moneda),
+            ], fn ($v) => $v !== null);
+        }, $nombres, array_keys($nombres)));
+    }
+
+    /**
+     * "45 min · 60.000 COP", en ese orden.
+     *
+     * La duracion primero porque es lo que decide si cabe hoy -- quien
+     * sale del trabajo a las 5:30 necesita saber si alcanza antes que
+     * cuanto cuesta -- y el precio escrito como lo escribe el local, con
+     * los miles en punto y sin decimales: un `180.00` en un chat se lee
+     * como ciento ochenta pesos.
+     */
+    private function comoSeLee(Service $servicio, string $moneda): string
+    {
+        return mb_substr(
+            $servicio->duration_min.' min · '.number_format((float) $servicio->price, 0, ',', '.').' '.$moneda,
+            0,
+            72,
+        );
     }
 
     /**
