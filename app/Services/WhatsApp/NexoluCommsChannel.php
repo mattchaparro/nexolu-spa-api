@@ -2,6 +2,7 @@
 
 namespace App\Services\WhatsApp;
 
+use App\Ai\EsUnaPrueba;
 use App\Services\Messaging\Contracts\MessagingChannel;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
@@ -181,6 +182,24 @@ class NexoluCommsChannel implements MessagingChannel
             $this->logSafe('warning', 'Nexolu Communications: intento de envio sin credenciales', ['to' => $to]);
 
             return false;
+        }
+
+        /*
+         * `ia:evaluar` conversa con el bot como una clienta y el bot
+         * contesta mandando listas de horas. Veintiocho conversaciones son
+         * una docena larga de mensajes saliendo de verdad cada vez que se
+         * mide el bot, todos al mismo telefono. Se cortan aca, donde pasan
+         * TODOS los envios, y no en la evaluacion: quien manda es otro
+         * proceso -- el que atiende la herramienta -- y no sabe que lo que
+         * tiene enfrente es una prueba.
+         */
+        if (EsUnaPrueba::si($to)) {
+            $this->logSafe('info', 'Nexolu Communications: evaluacion en curso, el mensaje no sale', ['to' => $to]);
+
+            // `true` porque para quien llama el envio "funciono": lo que se
+            // esta midiendo es que el bot ofrezca opciones, no que Meta las
+            // entregue.
+            return true;
         }
 
         try {

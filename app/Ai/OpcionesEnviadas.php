@@ -44,6 +44,19 @@ final class OpcionesEnviadas
         return (bool) Cache::get(self::clave($phone), false);
     }
 
+    /**
+     * Borrón y cuenta nueva.
+     *
+     * La marca vive en caché, fuera de la transacción, así que `ia:evaluar`
+     * -- que corre todas sus conversaciones con el mismo teléfono -- se
+     * llevaba la de un caso al siguiente: el segundo creía que ya le había
+     * mandado las horas y se quedaba callado.
+     */
+    public static function olvidar(string $phone): void
+    {
+        Cache::forget(self::clave($phone));
+    }
+
     private static function clave(string $phone): string
     {
         return 'ia:opciones-enviadas:'.$phone;

@@ -44,6 +44,24 @@ return [
         'app_id' => env('IA_CORE_APP_ID', 'spa'),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Evaluación del agente (`ia:evaluar`)
+    |--------------------------------------------------------------------------
+    | El teléfono con el que la evaluación conversa con el bot. Conviene que
+    | sea uno de verdad -- el de quien está probando -- para que, si algún
+    | día un mensaje se escapa, le llegue a él y no a una desconocida que
+    | nunca escribió al local. Va en el `.env` de cada máquina y no acá:
+    | es el número personal de alguien, no configuración del producto.
+    |
+    | Sin él se conversa con un `+999…`, el indicativo que la UIT tiene
+    | reservado y que no es de nadie. Los envíos se cortan igual antes de
+    | salir (ver App\Ai\EsUnaPrueba) salvo que se corra con `--enviar`.
+    */
+    'ia_eval' => [
+        'phone' => env('IA_EVAL_PHONE', '99900000000'),
+    ],
+
     'payments_core' => [
         'api_key' => env('PAYMENTS_CORE_API_KEY'),
         'base_url' => env('PAYMENTS_CORE_BASE_URL', 'http://localhost:8020'),

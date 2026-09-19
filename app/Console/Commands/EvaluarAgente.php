@@ -2,6 +2,8 @@
 
 namespace App\Console\Commands;
 
+use App\Ai\EsUnaPrueba;
+use App\Ai\OpcionesEnviadas;
 use App\Models\Appointment;
 use App\Models\Business;
 use App\Models\Client;
@@ -9,6 +11,7 @@ use App\Models\WhatsappConversation;
 use App\Services\Ia\Evaluacion\CasosReales;
 use App\Services\Ia\IaCoreClient;
 use Illuminate\Console\Command;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -32,7 +35,9 @@ class EvaluarAgente extends Command
     protected $signature = 'ia:evaluar
                             {--business=1 : Negocio contra el que se evalúa}
                             {--caso= : Solo los casos cuyo nombre contenga esto}
-                            {--ver-respuestas : Muestra lo que contestó, no solo el veredicto}';
+                            {--ver-respuestas : Muestra lo que contestó, no solo el veredicto}
+                            {--telefono= : Con qué número conversa (por defecto, el de services.ia_eval.phone)}
+                            {--enviar : Deja que los mensajes lleguen de verdad a ese número}';
 
     protected $description = 'Corre conversaciones reales contra el agente y reporta qué se rompió';
 
@@ -51,13 +56,80 @@ class EvaluarAgente extends Command
                 fn (array $caso) => str_contains($caso['nombre'], $filtro)
             ));
 
+        $telefono = $this->telefono();
+
         $this->info("Evaluando {$casos->count()} casos contra {$business->name}…");
+        $this->line($this->option('enviar')
+            ? "  <fg=yellow>Los mensajes SALEN a {$telefono}.</>"
+            : "  <fg=gray>Conversando como {$telefono}; los mensajes no salen (--enviar para verlos llegar).</>");
         $this->newLine();
 
+        /*
+         * Salvo que se pida lo contrario, los mensajes NO salen. El bot
+         * contesta mandando listas de horas por WhatsApp, y veintiocho
+         * conversaciones seguidas llenarían el teléfono de quien está
+         * midiendo. Con `--enviar` sí llegan: es como se revisa cómo se
+         * VEN, que es distinto de qué hace el bot.
+         */
+        if (! $this->option('enviar')) {
+            EsUnaPrueba::marcar($telefono);
+        }
+
+        try {
+            [$fallas, $mejorables] = $this->correrTodos($ia, $business, $casos, $telefono);
+        } finally {
+            // Que una evaluación interrumpida no deje al número mudo.
+            EsUnaPrueba::olvidar($telefono);
+            OpcionesEnviadas::olvidar($telefono);
+        }
+
+        $this->newLine();
+        $total = $casos->count();
+
+        $bien = $total - $fallas - $mejorables;
+        $this->line("  <fg=green>{$bien} bien</>  <fg=yellow>{$mejorables} mejorables</>  <fg=red>{$fallas} inaceptables</>  de {$total}");
+
+        // Solo lo inaceptable tumba la evaluación: si "mejorable" fallara,
+        // nadie la correría.
+        return $fallas === 0 ? self::SUCCESS : self::FAILURE;
+    }
+
+    /**
+     * El número con el que se conversa.
+     *
+     * Es uno de verdad -- el de quien mantiene esto -- y no uno inventado
+     * a propósito: si algún día un mensaje se escapa de la evaluación, que
+     * le llegue a él y no a una desconocida que nunca escribió al local.
+     */
+    private function telefono(): string
+    {
+        return ltrim(
+            (string) ($this->option('telefono') ?: config('services.ia_eval.phone')),
+            '+',
+        );
+    }
+
+    /**
+     * @param  Collection<int, array<string, mixed>>  $casos
+     * @return array{0: int, 1: int} fallas, mejorables
+     */
+    private function correrTodos(IaCoreClient $ia, Business $business, $casos, string $telefono): array
+    {
         $fallas = 0;
         $mejorables = 0;
 
         foreach ($casos as $caso) {
+            // La marca de "ya le mandé las horas" vive en caché, fuera de
+            // la transacción: sin esto el segundo caso hereda la del
+            // primero y el bot se queda callado creyendo que ya contestó.
+            OpcionesEnviadas::olvidar($telefono);
+
+            // Y la de "esto es una prueba" se renueva, para que dure lo
+            // que dure la corrida sin dejar el número mudo si se corta.
+            if (! $this->option('enviar')) {
+                EsUnaPrueba::marcar($telefono);
+            }
+
             /*
              * Cada caso corre en una transacción que se revierte: la
              * evaluación NO puede dejar citas de mentira en la agenda del
@@ -96,15 +168,7 @@ class EvaluarAgente extends Command
             }
         }
 
-        $this->newLine();
-        $total = $casos->count();
-
-        $bien = $total - $fallas - $mejorables;
-        $this->line("  <fg=green>{$bien} bien</>  <fg=yellow>{$mejorables} mejorables</>  <fg=red>{$fallas} inaceptables</>  de {$total}");
-
-        // Solo lo inaceptable tumba la evaluación: si "mejorable" fallara,
-        // nadie la correría.
-        return $fallas === 0 ? self::SUCCESS : self::FAILURE;
+        return [$fallas, $mejorables];
     }
 
     /**
@@ -112,14 +176,25 @@ class EvaluarAgente extends Command
      */
     private function correr(IaCoreClient $ia, Business $business, array $caso): array
     {
-        $telefono = '57300'.random_int(1000000, 9999999);
+        $telefono = $this->telefono();
 
-        $cliente = Client::create([
-            'business_id' => $business->id,
-            'name' => 'Evaluación',
-            'phone' => $telefono,
-            'is_active' => true,
-        ]);
+        /*
+         * El número es de verdad, así que puede tener ficha de verdad. Se
+         * reusa en vez de crear otra: dos fichas con el mismo teléfono es
+         * exactamente el enredo que hace que el bot no encuentre las citas
+         * de quien le escribe. Todo esto corre dentro de una transacción
+         * que se revierte, así que la ficha real queda como estaba.
+         */
+        $cliente = Client::withoutGlobalScope('business')
+            ->where('business_id', $business->id)
+            ->where('phone', $telefono)
+            ->first()
+            ?? Client::create([
+                'business_id' => $business->id,
+                'name' => 'Evaluación',
+                'phone' => $telefono,
+                'is_active' => true,
+            ]);
 
         $conversacion = WhatsappConversation::withoutGlobalScope('business')->create([
             'business_id' => $business->id,
