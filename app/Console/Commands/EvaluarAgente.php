@@ -342,10 +342,18 @@ class EvaluarAgente extends Command
         ?array $comoEstaba,
         CarbonInterface $desde,
     ): void {
+        /*
+         * Por el SELLO y no solo por la fecha. El teléfono es de verdad y
+         * la ficha también: si quien está midiendo agenda una cita suya
+         * mientras esto corre, borrarla porque "se creó en los últimos
+         * segundos" sería el peor error que puede cometer este comando.
+         * Solo se va lo que nació marcado.
+         */
         Appointment::withoutGlobalScopes()
             ->where('business_id', $business->id)
             ->where('client_id', $cliente->id)
             ->where('created_at', '>=', $desde)
+            ->where('notes', 'like', '%'.EsUnaPrueba::SELLO.'%')
             ->get()
             ->each(function (Appointment $cita) {
                 $cita->items()->delete();
@@ -394,6 +402,9 @@ class EvaluarAgente extends Command
             'ends_at' => now()->addDay()->setTime(11, 0),
             'status' => Appointment::STATUS_CONFIRMED,
             'source' => Appointment::SOURCE_WHATSAPP_AGENT,
+            // Marcada igual que las que crea el bot durante la evaluación:
+            // es lo que la limpieza busca para borrarla.
+            'notes' => EsUnaPrueba::SELLO,
         ]);
 
         $cita->items()->create([

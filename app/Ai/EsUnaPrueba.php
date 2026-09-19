@@ -33,6 +33,16 @@ final class EsUnaPrueba
      */
     private const TTL_SEGUNDOS = 300;
 
+    /**
+     * Lo que se le escribe a una cita nacida de una evaluación.
+     *
+     * La evaluación tiene que borrar lo que el bot dejó, y lo hace sobre
+     * una ficha de verdad: borrar "todo lo creado en los últimos
+     * segundos" casi nunca se equivoca, y "casi nunca" no alcanza cuando
+     * lo que está en juego es la cita de alguien.
+     */
+    public const SELLO = '[evaluación ia:evaluar]';
+
     public static function marcar(string $phone): void
     {
         Cache::put(self::clave($phone), true, self::TTL_SEGUNDOS);

@@ -5,6 +5,7 @@ namespace App\Ai\Capabilities;
 use App\Ai\AiArgumentException;
 use App\Ai\AiCaller;
 use App\Ai\Capability;
+use App\Ai\EsUnaPrueba;
 use App\Ai\FechaDicha;
 use App\Ai\HoraLegible;
 use App\Ai\Resolves;
@@ -325,12 +326,26 @@ class CreateAppointmentCapability implements Capability
     {
         $otra = trim((string) ($arguments['para_quien'] ?? ''));
 
-        if ($otra === '' || $caller->isStaff()) {
-            return null;
+        $nota = $otra === '' || $caller->isStaff()
+            ? null
+            : 'La cita es para '.$otra.'. Agendó '
+                .($caller->client?->fullName() ?? $caller->phone).' por WhatsApp.';
+
+        /*
+         * Si esta conversación es una evaluación, la cita queda marcada.
+         *
+         * `ia:evaluar` conversa con un teléfono de verdad -- el de quien
+         * mantiene esto -- y después borra lo que el bot dejó. Borrar
+         * "todas las citas de esa ficha creadas en los últimos segundos"
+         * casi nunca se equivoca, y "casi nunca" no alcanza cuando lo que
+         * está en juego es la cita de alguien. Con la marca solo se borra
+         * lo que nació de la evaluación.
+         */
+        if (EsUnaPrueba::si((string) $caller->phone)) {
+            $nota = trim(($nota ?? '').' '.EsUnaPrueba::SELLO);
         }
 
-        return 'La cita es para '.$otra.'. Agendó '
-            .($caller->client?->fullName() ?? $caller->phone).' por WhatsApp.';
+        return $nota;
     }
 
     /**
