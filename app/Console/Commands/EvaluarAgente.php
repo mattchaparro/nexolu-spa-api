@@ -7,12 +7,13 @@ use App\Ai\OpcionesEnviadas;
 use App\Models\Appointment;
 use App\Models\Business;
 use App\Models\Client;
+use App\Models\Message;
 use App\Models\WhatsappConversation;
 use App\Services\Ia\Evaluacion\CasosReales;
 use App\Services\Ia\IaCoreClient;
+use Carbon\CarbonInterface;
 use Illuminate\Console\Command;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\DB;
 
 /**
  * Pasa al agente por conversaciones reales y dice dónde falla.
@@ -126,9 +127,9 @@ class EvaluarAgente extends Command
         $mejorables = 0;
 
         foreach ($casos as $caso) {
-            // La marca de "ya le mandé las horas" vive en caché, fuera de
-            // la transacción: sin esto el segundo caso hereda la del
-            // primero y el bot se queda callado creyendo que ya contestó.
+            // La marca de "ya le mandé las horas" dura tres minutos: sin
+            // borrarla, el segundo caso hereda la del primero y el bot se
+            // queda callado creyendo que ya contestó.
             OpcionesEnviadas::olvidar($telefono);
 
             // Y la de "esto es una prueba" se renueva, para que dure lo
@@ -137,11 +138,6 @@ class EvaluarAgente extends Command
                 EsUnaPrueba::marcar($telefono);
             }
 
-            /*
-             * Cada caso corre en una transacción que se revierte: la
-             * evaluación NO puede dejar citas de mentira en la agenda del
-             * local ni fichas de clientas inventadas.
-             */
             /*
              * El mismo caso, varias veces. El modelo no es determinista:
              * dos corridas seguidas del MISMO código dieron 23 y 26 de
@@ -158,13 +154,7 @@ class EvaluarAgente extends Command
             for ($i = 0; $i < $veces; $i++) {
                 OpcionesEnviadas::olvidar($telefono);
 
-                DB::beginTransaction();
-
-                try {
-                    [$p, $a, $r] = $this->correr($ia, $business, $caso);
-                } finally {
-                    DB::rollBack();
-                }
+                [$p, $a, $r] = $this->correr($ia, $business, $caso);
 
                 // Se guarda lo PEOR que pasó, que es lo que le va a pasar
                 // a alguna clienta, y se cuenta cuántas veces salió bien.
@@ -215,13 +205,13 @@ class EvaluarAgente extends Command
     private function correr(IaCoreClient $ia, Business $business, array $caso): array
     {
         $telefono = $this->telefono();
+        $desde = now();
 
         /*
          * El número es de verdad, así que puede tener ficha de verdad. Se
          * reusa en vez de crear otra: dos fichas con el mismo teléfono es
          * exactamente el enredo que hace que el bot no encuentre las citas
-         * de quien le escribe. Todo esto corre dentro de una transacción
-         * que se revierte, así que la ficha real queda como estaba.
+         * de quien le escribe.
          */
         $cliente = Client::withoutGlobalScope('business')
             ->where('business_id', $business->id)
@@ -240,8 +230,7 @@ class EvaluarAgente extends Command
          * reusa es el hilo del Core: se arranca uno nuevo en cada caso,
          * porque si no, las veintiocho clientas inventadas quedan pegadas
          * a la memoria de la charla real y el bot se acuerda de ellas la
-         * próxima vez que escriba una persona. Ese `null` se revierte con
-         * la transacción; lo que el Core recuerda, no.
+         * próxima vez que escriba una persona.
          */
         $conversacion = WhatsappConversation::withoutGlobalScope('business')
             ->firstOrNew([
@@ -249,6 +238,30 @@ class EvaluarAgente extends Command
                 'phone' => $telefono,
             ]);
 
+        // Cómo estaba, para devolverla igual: es la conversación real de
+        // alguien, no un sobrante de prueba.
+        $comoEstaba = $conversacion->exists
+            ? $conversacion->only([
+                'client_id', 'ia_conversation_id', 'last_message_at', 'last_inbound_at',
+                'status', 'read_at', 'agent_paused_until',
+            ])
+            : null;
+
+        /*
+         * Y NADA de esto va dentro de una transacción abierta.
+         *
+         * Parecía lo prudente -- envolver el caso y revertir -- pero quien
+         * agenda no es este proceso: la evaluación le habla al Core, el
+         * Core le pega al endpoint de herramientas, y ese es otro request
+         * con otra conexión. No veía nada de lo que hay acá adentro, así
+         * que no protegía de nada... y en cambio dejaba esta fila trancada:
+         * `hablar_con_persona` se quedaba 45 segundos esperando el candado
+         * y el Core lo daba por caído. La evaluación reportaba que el bot
+         * no pasaba un reclamo a una persona, y el bot sí lo pasaba.
+         *
+         * Se limpia a mano al final, que es lo que de verdad borra lo que
+         * el bot haya creado desde el otro lado.
+         */
         $conversacion->forceFill([
             'client_id' => $cliente->id,
             'ia_conversation_id' => null,
@@ -263,12 +276,16 @@ class EvaluarAgente extends Command
 
         $respuestas = [];
 
-        /*
-         * Los mensajes van JUNTOS, como los junta el debounce en
-         * producción: evaluar pedazo por pedazo mediría algo que no pasa
-         * en la vida real.
-         */
-        $respuesta = $ia->ask($conversacion, implode("\n", $caso['mensajes']));
+        try {
+            /*
+             * Los mensajes van JUNTOS, como los junta el debounce en
+             * producción: evaluar pedazo por pedazo mediría algo que no pasa
+             * en la vida real.
+             */
+            $respuesta = $ia->ask($conversacion, implode("\n", $caso['mensajes']));
+        } finally {
+            $this->limpiar($business, $cliente, $conversacion, $comoEstaba, $desde);
+        }
 
         if ($respuesta === null) {
             // Lista vacía, no `false`: quien llama las une con `...` y un
@@ -304,6 +321,50 @@ class EvaluarAgente extends Command
         }
 
         return [$fallas, $avisos, $respuestas];
+    }
+
+    /**
+     * Borrar lo que dejó el caso, sin tocar lo que ya estaba.
+     *
+     * Es la parte que la transacción no hacía. Las citas las crea el bot
+     * desde otro proceso, así que se van con un `delete`, no con un
+     * rollback -- y se borran por FECHA DE CREACIÓN, no por `source`: la
+     * clienta de verdad también agenda por WhatsApp y esas citas son
+     * suyas. Borrarle una cita real por limpiar una de prueba es el peor
+     * error que puede cometer este comando.
+     *
+     * @param  array<string, mixed>|null  $comoEstaba  null si la conversación no existía
+     */
+    private function limpiar(
+        Business $business,
+        Client $cliente,
+        WhatsappConversation $conversacion,
+        ?array $comoEstaba,
+        CarbonInterface $desde,
+    ): void {
+        Appointment::withoutGlobalScopes()
+            ->where('business_id', $business->id)
+            ->where('client_id', $cliente->id)
+            ->where('created_at', '>=', $desde)
+            ->get()
+            ->each(function (Appointment $cita) {
+                $cita->items()->delete();
+                $cita->delete();
+            });
+
+        Message::withoutGlobalScopes()
+            ->where('conversation_id', $conversacion->id)
+            ->where('created_at', '>=', $desde)
+            ->delete();
+
+        if ($comoEstaba === null) {
+            // No existía antes de esta corrida: se va entera.
+            $conversacion->delete();
+
+            return;
+        }
+
+        $conversacion->forceFill($comoEstaba)->save();
     }
 
     /** Una cita próxima, para los casos de cancelar/mover/consultar. */
