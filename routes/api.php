@@ -20,11 +20,10 @@ use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\AvailabilityController;
 use App\Http\Controllers\Api\V1\BroadcastController;
 use App\Http\Controllers\Api\V1\CashController;
+use App\Http\Controllers\Api\V1\ChatEmbebidoController;
 use App\Http\Controllers\Api\V1\CheckoutController;
 use App\Http\Controllers\Api\V1\ClientController;
 use App\Http\Controllers\Api\V1\ClientLookupController;
-use App\Http\Controllers\Api\V1\ProductController;
-use App\Http\Controllers\Api\V1\RecurringExpenseController;
 use App\Http\Controllers\Api\V1\ClientPortalController;
 use App\Http\Controllers\Api\V1\ClientProfileController;
 use App\Http\Controllers\Api\V1\DepositController;
@@ -33,8 +32,11 @@ use App\Http\Controllers\Api\V1\InstagramStoryController;
 use App\Http\Controllers\Api\V1\LoyaltyCardController;
 use App\Http\Controllers\Api\V1\MessageController;
 use App\Http\Controllers\Api\V1\MyWorkController;
+use App\Http\Controllers\Api\V1\NavBadgesController;
 use App\Http\Controllers\Api\V1\PayrollController;
+use App\Http\Controllers\Api\V1\ProductController;
 use App\Http\Controllers\Api\V1\PublicBookingController;
+use App\Http\Controllers\Api\V1\RecurringExpenseController;
 use App\Http\Controllers\Api\V1\ResourceController;
 use App\Http\Controllers\Api\V1\SalesReportController;
 use App\Http\Controllers\Api\V1\ServiceController;
@@ -42,10 +44,9 @@ use App\Http\Controllers\Api\V1\SsoExchangeController;
 use App\Http\Controllers\Api\V1\StageController;
 use App\Http\Controllers\Api\V1\SurveyController;
 use App\Http\Controllers\Api\V1\WaitlistAdminController;
-use App\Http\Controllers\Api\V1\NavBadgesController;
 use App\Http\Controllers\Api\V1\WaitlistController;
-use App\Http\Controllers\Api\V1\WhatsappInboxController;
 use App\Http\Controllers\Api\V1\WalkInController;
+use App\Http\Controllers\Api\V1\WhatsappInboxController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -475,6 +476,17 @@ Route::prefix('v1')->group(function () {
         |
         | Recepcion y administracion si la tienen, que son quienes contestan.
         */
+        /*
+        | La bandeja de Connect, mostrada dentro de este panel.
+        |
+        | Mismo permiso que la bandeja propia -- es la misma pantalla, con
+        | mas cosas -- y el negocio sale de la sesion, nunca del request:
+        | pedir el token de otro salon tiene que ser imposible de escribir,
+        | no algo que se valide.
+        */
+        Route::get('whatsapp/chat-embebido/token', [ChatEmbebidoController::class, 'token'])
+            ->middleware('permission:clientes.ver');
+
         Route::prefix('whatsapp/inbox')->middleware('permission:clientes.ver')->group(function () {
             Route::get('/', [WhatsappInboxController::class, 'index']);
             Route::get('/{conversation}', [WhatsappInboxController::class, 'show']);
@@ -530,28 +542,28 @@ Route::prefix('v1')->group(function () {
         });
 
         Route::prefix('locations')->group(function () {
-                /*
-                 * LEER las sedes solo pide ver la agenda, no configurar el
-                 * negocio.
-                 *
-                 * La agenda las necesita para filtrar, y quien atiende entra a
-                 * la agenda: con `negocio.configurar` una manicurista recibia
-                 * un 403 cada vez que abria su pantalla, con un mensaje que no
-                 * decia de que. Saber que sedes existen no es un dato
-                 * sensible; crearlas o cambiarlas si, y eso sigue cerrado.
-                 */
-                Route::get('/', [LocationController::class, 'index'])
-                    ->middleware('permission:citas.ver');
+            /*
+             * LEER las sedes solo pide ver la agenda, no configurar el
+             * negocio.
+             *
+             * La agenda las necesita para filtrar, y quien atiende entra a
+             * la agenda: con `negocio.configurar` una manicurista recibia
+             * un 403 cada vez que abria su pantalla, con un mensaje que no
+             * decia de que. Saber que sedes existen no es un dato
+             * sensible; crearlas o cambiarlas si, y eso sigue cerrado.
+             */
+            Route::get('/', [LocationController::class, 'index'])
+                ->middleware('permission:citas.ver');
 
-                Route::post('/', [LocationController::class, 'store'])
-                    ->middleware(['permission:negocio.configurar', 'feature:multi_location']);
-                Route::post('/{location}', [LocationController::class, 'update'])
-                    ->middleware('permission:negocio.configurar');
-                Route::post('/{location}/primary', [LocationController::class, 'makePrimary'])
-                    ->middleware('permission:negocio.configurar');
-                Route::delete('/{location}', [LocationController::class, 'disable'])
-                    ->middleware('permission:negocio.configurar');
-            });
+            Route::post('/', [LocationController::class, 'store'])
+                ->middleware(['permission:negocio.configurar', 'feature:multi_location']);
+            Route::post('/{location}', [LocationController::class, 'update'])
+                ->middleware('permission:negocio.configurar');
+            Route::post('/{location}/primary', [LocationController::class, 'makePrimary'])
+                ->middleware('permission:negocio.configurar');
+            Route::delete('/{location}', [LocationController::class, 'disable'])
+                ->middleware('permission:negocio.configurar');
+        });
 
         Route::prefix('loyalty')->middleware('feature:loyalty')->group(function () {
             Route::get('/program', [LoyaltyProgramController::class, 'show'])
