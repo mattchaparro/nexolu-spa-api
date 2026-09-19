@@ -4,6 +4,7 @@ namespace App\Ai\Capabilities;
 
 use App\Ai\AiCaller;
 use App\Ai\Capability;
+use App\Ai\HoraLegible;
 use App\Models\Appointment;
 use App\Services\ClientPortalService;
 
@@ -60,7 +61,8 @@ class MyAppointmentsCapability implements Capability
             'citas' => $citas->map(fn (Appointment $a) => [
                 'id' => $a->id,
                 'fecha' => $a->starts_at?->setTimezone($tz)->format('Y-m-d'),
-                'hora' => $a->starts_at?->setTimezone($tz)->format('H:i'),
+                'hora' => HoraLegible::de($a->starts_at, $tz),
+                'hora_24' => $a->starts_at?->setTimezone($tz)->format('H:i'),
                 'servicios' => $a->items->map(fn ($i) => $i->service?->name)->filter()->values()->all(),
                 'con' => $a->items->first()?->resource?->name,
                 'sede' => $a->location?->name,

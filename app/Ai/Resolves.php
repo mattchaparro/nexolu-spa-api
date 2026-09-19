@@ -105,6 +105,24 @@ trait Resolves
         }
 
         if ($parciales->isEmpty()) {
+            /*
+             * Último intento, sin espacios ni guiones: la gente escribe
+             * "semi permanente" y el catálogo dice "Semipermanente". Pasó en
+             * la primera conversación real -- el agente preguntó en vez de
+             * agendar, que es correcto pero es un mensaje de más por algo
+             * que no es una ambigüedad de verdad.
+             */
+            $pegado = $this->pegar($buscado);
+            $parciales = $filas->filter(
+                fn ($f) => str_contains($this->pegar($this->normalize($f->name)), $pegado)
+            );
+
+            if ($parciales->count() === 1) {
+                return $parciales->first();
+            }
+        }
+
+        if ($parciales->isEmpty()) {
             throw new AiArgumentException(
                 "No existe el {$que} «{$nombre}». Los que hay: ".$filas->pluck('name')->implode(', ').'.'
             );
@@ -114,6 +132,12 @@ trait Resolves
             "«{$nombre}» puede ser varias cosas: ".$parciales->pluck('name')->implode(', ')
             .'. Pregúntale a la clienta cuál.'
         );
+    }
+
+    /** Sin espacios ni guiones: "semi permanente" y "Semipermanente" son lo mismo. */
+    private function pegar(string $texto): string
+    {
+        return str_replace([' ', '-', '_'], '', $texto);
     }
 
     /** Sin tildes, sin mayusculas y sin espacios de sobra: la gente escribe como escribe. */

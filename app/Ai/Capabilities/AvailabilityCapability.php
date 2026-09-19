@@ -4,6 +4,7 @@ namespace App\Ai\Capabilities;
 
 use App\Ai\AiCaller;
 use App\Ai\Capability;
+use App\Ai\HoraLegible;
 use App\Ai\Resolves;
 use App\Services\Scheduling\AvailabilityService;
 use Carbon\CarbonImmutable;
@@ -79,7 +80,11 @@ class AvailabilityCapability implements Capability
              * para ofrecer opciones repartidas en el dia.
              */
             'horas' => collect($slots)->take(12)->map(fn (array $s) => [
-                'hora' => $s['starts_at']->setTimezone($tz)->format('H:i'),
+                // `hora` es para MOSTRAR ("3 pm") y `hora_24` para volver a
+                // llamar (crear_cita pide H:i). Que el modelo no tenga que
+                // convertir evita que invente una hora que no existe.
+                'hora' => HoraLegible::de($s['starts_at'], $tz),
+                'hora_24' => $s['starts_at']->setTimezone($tz)->format('H:i'),
                 'con' => $s['resource_name'],
             ])->all(),
             'hay_mas' => count($slots) > 12,

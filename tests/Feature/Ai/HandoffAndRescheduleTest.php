@@ -183,7 +183,9 @@ class HandoffAndRescheduleTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.movida', true)
             ->assertJsonPath('data.id', $cita->id)
-            ->assertJsonPath('data.hora', '15:00');
+            // Legible para escribirle a la clienta, y H:i para reusar.
+            ->assertJsonPath('data.hora', '3 pm')
+            ->assertJsonPath('data.hora_24', '15:00');
 
         $this->assertSame(
             '15:00',

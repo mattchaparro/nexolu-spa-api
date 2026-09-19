@@ -5,6 +5,7 @@ namespace App\Ai\Capabilities;
 use App\Ai\AiArgumentException;
 use App\Ai\AiCaller;
 use App\Ai\Capability;
+use App\Ai\HoraLegible;
 use App\Ai\Resolves;
 use App\Models\Appointment;
 use App\Models\Client;
@@ -129,7 +130,8 @@ class CreateAppointmentCapability implements Capability
             'con' => $persona->name,
             'sede' => $sede?->name,
             'fecha' => $cita->starts_at?->setTimezone($tz)->format('Y-m-d'),
-            'hora' => $cita->starts_at?->setTimezone($tz)->format('H:i'),
+            'hora' => HoraLegible::de($cita->starts_at, $tz),
+            'hora_24' => $cita->starts_at?->setTimezone($tz)->format('H:i'),
             'precio' => (float) $servicio->price,
         ];
     }

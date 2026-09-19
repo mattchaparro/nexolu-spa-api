@@ -264,6 +264,33 @@ class AiToolInvokeTest extends TestCase
         $this->assertEquals(45000, $servicios[0]['precio_valor']);
     }
 
+    public function test_las_horas_libres_vienen_legibles_y_tambien_para_reusar(): void
+    {
+        /*
+         * «tengo a las 10:00, 11:00, 12:00, 13:00…» no es como habla nadie
+         * acá. El modelo escribe `hora` y vuelve a llamar con `hora_24`.
+         */
+        $horas = $this->invoke('disponibilidad', [
+            'servicio' => 'Manicure clasico',
+            'fecha' => $this->manana()->format('Y-m-d'),
+        ])->assertOk()->json('data.horas');
+
+        $this->assertSame('9 am', $horas[0]['hora']);
+        $this->assertSame('09:00', $horas[0]['hora_24']);
+    }
+
+    public function test_un_servicio_escrito_con_espacios_de_mas_se_reconoce(): void
+    {
+        // Pasó en la primera conversación real: la clienta escribió
+        // "Semi permanente" y el catálogo dice "Semipermanente".
+        $this->manicure->update(['name' => 'Semipermanente']);
+
+        $this->invoke('disponibilidad', [
+            'servicio' => 'semi permanente',
+            'fecha' => $this->manana()->format('Y-m-d'),
+        ])->assertOk()->assertJsonPath('data.servicio', 'Semipermanente');
+    }
+
     public function test_el_precio_va_escrito_con_su_moneda(): void
     {
         /*
