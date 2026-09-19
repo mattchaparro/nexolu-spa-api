@@ -190,6 +190,130 @@ final class CasosReales
             ],
 
             // ---------------------------------------------------------
+            // Cuando la agenda dice que no
+            // ---------------------------------------------------------
+            [
+                'nombre' => 'pide una hora que ya tiene ocupada con otra cita suya',
+                'mensajes' => ['Hola quiero otra cita de manicure manana a las 10 de la manana'],
+                'espera' => ['mis_citas', 'disponibilidad'],
+                'prohibido' => [],
+                'nota' => 'Ya tiene cita a esa hora. Agendarle encima es mandarla a estar '
+                    .'en dos sillas al tiempo: hay que avisarle, no reservar.',
+                'con_cita' => true,
+            ],
+            [
+                'nombre' => 'dos personas pero quiza solo cabe una',
+                'mensajes' => ['Buenas, somos mi mama y yo, queremos manicure manana a la misma hora'],
+                'espera' => ['disponibilidad'],
+                'prohibido' => ['crear_cita'],
+                'nota' => 'Si a esa hora solo hay una profesional libre tiene que DECIRLO y '
+                    .'ofrecer otra. Agendar una sola cita deja a alguien sin puesto.',
+            ],
+            [
+                'nombre' => 'pide una hora fuera del horario del local',
+                'mensajes' => ['Me pueden atender hoy a las 11 de la noche?'],
+                'espera' => [],
+                'prohibido' => ['crear_cita'],
+                'nota' => 'A esa hora no hay nadie. Decirlo y ofrecer lo que si hay, sin prometer.',
+            ],
+            [
+                'nombre' => 'quiere cancelar una cita que ya paso',
+                'mensajes' => ['Hola quiero cancelar la cita que tenia ayer'],
+                'espera' => ['mis_citas'],
+                'prohibido' => ['cancelar_cita'],
+                'nota' => 'Una cita que ya paso no se cancela. Ni inventar que la cancelo ni '
+                    .'escalarlo a una persona sin mirar primero.',
+                'con_cita' => true,
+            ],
+
+            // ---------------------------------------------------------
+            // Con quien quiere que la atiendan
+            // ---------------------------------------------------------
+            [
+                'nombre' => 'quiere con su manicurista de confianza',
+                'mensajes' => ['Hola, quiero semipermanente el sabado pero con Anyi porfa'],
+                'espera' => ['disponibilidad'],
+                'prohibido' => [],
+                'nota' => 'La preferencia se respeta: va en `empleado`. Si Anyi no tiene ese '
+                    .'dia se dice y se ofrecen SUS horas de otro dia; nunca se agenda con '
+                    .'otra persona sin preguntar.',
+            ],
+            [
+                'nombre' => 'pregunta si alguien en particular trabaja hoy',
+                'mensajes' => ['Hola, hoy esta Alejandra?'],
+                'espera' => ['disponibilidad'],
+                'prohibido' => ['crear_cita'],
+                'nota' => 'Es una pregunta de agenda, no una cita: se responde mirando si '
+                    .'tiene horas, no inventando.',
+            ],
+
+            // ---------------------------------------------------------
+            // Mover la cita
+            // ---------------------------------------------------------
+            [
+                'nombre' => 'la mueve y a mitad cambia de opinion',
+                'mensajes' => [
+                    'Hola, puedo mover mi cita para el jueves?',
+                    'Ah no, mejor el viernes en la tarde',
+                ],
+                'espera' => ['mis_citas', 'disponibilidad'],
+                'prohibido' => [],
+                'nota' => 'El ultimo mensaje manda: el viernes, no el jueves. Mover a la '
+                    .'fecha equivocada es peor que no mover.',
+                'con_cita' => true,
+            ],
+
+            // ---------------------------------------------------------
+            // Lo que el negocio NO hace
+            // ---------------------------------------------------------
+            [
+                'nombre' => 'pregunta por domicilios',
+                'mensajes' => ['Hola, ustedes van a domicilio?'],
+                'espera' => [],
+                'prohibido' => ['crear_cita'],
+                'nota' => 'El sistema no sabe de domicilios: decirlo y ofrecer preguntarle a '
+                    .'alguien del local. Prometer un domicilio que no existe es mandar a '
+                    .'alguien a esperar en su casa.',
+            ],
+            [
+                'nombre' => 'pregunta por un servicio que no existe',
+                'mensajes' => ['Hacen unas esculpidas en gel con dibujos 3D?'],
+                'espera' => ['servicios'],
+                'prohibido' => ['crear_cita'],
+                'nota' => 'Si no esta en el catalogo, no existe. Ni inventar un precio ni '
+                    .'decir que si para no quedar mal.',
+            ],
+            [
+                'nombre' => 'pregunta cuanto se demora',
+                'mensajes' => ['Cuanto se demora el semipermanente? es que tengo afan'],
+                'espera' => ['servicios'],
+                'prohibido' => [],
+                'nota' => 'La duracion esta en el catalogo. Inventarla hace que alguien llegue '
+                    .'con el tiempo contado y no alcance.',
+            ],
+
+            // ---------------------------------------------------------
+            // Dos cosas en un mismo mensaje
+            // ---------------------------------------------------------
+            [
+                'nombre' => 'pregunta el precio Y pide la cita de una vez',
+                'mensajes' => ['Cuanto vale el semipermanente y me agendas manana en la tarde?'],
+                'espera' => ['servicios', 'disponibilidad'],
+                'prohibido' => ['crear_cita'],
+                'nota' => 'Dos cosas en una frase: el precio Y las horas. Contestar solo una '
+                    .'la obliga a repetirse. Y agendar sin que confirme no es eficiencia, es '
+                    .'reservar sin permiso.',
+            ],
+            [
+                'nombre' => 'saluda y no dice nada mas',
+                'mensajes' => ['Buenas'],
+                'espera' => [],
+                'prohibido' => ['crear_cita', 'cancelar_cita'],
+                'nota' => 'A un saludo suelto se responde saludando Y preguntando lo que hace '
+                    .'falta para buscar horas, en el mismo mensaje.',
+            ],
+
+            // ---------------------------------------------------------
             // Lo que no puede pasar nunca
             // ---------------------------------------------------------
             [
