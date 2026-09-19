@@ -14,8 +14,8 @@ use Illuminate\Support\Facades\Log;
 /**
  * Pensar la respuesta del agente, FUERA de la petición del webhook.
  *
- * No es una optimización, son dos problemas distintos que solo se arreglan
- * así:
+ * No es una optimización, son tres problemas distintos que solo se
+ * arreglan así:
  *
  * 1. EL ABRAZO MORTAL. Preguntarle al Core es una llamada HTTP que el Core
  *    devuelve con OTRA llamada HTTP a esta misma API (`/api/ai/tools/invoke`,
@@ -27,6 +27,13 @@ use Illuminate\Support\Facades\Log;
  * 2. EL REINTENTO DUPLICADO. Communications espera un 200 rapido; si tarda,
  *    reintenta el MISMO evento -- y reintentar aca es volver a escribirle a
  *    la clienta. Contestar de inmediato y pensar despues cierra esa puerta.
+ *
+ * 3. LA GENTE ESCRIBE EN PEDAZOS. "requiero una cita para hombre" / "pero a
+ *    las 10" / "no se si se pueda con Angy": cuatro mensajes, UNA idea.
+ *    Contestar cada uno produce cuatro respuestas incompletas -- y cuatro
+ *    llamadas al modelo. Por eso el trabajo se programa con retraso y solo
+ *    corre el ULTIMO: los pedazos se leen juntos, como los leeria una
+ *    persona.
  *
  * Un modelo mas una o dos vueltas de herramienta se van facil a mas de 30
  * segundos, que es justo el tope de ejecucion de PHP en una petición web.
@@ -49,7 +56,16 @@ class AnswerWhatsappMessageJob implements ShouldQueue
 
     public function __construct(
         private readonly int $conversationId,
-        private readonly string $text,
+        /**
+         * El id del mensaje que programo este trabajo.
+         *
+         * Distingue al ultimo de los que quedaron obsoletos: si entro algo
+         * despues, este ya no tiene la ultima palabra y se retira en
+         * silencio. Es un ID y no una marca de tiempo porque dos mensajes
+         * pueden entrar en el mismo segundo -- y entonces los dos se
+         * creerian el ultimo y contestarian los dos.
+         */
+        private readonly int $mensajeId,
     ) {}
 
     public function handle(
@@ -64,7 +80,19 @@ class AnswerWhatsappMessageJob implements ShouldQueue
             return;
         }
 
-        $respuesta = $ia->ask($conversacion, $this->text);
+        // Llego otro mensaje despues de este: el trabajo que programo ESE
+        // es el que va a contestar, con todos los pedazos juntos.
+        if ($this->ultimoEntranteId($conversacion) !== $this->mensajeId) {
+            return;
+        }
+
+        $pendientes = $this->pendientes($conversacion);
+
+        if ($pendientes === '') {
+            return;
+        }
+
+        $respuesta = $ia->ask($conversacion, $pendientes);
 
         if ($respuesta === null) {
             /*
@@ -109,5 +137,44 @@ class AnswerWhatsappMessageJob implements ShouldQueue
             // Para que la respuesta quede en el hilo y no suelta en el outbox.
             $conversacion,
         );
+    }
+
+    /**
+     * Todo lo que escribio y aun no se le ha contestado, junto.
+     *
+     * Se corta en 1000 caracteres porque es el tope del Core; quien manda
+     * mas que eso en un rato no esta agendando una cita.
+     */
+    private function pendientes(WhatsappConversation $conversacion): string
+    {
+        /*
+         * Por ID y no por fecha: un mensaje y la respuesta pueden caer en
+         * el mismo segundo, y entonces "lo posterior a la ultima
+         * respuesta" incluiria lo que ya se contesto -- y el modelo
+         * volveria a responder algo viejo.
+         */
+        $ultimaRespuesta = (int) Message::withoutGlobalScope('business')
+            ->where('conversation_id', $conversacion->id)
+            ->where('direction', Message::DIRECTION_OUT)
+            ->max('id');
+
+        $textos = Message::withoutGlobalScope('business')
+            ->where('conversation_id', $conversacion->id)
+            ->where('direction', Message::DIRECTION_IN)
+            ->where('id', '>', $ultimaRespuesta)
+            ->orderBy('id')
+            ->pluck('body')
+            ->filter()
+            ->all();
+
+        return mb_substr(implode("\n", $textos), -1000);
+    }
+
+    private function ultimoEntranteId(WhatsappConversation $conversacion): int
+    {
+        return (int) Message::withoutGlobalScope('business')
+            ->where('conversation_id', $conversacion->id)
+            ->where('direction', Message::DIRECTION_IN)
+            ->max('id');
     }
 }

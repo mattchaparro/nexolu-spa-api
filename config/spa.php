@@ -100,6 +100,21 @@ return [
 
         'whatsapp_agent_pause_min' => 120,
 
+        /*
+         * Cuanto se espera antes de contestar, por si viene otro mensaje.
+         *
+         * La gente escribe por WhatsApp como habla: "requiero una cita para
+         * hombre" / "pero a las 10" / "no se si se pueda con Angy". Son
+         * cuatro mensajes y UNA sola idea. Contestar cada pedazo produce
+         * cuatro respuestas, todas con informacion incompleta, y ademas
+         * gasta cuatro veces el modelo.
+         *
+         * Ocho segundos: suficiente para alcanzar al que sigue escribiendo,
+         * poco para que no parezca que nadie contesta. El "escribiendo..."
+         * sale de inmediato, asi que el silencio no se siente.
+         */
+        'whatsapp_agent_debounce_seconds' => 8,
+
         'commission_base_manual' => 'charged',
         'commission_base_package' => 'charged',
         'commission_base_loyalty' => 'list',

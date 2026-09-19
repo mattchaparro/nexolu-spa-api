@@ -11,6 +11,7 @@ use App\Services\WhatsApp\ConversationRouter;
 use App\Support\ChannelPhone;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -78,6 +79,18 @@ class CommsWebhookController
 
         [$phoneNumberId, $from, $texto, $wamid] = $entrante;
 
+        /*
+         * El MISMO mensaje dos veces se atiende una sola.
+         *
+         * Communications reintenta lo que tarda, y Meta reenvia lo que no
+         * confirma: sin esto, un reintento es volver a escribirle a la
+         * clienta -- y en una conversacion eso es peor que no contestar.
+         * La marca es el wamid, que Meta garantiza unico.
+         */
+        if ($wamid !== '' && ! Cache::add('wa_msg:'.$wamid, true, now()->addHours(6))) {
+            return response()->json(['ok' => true, 'handled' => false, 'duplicado' => true]);
+        }
+
         // El telefono llega de Meta, no del texto: es lo unico de este cuerpo
         // que no escribio la persona.
         $normalizado = ChannelPhone::normalize($from);
@@ -111,7 +124,7 @@ class CommsWebhookController
          * Va antes de la cola a proposito: si el agente falla, el mensaje de
          * la clienta ya esta escrito y alguien puede responderlo.
          */
-        $this->guardarEntrante($conversacion, $texto);
+        $entrante = $this->guardarEntrante($conversacion, $texto);
 
         /*
          * Si un flujo de Connect ya atendio este mensaje (avanzo botones,
@@ -163,7 +176,16 @@ class CommsWebhookController
             $this->channel->markAsReadWithTyping($conversacion->phone, $wamid);
         }
 
-        AnswerWhatsappMessageJob::dispatch($conversacion->id, $texto);
+        /*
+         * Con retraso, no de inmediato: la gente escribe en pedazos y cada
+         * pedazo llega como su propio webhook. Si el siguiente entra antes
+         * de que venza el retraso, ESTE trabajo se retira y contesta el
+         * ultimo, con todo junto (ver AnswerWhatsappMessageJob).
+         */
+        AnswerWhatsappMessageJob::dispatch($conversacion->id, $entrante->id)
+            ->delay(now()->addSeconds(
+                (int) config('spa.defaults.whatsapp_agent_debounce_seconds', 8)
+            ));
 
         return response()->json(['ok' => true, 'handled' => true]);
     }
@@ -315,9 +337,9 @@ class CommsWebhookController
      *
      * Y `read_at` vuelve a nulo: llego algo nuevo que nadie ha visto.
      */
-    private function guardarEntrante(WhatsappConversation $conversacion, string $texto): void
+    private function guardarEntrante(WhatsappConversation $conversacion, string $texto): Message
     {
-        Message::create([
+        $mensaje = Message::create([
             'business_id' => $conversacion->business_id,
             'conversation_id' => $conversacion->id,
             'client_id' => $conversacion->client_id,
@@ -342,6 +364,8 @@ class CommsWebhookController
             // escondida es una clienta a la que nadie contesta.
             'status' => WhatsappConversation::STATUS_OPEN,
         ]);
+
+        return $mensaje;
     }
 
     /**
