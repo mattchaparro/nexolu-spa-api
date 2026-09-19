@@ -190,6 +190,10 @@ class EvaluarAgente extends Command
             'resource_id' => $recurso->id,
             'starts_at' => $cita->starts_at,
             'ends_at' => $cita->ends_at,
+            // Con buffers, lo que ocupa al recurso y lo que ve la clienta
+            // no son lo mismo; acá no hay buffers, así que coinciden.
+            'service_starts_at' => $cita->starts_at,
+            'service_ends_at' => $cita->ends_at,
             'price' => $servicio->price,
             'sort_order' => 0,
         ]);
