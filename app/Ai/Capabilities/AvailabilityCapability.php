@@ -4,6 +4,7 @@ namespace App\Ai\Capabilities;
 
 use App\Ai\AiCaller;
 use App\Ai\Capability;
+use App\Ai\FechaDicha;
 use App\Ai\HoraLegible;
 use App\Ai\OpcionesEnviadas;
 use App\Ai\Resolves;
@@ -69,7 +70,9 @@ class AvailabilityCapability implements Capability
             'servicio' => ['required_without:servicios', 'string', 'max:255'],
             'servicios' => ['required_without:servicio', 'array', 'min:1', 'max:5'],
             'servicios.*' => ['required', 'string', 'max:255'],
-            'fecha' => ['required', 'date_format:Y-m-d'],
+            // Texto y no `date_format`: "el lunes" lo resuelve el código,
+            // no el modelo, que se equivocó ofreciendo el martes.
+            'fecha' => ['required', 'string', 'max:40'],
             // "en la tarde" lo filtra la herramienta, no el modelo: si el
             // filtro lo hace el, ofrece horas que no pidio o descarta las
             // que si servian.
@@ -83,7 +86,16 @@ class AvailabilityCapability implements Capability
     {
         $business = $caller->business;
         $tz = $business->businessTimezone();
-        $fecha = CarbonImmutable::parse($arguments['fecha'], $tz);
+        $fecha = FechaDicha::resolver($arguments['fecha'], $tz);
+
+        if ($fecha === null) {
+            return [
+                'horas' => [],
+                'falta_informacion' => "No entendí la fecha «{$arguments['fecha']}».",
+                'instruccion' => 'Pregúntale qué día quiere (puedes decirle "hoy", "mañana" '
+                    .'o un día de la semana) y vuelve a intentarlo.',
+            ];
+        }
 
         $nombres = $arguments['servicios'] ?? [$arguments['servicio']];
         $servicios = array_map(fn (string $n) => $this->resolveService($business->id, $n), $nombres);
@@ -112,7 +124,8 @@ class AvailabilityCapability implements Capability
         if ($horas->isEmpty()) {
             return [
                 'servicios' => $nombreServicios,
-                'fecha' => $arguments['fecha'],
+                'fecha' => $fecha->format('Y-m-d'),
+                'dia' => $fecha->locale('es')->isoFormat('dddd D [de] MMMM'),
                 'horas' => [],
                 'instruccion' => 'No hay horas ese día'.($arguments['franja'] ?? null ? ' en esa franja' : '')
                     .'. Ofrécele otro día u otra franja, y vuelve a llamarme.',
@@ -126,7 +139,10 @@ class AvailabilityCapability implements Capability
 
         return array_filter([
             'servicios' => $nombreServicios,
-            'fecha' => $arguments['fecha'],
+            // La fecha RESUELTA, no la que dijo el modelo: si pidió "el
+            // lunes" tiene que escribir el lunes, no lo que el creía.
+            'fecha' => $fecha->format('Y-m-d'),
+            'dia' => $fecha->locale('es')->isoFormat('dddd D [de] MMMM'),
             // Con una sola sede, nombrarla es ruido: la clienta no esta
             // eligiendo entre dos locales, y "en la sede Principal" en cada
             // mensaje suena a sistema, no a la recepcion del salon.

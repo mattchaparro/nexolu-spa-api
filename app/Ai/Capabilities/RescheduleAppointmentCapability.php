@@ -5,6 +5,7 @@ namespace App\Ai\Capabilities;
 use App\Ai\AiArgumentException;
 use App\Ai\AiCaller;
 use App\Ai\Capability;
+use App\Ai\FechaDicha;
 use App\Ai\HoraLegible;
 use App\Ai\Resolves;
 use App\Models\Appointment;
@@ -53,7 +54,8 @@ class RescheduleAppointmentCapability implements Capability
     {
         return [
             'cita_id' => ['required', 'integer'],
-            'fecha' => ['required', 'date_format:Y-m-d'],
+            // Texto: "el lunes" lo resuelve el codigo, no el modelo.
+            'fecha' => ['required', 'string', 'max:40'],
             'hora' => ['required', 'date_format:H:i'],
             'empleado' => ['nullable', 'string', 'max:255'],
         ];
@@ -109,10 +111,16 @@ class RescheduleAppointmentCapability implements Capability
             }
         }
 
-        $nuevoInicio = CarbonImmutable::parse(
-            $arguments['fecha'].' '.$arguments['hora'],
-            $business->businessTimezone(),
-        );
+        $dia = FechaDicha::resolver($arguments['fecha'], $business->businessTimezone());
+
+        if ($dia === null) {
+            return [
+                'movida' => false,
+                'motivo' => "No entendí la fecha «{$arguments['fecha']}». Pregúntale a qué día la mueve.",
+            ];
+        }
+
+        $nuevoInicio = $dia->setTimeFromTimeString($arguments['hora'].':00');
 
         try {
             $cita = $this->booking->reschedule($cita, $nuevoInicio, $persona);

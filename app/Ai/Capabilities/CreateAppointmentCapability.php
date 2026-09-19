@@ -5,6 +5,7 @@ namespace App\Ai\Capabilities;
 use App\Ai\AiArgumentException;
 use App\Ai\AiCaller;
 use App\Ai\Capability;
+use App\Ai\FechaDicha;
 use App\Ai\HoraLegible;
 use App\Ai\Resolves;
 use App\Models\Appointment;
@@ -66,7 +67,8 @@ class CreateAppointmentCapability implements Capability
             // pedirlo y terminaba diciendo "el sistema no me deja".
             'servicios' => ['required_without:servicio', 'array', 'min:1', 'max:5'],
             'servicios.*' => ['required', 'string', 'max:255'],
-            'fecha' => ['required', 'date_format:Y-m-d'],
+            // Texto: "el lunes" lo resuelve el codigo, no el modelo.
+            'fecha' => ['required', 'string', 'max:40'],
             'hora' => ['required', 'date_format:H:i'],
             'empleado' => ['nullable', 'string', 'max:255'],
             'sede' => ['nullable', 'string', 'max:255'],
@@ -99,7 +101,16 @@ class CreateAppointmentCapability implements Capability
             ? $this->resolveResource($business->id, $arguments['empleado'], $sede?->id)
             : null;
 
-        $inicio = CarbonImmutable::parse($arguments['fecha'].' '.$arguments['hora'].':00', $tz);
+        $dia = FechaDicha::resolver($arguments['fecha'], $tz);
+
+        if ($dia === null) {
+            return [
+                'agendada' => false,
+                'motivo' => "No entendí la fecha «{$arguments['fecha']}». Pregúntale qué día quiere.",
+            ];
+        }
+
+        $inicio = $dia->setTimeFromTimeString($arguments['hora'].':00');
 
         /*
          * Una cadena de dos servicios no empieza los dos a la misma hora:
