@@ -71,6 +71,22 @@ class OfferOptionsCapability implements Capability
             ];
         }
 
+        /*
+         * Una sola lista por turno.
+         *
+         * Pasó en producción: `disponibilidad` mostró las horas como
+         * botones y el modelo, además, llamó acá con las mismas. La
+         * clienta recibió la misma lista dos veces seguidas. Que no se
+         * repita no puede depender de que el modelo lea la instrucción.
+         */
+        if (OpcionesEnviadas::yaSeMandaron($phone)) {
+            return [
+                'mostrado' => false,
+                'instruccion' => 'Ya le mostraste opciones en este turno y las está viendo. '
+                    .'No mandes otra lista: responde con una cadena vacía.',
+            ];
+        }
+
         $opciones = [];
         foreach (array_values($arguments['opciones']) as $i => $titulo) {
             $opciones[] = ['id' => 'op'.$i, 'title' => $titulo];

@@ -31,6 +31,19 @@ final class OpcionesEnviadas
         return (bool) Cache::pull(self::clave($phone), false);
     }
 
+    /**
+     * ¿Ya se le mandaron opciones en este turno? Sin limpiar la marca.
+     *
+     * Lo usa `ofrecer_opciones` para NO mandar una segunda lista: pasó en
+     * producción -- `disponibilidad` mostró las horas y el modelo, además,
+     * llamó a `ofrecer_opciones` con las mismas. La clienta recibió la
+     * misma lista dos veces seguidas.
+     */
+    public static function yaSeMandaron(string $phone): bool
+    {
+        return (bool) Cache::get(self::clave($phone), false);
+    }
+
     private static function clave(string $phone): string
     {
         return 'ia:opciones-enviadas:'.$phone;

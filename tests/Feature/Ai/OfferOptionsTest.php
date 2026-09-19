@@ -154,4 +154,22 @@ class OfferOptionsTest extends TestCase
             ->assertJsonPath('data.mostrado', false)
             ->assertJsonPath('data.instruccion', 'No pude mostrar opciones. Escríbelas en el texto de tu respuesta.');
     }
+
+    public function test_no_manda_una_segunda_lista_en_el_mismo_turno(): void
+    {
+        /*
+         * Pasó en producción: `disponibilidad` mostró las horas como
+         * botones y el modelo, además, llamó acá con las mismas. La
+         * clienta recibió la misma lista dos veces seguidas. Que no se
+         * repita no puede depender de que el modelo lea la instrucción.
+         */
+        $this->commsResponde();
+        \App\Ai\OpcionesEnviadas::marcar(self::PHONE);
+
+        $this->invoke(['mensaje' => '¿Cuál hora?', 'opciones' => ['10 am', '3 pm']])
+            ->assertOk()
+            ->assertJsonPath('data.mostrado', false);
+
+        Http::assertNothingSent();
+    }
 }

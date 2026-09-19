@@ -137,8 +137,9 @@ class AvailabilityCapability implements Capability
             'ofrecidas' => $ofrecidas,
             'horas' => $horas->take(12)->all(),
             'instruccion' => $mostrado
-                ? 'Las opciones YA le llegaron como botones. Responde con una cadena vacía: '
-                    .'escribir las horas otra vez le llegaría repetido.'
+                ? 'Las horas YA le llegaron como botones y las está viendo. NO llames a '
+                    .'`ofrecer_opciones` con ellas ni las escribas: responde con una cadena '
+                    .'vacía. Cuando toque una, te llega como su próximo mensaje.'
                 : 'Ofrécele dos o tres de `ofrecidas` usando el campo `hora`, nunca `hora_24`.',
         ], fn ($v) => $v !== null);
     }
