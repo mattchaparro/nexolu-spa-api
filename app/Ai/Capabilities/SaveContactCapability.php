@@ -15,7 +15,11 @@ use App\Services\ClientResolver;
  * base de clientas es el activo del local, y se construye con cada persona
  * que escribe, no solo con las que agendan.
  *
- * Lo llama el agente en cuanto sabe el nombre, antes de buscar horas.
+ * Lo llama el agente en cuanto sabe el nombre. Guardar la ficha NO es un
+ * paso de la conversacion: es un efecto de lado. Por eso el resultado
+ * siempre lo empuja a seguir en el MISMO turno -- cuando esto devolvia solo
+ * `guardado: true`, el modelo lo leia como "ya hice algo" y se quedaba
+ * esperando, preguntando el dia que ya le habian dicho.
  */
 class SaveContactCapability implements Capability
 {
@@ -65,7 +69,8 @@ class SaveContactCapability implements Capability
             return [
                 'guardado' => false,
                 'ya_lo_teniamos' => $caller->client->fullName(),
-                'instruccion' => 'Ya sabías su nombre. Úsalo y sigue con la cita.',
+                'instruccion' => 'Ya sabías su nombre. Úsalo y sigue con la cita. '
+                    .self::SIGUE_AHORA,
             ];
         }
 
@@ -79,6 +84,19 @@ class SaveContactCapability implements Capability
         return [
             'guardado' => $ficha !== null,
             'nombre' => $ficha?->fullName(),
+            'instruccion' => self::SIGUE_AHORA,
         ];
     }
+
+    /**
+     * Lo que tiene que pasar DESPUES de guardar, y que el modelo se saltaba.
+     *
+     * La ficha no le sirve de nada a quien escribe: lo que esperaba era que
+     * le dijeran a que horas hay. Guardar y quedarse callado le cuesta un
+     * mensaje de ida y vuelta a una persona que ya dijo todo lo que hacia
+     * falta.
+     */
+    private const SIGUE_AHORA = 'Esto no fue una respuesta para ella: no le escribas todavía. '
+        .'Si ya sabes qué servicio quiere y qué día, llama YA a `disponibilidad` en este '
+        .'mismo turno. Solo si de verdad te falta uno de esos dos datos, pregúntalo.';
 }
