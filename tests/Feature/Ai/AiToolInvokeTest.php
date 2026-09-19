@@ -288,7 +288,72 @@ class AiToolInvokeTest extends TestCase
         $this->invoke('disponibilidad', [
             'servicio' => 'semi permanente',
             'fecha' => $this->manana()->format('Y-m-d'),
-        ])->assertOk()->assertJsonPath('data.servicio', 'Semipermanente');
+        ])->assertOk()->assertJsonPath('data.servicios.0', 'Semipermanente');
+    }
+
+    public function test_varios_servicios_son_UNA_cita_encadenada(): void
+    {
+        /*
+         * Pasó en una conversación real: la clienta pidió manos y pies, y
+         * el agente contestó "el sistema requiere que se agenden por
+         * separado" -- cuando el sistema SÍ sabe encadenarlos. La
+         * herramienta solo aceptaba un servicio.
+         */
+        $this->clienta('Carolina', '+573001112233');
+        $pedicure = $this->makeService($this->business, 30, [$this->maria], name: 'Pedicure express');
+
+        $horas = $this->invoke('disponibilidad', [
+            'servicios' => ['Manicure clasico', 'Pedicure express'],
+            'fecha' => $this->manana()->format('Y-m-d'),
+        ])->assertOk();
+
+        $horas->assertJsonPath('data.servicios', ['Manicure clasico', 'Pedicure express']);
+        $primera = $horas->json('data.horas.0');
+
+        $cita = $this->invoke('crear_cita', [
+            'servicios' => ['Manicure clasico', 'Pedicure express'],
+            'fecha' => $this->manana()->format('Y-m-d'),
+            'hora' => $primera['hora_24'],
+        ])->assertOk();
+
+        $cita->assertJsonPath('data.agendada', true);
+        // UNA cita con dos servicios, no dos citas.
+        $this->assertSame(1, Appointment::withoutGlobalScopes()->count());
+        $creada = Appointment::withoutGlobalScopes()->with('items')->first();
+        $this->assertCount(2, $creada->items);
+        // Y el segundo empieza cuando termina el primero, no a la misma hora.
+        $inicios = $creada->items->pluck('starts_at')->map->timestamp->all();
+        $this->assertNotEquals($inicios[0], $inicios[1]);
+        // El precio es la suma.
+        $this->assertEquals(
+            (float) $this->manicure->price + (float) $pedicure->price,
+            $cita->json('data.precio'),
+        );
+    }
+
+    public function test_con_una_sola_sede_no_se_nombra(): void
+    {
+        // «en la sede Principal» en cada mensaje, con un solo local, suena
+        // a sistema y no a la recepción del salón.
+        $this->assertNull(
+            $this->invoke('disponibilidad', [
+                'servicio' => 'Manicure clasico',
+                'fecha' => $this->manana()->format('Y-m-d'),
+            ])->assertOk()->json('data.sede'),
+        );
+    }
+
+    public function test_la_disponibilidad_pide_que_se_muestren_como_botones(): void
+    {
+        // La instrucción viaja pegada a las horas: decírselo solo en el
+        // prompt no alcanzó -- el modelo las escribía como texto.
+        $this->assertStringContainsString(
+            'ofrecer_opciones',
+            $this->invoke('disponibilidad', [
+                'servicio' => 'Manicure clasico',
+                'fecha' => $this->manana()->format('Y-m-d'),
+            ])->assertOk()->json('data.instruccion'),
+        );
     }
 
     public function test_el_precio_va_escrito_con_su_moneda(): void

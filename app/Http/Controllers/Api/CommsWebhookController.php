@@ -6,6 +6,7 @@ use App\Jobs\AnswerWhatsappMessageJob;
 use App\Models\Business;
 use App\Models\Message;
 use App\Models\WhatsappConversation;
+use App\Services\Messaging\Contracts\MessagingChannel;
 use App\Services\WhatsApp\ConversationRouter;
 use App\Support\ChannelPhone;
 use Illuminate\Http\JsonResponse;
@@ -26,7 +27,10 @@ use Illuminate\Support\Facades\Log;
  */
 class CommsWebhookController
 {
-    public function __construct(private readonly ConversationRouter $router) {}
+    public function __construct(
+        private readonly ConversationRouter $router,
+        private readonly MessagingChannel $channel,
+    ) {}
 
     public function whatsapp(Request $request): JsonResponse
     {
@@ -72,7 +76,7 @@ class CommsWebhookController
             return response()->json(['ok' => true, 'handled' => false]);
         }
 
-        [$phoneNumberId, $from, $texto] = $entrante;
+        [$phoneNumberId, $from, $texto, $wamid] = $entrante;
 
         // El telefono llega de Meta, no del texto: es lo unico de este cuerpo
         // que no escribio la persona.
@@ -144,6 +148,21 @@ class CommsWebhookController
          * el MISMO evento, y reintentar aca es volver a escribirle a la
          * clienta.
          */
+        /*
+         * El "escribiendo..." mientras el modelo piensa.
+         *
+         * Pensar una respuesta se demora varios segundos y del otro lado
+         * eso se ve como silencio. Los dos ticks azules y el indicador
+         * dicen "te leí, ya te contesto" -- que es lo que hace cualquier
+         * persona antes de buscar algo en la agenda.
+         *
+         * Va sin bloquear el 200 y sin importar si falla: es cortesia, no
+         * parte de la respuesta.
+         */
+        if ($wamid !== '') {
+            $this->channel->markAsReadWithTyping($conversacion->phone, $wamid);
+        }
+
         AnswerWhatsappMessageJob::dispatch($conversacion->id, $texto);
 
         return response()->json(['ok' => true, 'handled' => true]);
@@ -340,7 +359,7 @@ class CommsWebhookController
      * significan lo mismo.
      *
      * @param  array<string, mixed>  $payload
-     * @return array{0: ?string, 1: string, 2: string}|null [phone_number_id, de, texto]
+     * @return array{0: ?string, 1: string, 2: string, 3: string}|null [phone_number_id, de, texto, wamid]
      */
     private function firstIncomingMessage(array $payload): ?array
     {
@@ -360,7 +379,7 @@ class CommsWebhookController
                     // Un tope: el IA Core corta en 1000 caracteres, y un
                     // mensaje kilometrico solo puede ser ruido o un intento
                     // de llenarle el contexto al modelo.
-                    return [$phoneNumberId, $from, mb_substr($texto, 0, 1000)];
+                    return [$phoneNumberId, $from, mb_substr($texto, 0, 1000), (string) ($message['id'] ?? '')];
                 }
             }
         }

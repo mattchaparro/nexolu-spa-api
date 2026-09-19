@@ -10,6 +10,7 @@ use App\Ai\Resolves;
 use App\Models\Appointment;
 use App\Models\Client;
 use App\Services\ClientResolver;
+use App\Services\Scheduling\AvailabilityService;
 use App\Services\Scheduling\BookingService;
 use App\Services\Scheduling\Exceptions\OutsideWorkingHoursException;
 use App\Services\Scheduling\Exceptions\SlotUnavailableException;
@@ -38,6 +39,7 @@ class CreateAppointmentCapability implements Capability
     public function __construct(
         private readonly BookingService $booking,
         private readonly ClientResolver $clients,
+        private readonly AvailabilityService $availability,
     ) {}
 
     public function requiredPermission(): ?string
@@ -58,7 +60,12 @@ class CreateAppointmentCapability implements Capability
     public function rules(): array
     {
         return [
-            'servicio' => ['required', 'string', 'max:255'],
+            'servicio' => ['required_without:servicios', 'string', 'max:255'],
+            // Varios servicios = UNA cita encadenada ("manos y pies"), no
+            // dos citas. El motor ya sabe hacerlo; antes el agente no podia
+            // pedirlo y terminaba diciendo "el sistema no me deja".
+            'servicios' => ['required_without:servicio', 'array', 'min:1', 'max:5'],
+            'servicios.*' => ['required', 'string', 'max:255'],
             'fecha' => ['required', 'date_format:Y-m-d'],
             'hora' => ['required', 'date_format:H:i'],
             'empleado' => ['nullable', 'string', 'max:255'],
@@ -84,25 +91,43 @@ class CreateAppointmentCapability implements Capability
         $business = $caller->business;
         $tz = $business->businessTimezone();
 
-        $servicio = $this->resolveService($business->id, $arguments['servicio']);
+        $nombres = $arguments['servicios'] ?? [$arguments['servicio']];
+        $servicios = array_map(fn (string $n) => $this->resolveService($business->id, $n), $nombres);
         $sede = $this->resolveLocation($business->id, $arguments['sede'] ?? null);
 
-        $persona = isset($arguments['empleado'])
+        $preferida = isset($arguments['empleado'])
             ? $this->resolveResource($business->id, $arguments['empleado'], $sede?->id)
-            : $this->anyResourceFor($servicio->id, $sede?->id);
+            : null;
 
         $inicio = CarbonImmutable::parse($arguments['fecha'].' '.$arguments['hora'].':00', $tz);
+
+        /*
+         * Una cadena de dos servicios no empieza los dos a la misma hora:
+         * el segundo arranca cuando termina el primero. Quien sabe armar
+         * eso -- con sus buffers y con quien esta libre -- es
+         * AvailabilityService, el mismo motor que ofrecio la hora.
+         */
+        $items = count($servicios) === 1
+            ? [[
+                'service_id' => $servicios[0]->id,
+                'resource_id' => ($preferida ?? $this->anyResourceFor($servicios[0]->id, $sede?->id))->id,
+                'starts_at' => $inicio,
+            ]]
+            : $this->cadena($business, $servicios, $inicio, $preferida?->id, $sede?->id);
+
+        if ($items === []) {
+            return [
+                'agendada' => false,
+                'motivo' => 'A esa hora no alcanzan los dos servicios seguidos. Ofrécele otra hora.',
+            ];
+        }
 
         [$client, $nombre, $telefono] = $this->whoFor($caller, $arguments);
 
         try {
             $cita = $this->booking->book(
                 $business,
-                [[
-                    'service_id' => $servicio->id,
-                    'resource_id' => $persona->id,
-                    'starts_at' => $inicio,
-                ]],
+                $items,
                 $client,
                 $nombre,
                 $telefono,
@@ -123,17 +148,67 @@ class CreateAppointmentCapability implements Capability
             return ['agendada' => false, 'motivo' => $e->getMessage()];
         }
 
+        $cita->load(['items.resource', 'items.service']);
+
         return [
             'agendada' => true,
             'id' => $cita->id,
-            'servicio' => $servicio->name,
-            'con' => $persona->name,
-            'sede' => $sede?->name,
+            'servicio' => collect($servicios)->pluck('name')->implode(' y '),
+            'con' => $cita->items->map(fn ($i) => $i->resource?->name)->filter()->unique()->implode(' y '),
+            'sede' => $this->variasSedes($business->id) ? $sede?->name : null,
             'fecha' => $cita->starts_at?->setTimezone($tz)->format('Y-m-d'),
             'hora' => HoraLegible::de($cita->starts_at, $tz),
             'hora_24' => $cita->starts_at?->setTimezone($tz)->format('H:i'),
-            'precio' => (float) $servicio->price,
+            'precio' => collect($servicios)->sum(fn ($s) => (float) $s->price),
         ];
+    }
+
+    /**
+     * Los tramos de una cita de varios servicios, en el orden en que se
+     * hacen y con quien puede hacerlos.
+     *
+     * Sale del MISMO motor que ofrecio la hora (`slotsForChain`), asi que
+     * lo que se reserva es exactamente lo que se prometio. Vacio = a esa
+     * hora la cadena no cabe.
+     *
+     * @param  list<\App\Models\Service>  $servicios
+     * @return list<array{service_id: int, resource_id: int, starts_at: CarbonImmutable}>
+     */
+    private function cadena(
+        \App\Models\Business $business,
+        array $servicios,
+        CarbonImmutable $inicio,
+        ?int $preferidaId,
+        ?int $sedeId,
+    ): array {
+        $slots = $this->availability->slotsForChain(
+            $business,
+            $servicios,
+            $inicio->startOfDay(),
+            null,
+            $preferidaId,
+            $sedeId,
+        );
+
+        foreach ($slots as $slot) {
+            if ($slot['starts_at']->equalTo($inicio)) {
+                return array_map(fn (array $leg) => [
+                    'service_id' => $leg['service_id'],
+                    'resource_id' => $leg['resource_id'],
+                    'starts_at' => $leg['starts_at'],
+                ], $slot['legs']);
+            }
+        }
+
+        return [];
+    }
+
+    private function variasSedes(int $businessId): bool
+    {
+        return \App\Models\Location::withoutGlobalScope('business')
+            ->where('business_id', $businessId)
+            ->where('is_active', true)
+            ->count() > 1;
     }
 
     /** Si la visita es para otra persona, el local tiene que saberlo. */
