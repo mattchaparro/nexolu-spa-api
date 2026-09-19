@@ -4,6 +4,7 @@ namespace App\Ai\Capabilities;
 
 use App\Ai\AiCaller;
 use App\Ai\Capability;
+use App\Ai\HoraLegible;
 use App\Models\Appointment;
 use App\Services\ClientPortalService;
 use App\Services\Scheduling\BookingService;
@@ -55,7 +56,7 @@ class CancelAppointmentCapability implements Capability
         // Una cita ajena y una inexistente se responden igual: que exista no
         // es asunto de quien pregunta.
         if ($cita === null || ($caller->isCustomer() && $cita->client_id !== $caller->client?->id)) {
-            return ['cancelada' => false, 'motivo' => 'No encuentro esa cita a tu nombre.'];
+            return $this->noLaEncuentro($caller);
         }
 
         if ($caller->isCustomer() && ! $this->portal->canBeChanged($cita, $caller->business)) {
@@ -69,5 +70,60 @@ class CancelAppointmentCapability implements Capability
         $this->booking->cancel($cita, $caller->user?->id, $arguments['motivo'] ?? null);
 
         return ['cancelada' => true, 'id' => $cita->id];
+    }
+
+    /**
+     * El id que mandó no es de una cita suya.
+     *
+     * Pasó en la primera prueba real: el modelo llamó con `cita_id: 1` --
+     * el id de la FICHA de la clienta, no el de la cita (6709) -- y ante el
+     * "no la encuentro" concluyó que la cita no existía y escaló a un
+     * humano. La clienta tenía UNA sola cita y estaba ahí.
+     *
+     * Dos cosas: si solo tiene una próxima, se cancela esa (es lo que
+     * cualquier persona entendería por "cancélame la cita"); y si tiene
+     * varias, el error le DICE al modelo cuáles son y con qué id, en vez de
+     * dejarlo adivinando.
+     */
+    private function noLaEncuentro(AiCaller $caller): array
+    {
+        if ($caller->client === null) {
+            return ['cancelada' => false, 'motivo' => 'No encuentro esa cita a tu nombre.'];
+        }
+
+        $proximas = $this->portal->upcoming($caller->client, $caller->business);
+
+        if ($proximas->count() === 1) {
+            $unica = $proximas->first();
+
+            if (! $this->portal->canBeChanged($unica, $caller->business)) {
+                return [
+                    'cancelada' => false,
+                    'motivo' => $this->portal->reasonToRefuse($unica, $caller->business)
+                        ?? 'Esa cita ya no se puede cancelar. Dile que escriba al negocio.',
+                ];
+            }
+
+            $this->booking->cancel($unica, $caller->user?->id, null);
+
+            return ['cancelada' => true, 'id' => $unica->id];
+        }
+
+        if ($proximas->isEmpty()) {
+            return ['cancelada' => false, 'motivo' => 'No tienes citas próximas para cancelar.'];
+        }
+
+        $tz = $caller->business->businessTimezone();
+
+        return [
+            'cancelada' => false,
+            'motivo' => 'Ese id no es de una cita tuya. Estas son las que tienes; vuelve a '
+                .'llamarme con el `id` correcto.',
+            'citas' => $proximas->map(fn (Appointment $a) => [
+                'id' => $a->id,
+                'fecha' => $a->starts_at?->setTimezone($tz)->format('Y-m-d'),
+                'hora' => HoraLegible::de($a->starts_at, $tz),
+            ])->all(),
+        ];
     }
 }

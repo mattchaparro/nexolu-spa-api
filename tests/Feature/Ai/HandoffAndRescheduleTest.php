@@ -225,6 +225,39 @@ class HandoffAndRescheduleTest extends TestCase
         );
     }
 
+    public function test_con_una_sola_cita_un_id_equivocado_igual_la_cancela(): void
+    {
+        /*
+         * Pasó en la primera prueba real: el modelo llamó con `cita_id: 1`
+         * -- el id de la FICHA de la clienta, no el de la cita -- y ante el
+         * "no la encuentro" escaló a un humano algo que estaba a la vista.
+         * Con una sola cita próxima, "cancélame la cita" no es ambiguo.
+         */
+        $cita = $this->citaManana(10);
+
+        $this->invoke('cancelar_cita', ['cita_id' => 1])
+            ->assertOk()
+            ->assertJsonPath('data.cancelada', true)
+            ->assertJsonPath('data.id', $cita->id);
+
+        $this->assertSame(Appointment::STATUS_CANCELLED, $cita->fresh()->status);
+    }
+
+    public function test_con_varias_citas_el_error_dice_cuales_son(): void
+    {
+        // Acá sí es ambiguo, y el modelo necesita los ids REALES para
+        // reintentar en vez de adivinar otra vez.
+        $primera = $this->citaManana(10);
+        $segunda = $this->citaManana(14);
+
+        $respuesta = $this->invoke('cancelar_cita', ['cita_id' => 1])->assertOk();
+
+        $respuesta->assertJsonPath('data.cancelada', false);
+        $ids = array_column($respuesta->json('data.citas'), 'id');
+        $this->assertEqualsCanonicalizing([$primera->id, $segunda->id], $ids);
+        $this->assertSame(Appointment::STATUS_PENDING, $primera->fresh()->status);
+    }
+
     public function test_no_se_puede_mover_la_cita_de_otra_persona(): void
     {
         $otra = Client::create([
@@ -242,11 +275,13 @@ class HandoffAndRescheduleTest extends TestCase
 
         $fecha = CarbonImmutable::now('America/Bogota')->addDay()->format('Y-m-d');
 
-        // Probar ids consecutivos no puede mover la agenda del local entera.
+        // Probar ids consecutivos no puede mover la agenda del local entera:
+        // lo ajeno se trata como inexistente, y como quien escribe no tiene
+        // citas propias, no hay ninguna que caiga por descarte.
         $this->invoke('reagendar_cita', ['cita_id' => $ajena->id, 'fecha' => $fecha, 'hora' => '16:00'])
             ->assertOk()
             ->assertJsonPath('data.movida', false)
-            ->assertJsonPath('data.motivo', 'No encuentro esa cita a tu nombre.');
+            ->assertJsonPath('data.motivo', 'No tienes citas próximas para mover.');
 
         $this->assertSame(
             '09:00',

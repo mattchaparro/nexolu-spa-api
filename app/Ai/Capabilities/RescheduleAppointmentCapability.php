@@ -67,10 +67,28 @@ class RescheduleAppointmentCapability implements Capability
             ->where('business_id', $business->id)
             ->find($arguments['cita_id']);
 
-        // Una cita ajena y una inexistente se responden igual: que exista no
-        // es asunto de quien pregunta.
+        /*
+         * Una cita ajena y una inexistente se responden igual: que exista no
+         * es asunto de quien pregunta. Pero si tiene UNA sola cita próxima,
+         * es esa -- el modelo confundió una vez el id de la ficha con el de
+         * la cita y terminó escalando a un humano algo que estaba a la
+         * vista. Con varias, el error le dice cuáles son y con qué id.
+         */
         if ($cita === null || ($caller->isCustomer() && $cita->client_id !== $caller->client?->id)) {
-            return ['movida' => false, 'motivo' => 'No encuentro esa cita a tu nombre.'];
+            $proximas = $caller->client === null
+                ? collect()
+                : $this->portal->upcoming($caller->client, $business);
+
+            if ($proximas->count() !== 1) {
+                return [
+                    'movida' => false,
+                    'motivo' => $proximas->isEmpty()
+                        ? 'No tienes citas próximas para mover.'
+                        : 'Ese id no es de una cita tuya. Llama a `mis_citas` y usa el `id` que te devuelve.',
+                ];
+            }
+
+            $cita = $proximas->first();
         }
 
         if ($caller->isCustomer() && ! $this->portal->canBeChanged($cita, $business)) {
