@@ -15,6 +15,7 @@ use App\Services\Scheduling\AvailabilityService;
 use App\Services\Scheduling\CitasSimultaneas;
 use App\Services\WhatsApp\NexoluCommsChannel;
 use App\Support\ChannelPhone;
+use App\Support\TituloCorto;
 use Carbon\CarbonImmutable;
 
 /**
@@ -240,7 +241,7 @@ class AvailabilityCapability implements Capability
                 : '¿Cuál de estos quieres? 💅',
             array_map(fn (string $nombre, int $i) => [
                 'id' => 's'.$i,
-                'title' => mb_substr($nombre, 0, 24),
+                'title' => TituloCorto::de($nombre),
             ], $caben, array_keys($caben)),
             $caller->business->id,
             'Ver servicios',

@@ -7,6 +7,7 @@ use App\Models\Business;
 use App\Models\Service;
 use App\Models\ServiceCategory;
 use App\Services\Ia\BusinessProfile;
+use App\Support\TituloCorto;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -53,7 +54,7 @@ class MenuDeServicios
             $id = 'cat_'.$categoria['id'];
             $filas[] = array_filter([
                 'id' => $id,
-                'title' => mb_substr($categoria['nombre'], 0, self::MAX_TITULO),
+                'title' => TituloCorto::de($categoria['nombre'], self::MAX_TITULO),
                 'description' => $this->resumen($categoria['servicios']),
                 'next' => $id,
             ]);
@@ -174,7 +175,7 @@ class MenuDeServicios
             'button' => 'Ver opciones',
             'rows' => array_map(fn (array $s) => [
                 'id' => 'srv_'.$s['id'],
-                'title' => mb_substr($s['nombre'], 0, self::MAX_TITULO),
+                'title' => TituloCorto::de($s['nombre'], self::MAX_TITULO),
                 'description' => $s['precio'].' · '.$s['duracion'].' min',
                 'next' => 'srv_'.$s['id'],
             ], array_slice($categoria['servicios'], 0, self::MAX_FILAS)),
