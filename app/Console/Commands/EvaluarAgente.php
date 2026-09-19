@@ -271,7 +271,10 @@ class EvaluarAgente extends Command
         $respuesta = $ia->ask($conversacion, implode("\n", $caso['mensajes']));
 
         if ($respuesta === null) {
-            return [false, ['el Core no respondió (¿modelo configurado?)'], []];
+            // Lista vacía, no `false`: quien llama las une con `...` y un
+            // booleano ahí revienta la corrida entera por un timeout de un
+            // solo caso.
+            return [[], ['el Core no respondió (¿timeout, límite de uso, modelo sin configurar?)'], []];
         }
 
         $respuestas[] = $respuesta['text'];
