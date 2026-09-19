@@ -42,11 +42,17 @@ final class CasosReales
                     'Queria saber si me puede atender mi niña para arreglarse las manitos',
                     'Es que ella entra al colegio a las 7',
                 ],
-                'espera' => ['servicios', 'disponibilidad'],
+                /*
+                 * Sin `espera` a propósito: acá NO dijo qué día, y sin día
+                 * no hay agenda que mirar. Preguntarlo es lo correcto, así
+                 * que exigirle una herramienta era pedirle algo imposible
+                 * -- y eso tapaba el caso de al lado, donde sí falla.
+                 */
+                'espera' => [],
                 'prohibido' => ['crear_cita'],
-                'nota' => 'Tres mensajes, una idea. No dijo que dia, asi que preguntar '
-                    .'esta bien; lo que no puede es preguntarle "¿que servicio?". '
-                    .'"Las manitos" lo traduce el catalogo, no ella.',
+                'nota' => 'Tres mensajes, una idea. Lo que tiene que preguntar es el DÍA. '
+                    .'Lo que no puede es preguntarle "¿qué servicio?": "las manitos" lo '
+                    .'traduce el catálogo, no ella.',
             ],
             [
                 'nombre' => 'mala ortografía y abreviaturas',
