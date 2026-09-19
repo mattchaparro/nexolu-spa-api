@@ -200,13 +200,13 @@ class AvailabilityCapability implements Capability
             return false;
         }
 
+        $queServicio = $this->comoSeNombran($servicios);
+
         $texto = sprintf(
-            "Para *%s* el *%s* tengo estas horas 👇",
-            implode(' y ', $servicios),
+            'Para *%s* el *%s* tengo estas horas 👇',
+            $queServicio,
             $fecha->locale('es')->isoFormat('dddd D [de] MMMM'),
         );
-
-        $queServicio = implode(' y ', $servicios);
 
         $enviado = $this->channel->sendOptions(
             $phone,
@@ -236,6 +236,23 @@ class AvailabilityCapability implements Capability
         }
 
         return $enviado;
+    }
+
+    /**
+     * Los servicios, nombrados como los nombraria una persona.
+     *
+     * "Semipermanente y Semipermanente" se lee como un error: cuando dos
+     * clientas piden lo mismo se nombra una vez, diciendo que son dos.
+     *
+     * @param  list<string>  $servicios
+     */
+    private function comoSeNombran(array $servicios): string
+    {
+        $distintos = array_values(array_unique($servicios));
+
+        return count($distintos) === 1 && count($servicios) > 1
+            ? $distintos[0].' (para '.count($servicios).' personas)'
+            : implode(' y ', $distintos);
     }
 
     /**

@@ -199,4 +199,29 @@ class CitasSimultaneasTest extends TestCase
         $this->assertCount(1, $citas);
         $this->assertCount(2, $citas[0]->items);
     }
+
+    public function test_dos_veces_el_mismo_servicio_se_nombra_una_vez(): void
+    {
+        // "Semipermanente y Semipermanente" se lee como un error.
+        config()->set('services.comms_core.api_key', 'llave-comms');
+        config()->set('services.comms_core.base_url', 'http://comms.test');
+        \Illuminate\Support\Facades\Http::fake([
+            'comms.test/*' => \Illuminate\Support\Facades\Http::response(
+                ['results' => [['channel' => 'whatsapp', 'status' => 'sent']]]
+            ),
+        ]);
+
+        $this->invoke('disponibilidad', [
+            'servicios' => ['Manicure', 'Manicure'],
+            'fecha' => $this->manana(),
+            'juntas' => true,
+        ])->assertOk();
+
+        \Illuminate\Support\Facades\Http::assertSent(function ($request) {
+            $texto = $request->data()['text'] ?? '';
+
+            return str_contains($texto, 'Manicure (para 2 personas)')
+                && ! str_contains($texto, 'Manicure y Manicure');
+        });
+    }
 }
