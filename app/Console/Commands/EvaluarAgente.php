@@ -196,14 +196,28 @@ class EvaluarAgente extends Command
                 'is_active' => true,
             ]);
 
-        $conversacion = WhatsappConversation::withoutGlobalScope('business')->create([
-            'business_id' => $business->id,
-            'phone' => $telefono,
+        /*
+         * La conversación también puede existir de verdad -- hay un índice
+         * único por negocio y teléfono -- así que se reusa. Lo que NO se
+         * reusa es el hilo del Core: se arranca uno nuevo en cada caso,
+         * porque si no, las veintiocho clientas inventadas quedan pegadas
+         * a la memoria de la charla real y el bot se acuerda de ellas la
+         * próxima vez que escriba una persona. Ese `null` se revierte con
+         * la transacción; lo que el Core recuerda, no.
+         */
+        $conversacion = WhatsappConversation::withoutGlobalScope('business')
+            ->firstOrNew([
+                'business_id' => $business->id,
+                'phone' => $telefono,
+            ]);
+
+        $conversacion->forceFill([
             'client_id' => $cliente->id,
+            'ia_conversation_id' => null,
             'last_message_at' => now(),
             'last_inbound_at' => now(),
             'status' => WhatsappConversation::STATUS_OPEN,
-        ]);
+        ])->save();
 
         if ($caso['con_cita'] ?? false) {
             $this->citaDePrueba($business, $cliente);
