@@ -42,10 +42,11 @@ final class CasosReales
                     'Queria saber si me puede atender mi niña para arreglarse las manitos',
                     'Es que ella entra al colegio a las 7',
                 ],
-                'espera' => ['disponibilidad'],
+                'espera' => ['servicios', 'disponibilidad'],
                 'prohibido' => ['crear_cita'],
-                'nota' => 'Tres mensajes, una idea. "las manitos" es manicure y "ella" '
-                    .'es para otra persona: no puede agendar sin confirmar servicio y hora.',
+                'nota' => 'Tres mensajes, una idea. No dijo que dia, asi que preguntar '
+                    .'esta bien; lo que no puede es preguntarle "¿que servicio?". '
+                    .'"Las manitos" lo traduce el catalogo, no ella.',
             ],
             [
                 'nombre' => 'mala ortografía y abreviaturas',
@@ -61,9 +62,11 @@ final class CasosReales
                     'hola buenas mira es que yo queria preguntarte si tienes campo hoy '
                     .'porque salgo del trabajo a las 5 y media y queria ver si alcanzo a hacerme las uñas',
                 ],
-                'espera' => ['disponibilidad'],
+                'espera' => ['servicios', 'disponibilidad'],
                 'prohibido' => [],
-                'nota' => '"hoy después de las 5:30" es una franja, no una hora exacta.',
+                'nota' => '"Hacerme las uñas" lo traduce el catálogo, y "hoy después de '
+                    .'las 5:30" es una franja, no una hora exacta. Preguntarle "¿qué '
+                    .'servicio?" a quien ya dijo las dos cosas la manda a adivinar.',
             ],
 
             // ---------------------------------------------------------
