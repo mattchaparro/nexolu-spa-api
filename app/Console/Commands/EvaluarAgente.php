@@ -366,8 +366,13 @@ class EvaluarAgente extends Command
             ->where('notes', 'like', '%'.EsUnaPrueba::SELLO.'%')
             ->get()
             ->each(function (Appointment $cita) {
-                $cita->items()->delete();
-                $cita->delete();
+                // `forceDelete` y no `delete`: un borrado suave deja la
+                // fila en la tabla con `deleted_at`, y estas citas no son
+                // algo que el local cancelo -- son algo que no debio
+                // existir. En una papelera que alguien puede mirar, cada
+                // corrida deja treinta mentiras mas.
+                $cita->items()->forceDelete();
+                $cita->forceDelete();
             });
 
         Message::withoutGlobalScopes()
