@@ -368,9 +368,17 @@ class AiToolInvokeTest extends TestCase
             $body = $request->data();
             $titulos = array_column($body['whatsapp_options']['options'] ?? [], 'title');
 
-            // Repartidas, no cuatro cuartos de hora seguidos: quien no puede
-            // a las diez tampoco puede a las diez y cuarto.
-            return count($titulos) === 4 && $titulos[0] !== $titulos[1];
+            $descripciones = array_column($body['whatsapp_options']['options'] ?? [], 'description');
+
+            // La HORA sola como título: es lo único que está eligiendo. El
+            // servicio y con quién van debajo, sin competirle al dato.
+            // Y repartidas, no cuatro cuartos de hora seguidos: quien no
+            // puede a las diez tampoco puede a las diez y cuarto.
+            return count($titulos) === 4
+                && $titulos[0] !== $titulos[1]
+                && preg_match('/^\d{1,2}(:\d{2})? (am|pm)$/', $titulos[0]) === 1
+                && str_contains($descripciones[0], 'Manicure clasico')
+                && str_contains($descripciones[0], 'con Maria');
         });
 
         $this->assertStringContainsString('YA le llegaron', $r->json('data.instruccion'));

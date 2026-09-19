@@ -164,15 +164,27 @@ class AvailabilityCapability implements Capability
             $fecha->locale('es')->isoFormat('dddd D [de] MMMM'),
         );
 
+        $queServicio = implode(' y ', $servicios);
+
         $enviado = $this->channel->sendOptions(
             $phone,
             $texto,
-            array_map(fn (array $h, int $i) => [
+            array_map(fn (array $h, int $i) => array_filter([
                 'id' => 'h'.$i,
-                // El titulo tiene tope de 24 en Meta y es lo que vuelve como
-                // respuesta: "3 pm con Maria" se lee y se entiende solo.
-                'title' => mb_substr(trim($h['hora'].' '.($h['con'] ?? '')), 0, 24),
-            ], $horas, array_keys($horas)),
+                /*
+                 * La HORA es el titulo, sola. Es lo unico que la clienta
+                 * esta eligiendo y lo que vuelve como respuesta; meterle
+                 * el nombre de la persona al lado la hace competir con el
+                 * dato que importa y ademas se corta en 24 caracteres.
+                 * El servicio y con quien van debajo, en la descripcion.
+                 */
+                'title' => mb_substr($h['hora'], 0, 24),
+                'description' => mb_substr(
+                    $queServicio.(($h['con'] ?? '') !== '' ? ' · con '.$h['con'] : ''),
+                    0,
+                    72,
+                ),
+            ]), $horas, array_keys($horas)),
             $caller->business->id,
             'Ver horas',
         );
