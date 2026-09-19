@@ -5,10 +5,13 @@ namespace App\Ai\Capabilities;
 use App\Ai\AiCaller;
 use App\Ai\Capability;
 use App\Ai\HoraLegible;
+use App\Ai\OpcionesEnviadas;
 use App\Ai\Resolves;
 use App\Models\Location;
 use App\Models\Service;
 use App\Services\Scheduling\AvailabilityService;
+use App\Services\WhatsApp\NexoluCommsChannel;
+use App\Support\ChannelPhone;
 use Carbon\CarbonImmutable;
 
 /**
@@ -25,12 +28,25 @@ use Carbon\CarbonImmutable;
  * respetando la continuidad y, si puede, con la misma persona. Antes el
  * agente solo podia mandar uno y terminaba diciendo "el sistema no me deja",
  * cuando el sistema si dejaba.
+ *
+ * Y ENVIA las horas como botones, no las devuelve para que el modelo las
+ * escriba. Pedirselo en el prompt y en el resultado no alcanzo: seguia
+ * escribiendo "tengo a las 10:00, 10:15, 10:30..." y la clienta tenia que
+ * transcribir una. Ofrecer horas por WhatsApp ES mostrar opciones
+ * tocables; que dependa de que el modelo obedezca es dejarlo al azar.
  */
 class AvailabilityCapability implements Capability
 {
     use Resolves;
 
-    public function __construct(private readonly AvailabilityService $availability) {}
+    // Cuantas se ofrecen. Mas que esto se lee como un formulario; menos,
+    // parece que no hay agenda.
+    private const MAX_OPCIONES = 4;
+
+    public function __construct(
+        private readonly AvailabilityService $availability,
+        private readonly NexoluCommsChannel $channel,
+    ) {}
 
     public function requiredPermission(): ?string
     {
@@ -54,6 +70,10 @@ class AvailabilityCapability implements Capability
             'servicios' => ['required_without:servicio', 'array', 'min:1', 'max:5'],
             'servicios.*' => ['required', 'string', 'max:255'],
             'fecha' => ['required', 'date_format:Y-m-d'],
+            // "en la tarde" lo filtra la herramienta, no el modelo: si el
+            // filtro lo hace el, ofrece horas que no pidio o descarta las
+            // que si servian.
+            'franja' => ['nullable', 'string', 'in:mañana,manana,tarde,noche'],
             'empleado' => ['nullable', 'string', 'max:255'],
             'sede' => ['nullable', 'string', 'max:255'],
         ];
@@ -77,35 +97,139 @@ class AvailabilityCapability implements Capability
             ? $this->availability->slotsForService($business, $servicios[0], $fecha, $persona, null, $sede?->id)
             : $this->availability->slotsForChain($business, $servicios, $fecha, null, $persona?->id, $sede?->id);
 
+        $slots = $this->deLaFranja($slots, $arguments['franja'] ?? null, $tz);
+
+        $horas = collect($slots)->map(fn (array $s) => array_filter([
+            // `hora` es para MOSTRAR ("3 pm") y `hora_24` para volver a
+            // llamar (crear_cita pide H:i).
+            'hora' => HoraLegible::de($s['starts_at'], $tz),
+            'hora_24' => $s['starts_at']->setTimezone($tz)->format('H:i'),
+            'con' => $s['resource_name'] ?? collect($s['legs'] ?? [])->pluck('resource_name')->unique()->implode(' y '),
+        ], fn ($v) => $v !== null && $v !== ''))->values();
+
+        $nombreServicios = array_map(fn (Service $s) => $s->name, $servicios);
+
+        if ($horas->isEmpty()) {
+            return [
+                'servicios' => $nombreServicios,
+                'fecha' => $arguments['fecha'],
+                'horas' => [],
+                'instruccion' => 'No hay horas ese día'.($arguments['franja'] ?? null ? ' en esa franja' : '')
+                    .'. Ofrécele otro día u otra franja, y vuelve a llamarme.',
+            ];
+        }
+
+        // Repartidas, no las primeras cuatro seguidas: ofrecer 10:00,
+        // 10:15, 10:30 y 10:45 es ofrecer la misma hora cuatro veces.
+        $ofrecidas = $this->repartidas($horas->all(), self::MAX_OPCIONES);
+        $mostrado = $this->mostrar($caller, $nombreServicios, $fecha, $ofrecidas);
+
         return array_filter([
-            'servicios' => array_map(fn (Service $s) => $s->name, $servicios),
+            'servicios' => $nombreServicios,
             'fecha' => $arguments['fecha'],
             // Con una sola sede, nombrarla es ruido: la clienta no esta
             // eligiendo entre dos locales, y "en la sede Principal" en cada
             // mensaje suena a sistema, no a la recepcion del salon.
             'sede' => $this->variasSedes($business->id) ? $sede?->name : null,
-            /*
-             * Un tope: una jornada entera en granularidad de 15 minutos son
-             * decenas de horas, y volcarlas todas en el contexto del modelo
-             * gasta tokens para que igual recite las primeras.
-             */
-            'horas' => collect($slots)->take(12)->map(fn (array $s) => array_filter([
-                // `hora` es para MOSTRAR ("3 pm") y `hora_24` para volver a
-                // llamar (crear_cita pide H:i).
-                'hora' => HoraLegible::de($s['starts_at'], $tz),
-                'hora_24' => $s['starts_at']->setTimezone($tz)->format('H:i'),
-                'con' => $s['resource_name'] ?? collect($s['legs'] ?? [])->pluck('resource_name')->unique()->implode(' y '),
-            ], fn ($v) => $v !== null && $v !== ''))->all(),
-            'hay_mas' => count($slots) > 12,
-            /*
-             * La instruccion viaja con el dato, no solo en el prompt: el
-             * modelo escribia las horas como texto y la clienta tenia que
-             * transcribir una. Decirselo aca, pegado a las horas, es lo que
-             * de verdad cambia el comportamiento.
-             */
-            'instruccion' => 'Muestraselas con `ofrecer_opciones` (tres o cuatro, repartidas). '
-                .'NO las escribas en el texto.',
+            // `ofrecidas` son las que YA vio como botones; `horas` es todo
+            // lo libre, por si pide "algo mas temprano" y hay que buscar
+            // ahi sin volver a consultar.
+            'ofrecidas' => $ofrecidas,
+            'horas' => $horas->take(12)->all(),
+            'instruccion' => $mostrado
+                ? 'Las opciones YA le llegaron como botones. Responde con una cadena vacía: '
+                    .'escribir las horas otra vez le llegaría repetido.'
+                : 'Ofrécele dos o tres de `ofrecidas` usando el campo `hora`, nunca `hora_24`.',
         ], fn ($v) => $v !== null);
+    }
+
+    /**
+     * Manda las horas como botones y deja la marca para que el job no
+     * escriba encima. Si el canal falla, el modelo las escribe.
+     *
+     * @param  list<string>  $servicios
+     * @param  list<array{hora: string, hora_24: string, con?: string}>  $horas
+     */
+    private function mostrar(AiCaller $caller, array $servicios, CarbonImmutable $fecha, array $horas): bool
+    {
+        $phone = ChannelPhone::normalize((string) $caller->phone, $caller->business->country_code ?? 'CO');
+
+        if ($phone === null || $caller->isStaff()) {
+            return false;
+        }
+
+        $texto = sprintf(
+            "Para *%s* el *%s* tengo estas horas 👇",
+            implode(' y ', $servicios),
+            $fecha->locale('es')->isoFormat('dddd D [de] MMMM'),
+        );
+
+        $enviado = $this->channel->sendOptions(
+            $phone,
+            $texto,
+            array_map(fn (array $h, int $i) => [
+                'id' => 'h'.$i,
+                // El titulo tiene tope de 24 en Meta y es lo que vuelve como
+                // respuesta: "3 pm con Maria" se lee y se entiende solo.
+                'title' => mb_substr(trim($h['hora'].' '.($h['con'] ?? '')), 0, 24),
+            ], $horas, array_keys($horas)),
+            $caller->business->id,
+            'Ver horas',
+        );
+
+        if ($enviado) {
+            OpcionesEnviadas::marcar($phone);
+        }
+
+        return $enviado;
+    }
+
+    /**
+     * Las horas de una franja del dia, como las dice la gente.
+     *
+     * @param  list<array<string, mixed>>  $slots
+     * @return list<array<string, mixed>>
+     */
+    private function deLaFranja(array $slots, ?string $franja, string $tz): array
+    {
+        if ($franja === null) {
+            return $slots;
+        }
+
+        [$desde, $hasta] = match (str_replace('ñ', 'n', $franja)) {
+            'manana' => [0, 12],
+            'tarde' => [12, 18],
+            default => [18, 24],
+        };
+
+        return array_values(array_filter($slots, function (array $s) use ($desde, $hasta, $tz) {
+            $hora = (int) $s['starts_at']->setTimezone($tz)->format('H');
+
+            return $hora >= $desde && $hora < $hasta;
+        }));
+    }
+
+    /**
+     * Unas cuantas repartidas a lo largo de lo que hay.
+     *
+     * Ofrecer 10:00, 10:15, 10:30 y 10:45 es ofrecer la misma hora cuatro
+     * veces: quien no puede a las diez tampoco puede a las diez y cuarto.
+     *
+     * @param  list<array<string, mixed>>  $horas
+     * @return list<array<string, mixed>>
+     */
+    private function repartidas(array $horas, int $cuantas): array
+    {
+        if (count($horas) <= $cuantas) {
+            return $horas;
+        }
+
+        $paso = (count($horas) - 1) / ($cuantas - 1);
+
+        return array_values(array_map(
+            fn (int $i) => $horas[(int) round($i * $paso)],
+            range(0, $cuantas - 1),
+        ));
     }
 
     private function variasSedes(int $businessId): bool

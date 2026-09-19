@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Ai\OpcionesEnviadas;
 use App\Models\Message;
 use App\Models\WhatsappConversation;
 use App\Services\Ia\IaCoreClient;
@@ -83,12 +84,16 @@ class AnswerWhatsappMessageJob implements ShouldQueue
         }
 
         /*
-         * Texto vacio = una herramienta ya le contesto (`ofrecer_opciones`
-         * manda los botones ella misma). Mandar ademas el texto del modelo
-         * le llegaria a la clienta como la lista y, debajo, lo mismo
-         * escrito.
+         * Una herramienta ya le contesto: `disponibilidad` y
+         * `ofrecer_opciones` mandan los botones ellas mismas. Mandar
+         * ademas el texto del modelo le llegaria a la clienta como la
+         * lista y, debajo, lo mismo escrito.
+         *
+         * La marca manda sobre el texto: pedirle al modelo que responda
+         * vacio funciona a veces, y "a veces" en un chat con clientas es
+         * un mensaje duplicado cada tres conversaciones.
          */
-        if (trim($respuesta['text']) === '') {
+        if (trim($respuesta['text']) === '' || OpcionesEnviadas::consumir($conversacion->phone)) {
             return;
         }
 

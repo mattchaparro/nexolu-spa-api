@@ -343,17 +343,66 @@ class AiToolInvokeTest extends TestCase
         );
     }
 
-    public function test_la_disponibilidad_pide_que_se_muestren_como_botones(): void
+    public function test_la_disponibilidad_MANDA_las_horas_como_botones(): void
     {
-        // La instrucción viaja pegada a las horas: decírselo solo en el
-        // prompt no alcanzó -- el modelo las escribía como texto.
+        /*
+         * Pedírselo al modelo no alcanzó: seguía escribiendo "tengo a las
+         * 10:00, 10:15, 10:30..." y la clienta tenía que transcribir una.
+         * Ofrecer horas por WhatsApp ES mostrar botones, así que los manda
+         * la herramienta y no queda al azar de que el modelo obedezca.
+         */
+        config()->set('services.comms_core.api_key', 'llave-comms');
+        config()->set('services.comms_core.base_url', 'http://comms.test');
+        \Illuminate\Support\Facades\Http::fake([
+            'comms.test/*' => \Illuminate\Support\Facades\Http::response(
+                ['results' => [['channel' => 'whatsapp', 'status' => 'sent']]]
+            ),
+        ]);
+
+        $r = $this->invoke('disponibilidad', [
+            'servicio' => 'Manicure clasico',
+            'fecha' => $this->manana()->format('Y-m-d'),
+        ])->assertOk();
+
+        \Illuminate\Support\Facades\Http::assertSent(function ($request) {
+            $body = $request->data();
+            $titulos = array_column($body['whatsapp_options']['options'] ?? [], 'title');
+
+            // Repartidas, no cuatro cuartos de hora seguidos: quien no puede
+            // a las diez tampoco puede a las diez y cuarto.
+            return count($titulos) === 4 && $titulos[0] !== $titulos[1];
+        });
+
+        $this->assertStringContainsString('YA le llegaron', $r->json('data.instruccion'));
+        $this->assertCount(4, $r->json('data.ofrecidas'));
+    }
+
+    public function test_si_no_hay_canal_el_modelo_las_escribe(): void
+    {
+        // Sin Connect configurado no se pierde la respuesta: se le dice al
+        // modelo que las escriba él.
         $this->assertStringContainsString(
-            'ofrecer_opciones',
+            'Ofrécele',
             $this->invoke('disponibilidad', [
                 'servicio' => 'Manicure clasico',
                 'fecha' => $this->manana()->format('Y-m-d'),
             ])->assertOk()->json('data.instruccion'),
         );
+    }
+
+    public function test_la_franja_la_filtra_la_herramienta(): void
+    {
+        // "en la tarde" lo resuelve el código: si lo filtra el modelo,
+        // ofrece horas que no pidió o descarta las que sí servían.
+        $horas = $this->invoke('disponibilidad', [
+            'servicio' => 'Manicure clasico',
+            'fecha' => $this->manana()->format('Y-m-d'),
+            'franja' => 'tarde',
+        ])->assertOk()->json('data.horas');
+
+        foreach ($horas as $h) {
+            $this->assertGreaterThanOrEqual(12, (int) explode(':', $h['hora_24'])[0]);
+        }
     }
 
     public function test_el_precio_va_escrito_con_su_moneda(): void

@@ -4,6 +4,7 @@ namespace App\Ai\Capabilities;
 
 use App\Ai\AiCaller;
 use App\Ai\Capability;
+use App\Ai\OpcionesEnviadas;
 use App\Models\Message;
 use App\Models\WhatsappConversation;
 use App\Services\WhatsApp\NexoluCommsChannel;
@@ -18,9 +19,10 @@ use App\Support\ChannelPhone;
  * la cita.
  *
  * Esta herramienta ENVÍA el mensaje (no devuelve texto para que el modelo
- * lo escriba): por eso el job sabe, mirando `tools_used`, que no debe
- * mandar nada más — si no, la clienta recibiría la lista y debajo el mismo
- * contenido repetido en texto.
+ * lo escriba) y deja una marca (`OpcionesEnviadas`) para que el job no
+ * escriba encima: si no, la clienta recibiría la lista y debajo el mismo
+ * contenido repetido en texto. La marca manda sobre lo que diga el modelo,
+ * porque pedirle que responda vacío funciona *a veces*.
  *
  * Sirve para horas, para servicios y para confirmar ("Sí" / "Cambiar la
  * hora"). Es deliberadamente genérica: una herramienta por cada caso
@@ -89,6 +91,7 @@ class OfferOptionsCapability implements Capability
             ];
         }
 
+        OpcionesEnviadas::marcar($phone);
         $this->guardarEnElHilo($caller, $phone, $arguments['mensaje'], $opciones);
 
         return [
