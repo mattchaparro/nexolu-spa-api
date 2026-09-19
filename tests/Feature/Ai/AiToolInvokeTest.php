@@ -15,6 +15,7 @@ use App\Support\PermissionCatalog;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Testing\TestResponse;
 use Tests\Feature\Scheduling\SchedulingScenario;
 use Tests\TestCase;
@@ -291,7 +292,7 @@ class AiToolInvokeTest extends TestCase
         ])->assertOk()->assertJsonPath('data.servicios.0', 'Semipermanente');
     }
 
-    public function test_varios_servicios_son_UNA_cita_encadenada(): void
+    public function test_varios_servicios_son_un_a_cita_encadenada(): void
     {
         /*
          * Pasó en una conversación real: la clienta pidió manos y pies, y
@@ -343,7 +344,7 @@ class AiToolInvokeTest extends TestCase
         );
     }
 
-    public function test_la_disponibilidad_MANDA_las_horas_como_botones(): void
+    public function test_la_disponibilidad_mand_a_las_horas_como_botones(): void
     {
         /*
          * Pedírselo al modelo no alcanzó: seguía escribiendo "tengo a las
@@ -353,8 +354,8 @@ class AiToolInvokeTest extends TestCase
          */
         config()->set('services.comms_core.api_key', 'llave-comms');
         config()->set('services.comms_core.base_url', 'http://comms.test');
-        \Illuminate\Support\Facades\Http::fake([
-            'comms.test/*' => \Illuminate\Support\Facades\Http::response(
+        Http::fake([
+            'comms.test/*' => Http::response(
                 ['results' => [['channel' => 'whatsapp', 'status' => 'sent']]]
             ),
         ]);
@@ -364,7 +365,7 @@ class AiToolInvokeTest extends TestCase
             'fecha' => $this->manana()->format('Y-m-d'),
         ])->assertOk();
 
-        \Illuminate\Support\Facades\Http::assertSent(function ($request) {
+        Http::assertSent(function ($request) {
             $body = $request->data();
             $titulos = array_column($body['whatsapp_options']['options'] ?? [], 'title');
 

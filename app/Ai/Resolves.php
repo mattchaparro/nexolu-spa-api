@@ -33,14 +33,17 @@ trait Resolves
          * manitos" a los servicios de Manicure -- ver ComoLoPide -- y
          * el orden es el que puso el local, que sabe qué ofrecer primero.
          */
-        $servicios = Service::withoutGlobalScope('business')
-            ->where('business_id', $businessId)
-            ->where('is_active', true)
-            ->where('is_bookable_online', true)
-            ->with('category')
-            ->orderBy('sort_order')
-            ->orderBy('name')
-            ->get();
+        $servicios = LoQueMasPiden::ordenar(
+            $businessId,
+            Service::withoutGlobalScope('business')
+                ->where('business_id', $businessId)
+                ->where('is_active', true)
+                ->where('is_bookable_online', true)
+                ->with('category')
+                ->orderBy('sort_order')
+                ->orderBy('name')
+                ->get(),
+        );
 
         try {
             return $this->pickByName($servicios, $nombre, 'servicio');

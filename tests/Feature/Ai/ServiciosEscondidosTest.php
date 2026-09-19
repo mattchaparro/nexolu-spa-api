@@ -3,6 +3,7 @@
 namespace Tests\Feature\Ai;
 
 use App\Models\Appointment;
+use App\Models\Business;
 use App\Models\Client;
 use App\Models\Service;
 use App\Models\ServiceCategory;
@@ -36,7 +37,7 @@ class ServiciosEscondidosTest extends TestCase
 
     private const PHONE = '573001112233';
 
-    private \App\Models\Business $business;
+    private Business $business;
 
     private Service $visible;
 

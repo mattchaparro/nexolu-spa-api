@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Ai;
 
+use App\Ai\OpcionesEnviadas;
 use App\Models\Business;
 use App\Models\Client;
 use App\Models\Message;
@@ -164,7 +165,7 @@ class OfferOptionsTest extends TestCase
          * repita no puede depender de que el modelo lea la instrucción.
          */
         $this->commsResponde();
-        \App\Ai\OpcionesEnviadas::marcar(self::PHONE);
+        OpcionesEnviadas::marcar(self::PHONE);
 
         $this->invoke(['mensaje' => '¿Cuál hora?', 'opciones' => ['10 am', '3 pm']])
             ->assertOk()

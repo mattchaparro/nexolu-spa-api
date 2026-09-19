@@ -4,6 +4,7 @@ namespace App\Ai\Capabilities;
 
 use App\Ai\AiCaller;
 use App\Ai\Capability;
+use App\Ai\LoQueMasPiden;
 use App\Models\Service;
 
 /**
@@ -36,14 +37,24 @@ class ServicesCapability implements Capability
 
     public function execute(AiCaller $caller, array $arguments): array
     {
-        $servicios = Service::withoutGlobalScope('business')
-            ->where('business_id', $caller->business->id)
-            ->where('is_active', true)
-            ->where('is_bookable_online', true)
-            ->with('category')
-            ->orderBy('sort_order')
-            ->orderBy('name')
-            ->get();
+        /*
+         * Ordenado por lo que de verdad pide la gente, no por el
+         * alfabeto: el modelo lee esta lista de arriba abajo y nombra los
+         * primeros. Con orden alfabetico nombraba "Cambio de esmalte" y
+         * "Capping" antes que Tradicional y Semipermanente, que son mil
+         * de las citas del local.
+         */
+        $servicios = LoQueMasPiden::ordenar(
+            $caller->business->id,
+            Service::withoutGlobalScope('business')
+                ->where('business_id', $caller->business->id)
+                ->where('is_active', true)
+                ->where('is_bookable_online', true)
+                ->with('category')
+                ->orderBy('sort_order')
+                ->orderBy('name')
+                ->get(),
+        );
 
         $moneda = $caller->business->currency ?? 'COP';
 

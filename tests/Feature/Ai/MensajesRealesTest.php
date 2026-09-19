@@ -3,13 +3,9 @@
 namespace Tests\Feature\Ai;
 
 use App\Jobs\AnswerWhatsappMessageJob;
+use App\Models\Appointment;
 use App\Models\Business;
-use App\Models\Client;
 use App\Models\Message;
-use App\Models\Resource;
-use App\Models\Service;
-use App\Models\WhatsappConversation;
-use App\Support\ChannelPhone;
 use App\Support\PermissionCatalog;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -59,7 +55,7 @@ class MensajesRealesTest extends TestCase
         $this->business->forceFill(['whatsapp_phone_number_id' => '111222333'])->save();
     }
 
-    private function entra(string $texto, string $wamid = null): TestResponse
+    private function entra(string $texto, ?string $wamid = null): TestResponse
     {
         $body = json_encode([
             'entry' => [['changes' => [['value' => [
@@ -95,7 +91,7 @@ class MensajesRealesTest extends TestCase
     |--------------------------------------------------------------------------
     */
 
-    public function test_cuatro_mensajes_seguidos_son_UNA_respuesta(): void
+    public function test_cuatro_mensajes_seguidos_son_un_a_respuesta(): void
     {
         /*
          * El caso real, textual:
@@ -187,7 +183,7 @@ class MensajesRealesTest extends TestCase
 
         $this->entra('Que precio el arreglo de uñas para caballero, tradicional y semi-permanente');
 
-        $this->assertSame(0, \App\Models\Appointment::withoutGlobalScopes()->count());
+        $this->assertSame(0, Appointment::withoutGlobalScopes()->count());
     }
 
     public function test_si_el_core_se_cae_la_clienta_no_queda_sin_rastro(): void

@@ -11,6 +11,7 @@ use App\Support\ChannelPhone;
 use App\Support\PermissionCatalog;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Testing\TestResponse;
 use Tests\Feature\Scheduling\SchedulingScenario;
 use Tests\TestCase;
@@ -126,7 +127,7 @@ class CitasSimultaneasTest extends TestCase
         );
     }
 
-    public function test_agenda_DOS_citas_a_la_misma_hora_con_personas_distintas(): void
+    public function test_agenda_do_s_citas_a_la_misma_hora_con_personas_distintas(): void
     {
         $horas = $this->invoke('disponibilidad', [
             'servicios' => ['Manicure', 'Pedicure'],
@@ -205,8 +206,8 @@ class CitasSimultaneasTest extends TestCase
         // "Semipermanente y Semipermanente" se lee como un error.
         config()->set('services.comms_core.api_key', 'llave-comms');
         config()->set('services.comms_core.base_url', 'http://comms.test');
-        \Illuminate\Support\Facades\Http::fake([
-            'comms.test/*' => \Illuminate\Support\Facades\Http::response(
+        Http::fake([
+            'comms.test/*' => Http::response(
                 ['results' => [['channel' => 'whatsapp', 'status' => 'sent']]]
             ),
         ]);
@@ -217,7 +218,7 @@ class CitasSimultaneasTest extends TestCase
             'juntas' => true,
         ])->assertOk();
 
-        \Illuminate\Support\Facades\Http::assertSent(function ($request) {
+        Http::assertSent(function ($request) {
             $texto = $request->data()['text'] ?? '';
 
             return str_contains($texto, 'Manicure (para 2 personas)')
