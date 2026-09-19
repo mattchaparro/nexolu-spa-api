@@ -219,19 +219,29 @@ class AvailabilityCapability implements Capability
     {
         $phone = ChannelPhone::normalize((string) $caller->phone, $caller->business->country_code ?? 'CO');
 
-        // Mas de diez no caben en una lista de WhatsApp, y una lista de
-        // diez tampoco se lee: ahi es mejor que el modelo acote hablando.
-        if ($opciones === [] || count($opciones) > 10 || $phone === null || $caller->isStaff()) {
+        if ($opciones === [] || $phone === null || $caller->isStaff()) {
             return null;
         }
 
+        /*
+         * Una lista de WhatsApp aguanta diez filas. "Manicure" tiene
+         * veintitres servicios, asi que se muestran los primeros en el
+         * ORDEN QUE PUSO EL LOCAL -- que es el que sabe que ofrecer
+         * primero -- y se dice que hay mas. Mandar una lista cortada sin
+         * avisar es peor que cortarla: parece que eso es todo lo que hay.
+         */
+        $caben = array_slice($opciones, 0, 10);
+        $faltan = count($opciones) - count($caben);
+
         $enviado = $this->channel->sendOptions(
             $phone,
-            '¿Cuál de estos quieres? 💅',
+            $faltan > 0
+                ? '¿Cuál de estos quieres? 💅 (hay '.$faltan.' más, si no ves el tuyo escríbelo)'
+                : '¿Cuál de estos quieres? 💅',
             array_map(fn (string $nombre, int $i) => [
                 'id' => 's'.$i,
                 'title' => mb_substr($nombre, 0, 24),
-            ], $opciones, array_keys($opciones)),
+            ], $caben, array_keys($caben)),
             $caller->business->id,
             'Ver servicios',
         );

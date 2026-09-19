@@ -22,10 +22,24 @@ trait Resolves
     /** @throws AiArgumentException */
     protected function resolveService(int $businessId, string $nombre): Service
     {
+        /*
+         * `is_active` y `is_bookable_online` no son un detalle: son el
+         * interruptor con el que el local esconde una familia entera
+         * desde el panel ("esconder Pestañas"). Si se pierde este filtro,
+         * WhatsApp sigue ofreciendo y agendando algo que el salón dejó
+         * de prestar.
+         *
+         * La categoría viene cargada porque es lo que traduce "las
+         * manitos" a los servicios de Manicure -- ver ComoLoPide -- y
+         * el orden es el que puso el local, que sabe qué ofrecer primero.
+         */
         $servicios = Service::withoutGlobalScope('business')
             ->where('business_id', $businessId)
             ->where('is_active', true)
             ->where('is_bookable_online', true)
+            ->with('category')
+            ->orderBy('sort_order')
+            ->orderBy('name')
             ->get();
 
         try {
