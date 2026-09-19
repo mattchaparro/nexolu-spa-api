@@ -55,6 +55,7 @@ class EvaluarAgente extends Command
         $this->newLine();
 
         $fallas = 0;
+        $mejorables = 0;
 
         foreach ($casos as $caso) {
             /*
@@ -65,19 +66,26 @@ class EvaluarAgente extends Command
             DB::beginTransaction();
 
             try {
-                [$ok, $detalle, $respuestas] = $this->correr($ia, $business, $caso);
+                [$problemas, $avisos, $respuestas] = $this->correr($ia, $business, $caso);
             } finally {
                 DB::rollBack();
             }
 
-            if ($ok) {
-                $this->line("  <fg=green>✓</> {$caso['nombre']}");
-            } else {
+            if ($problemas !== []) {
                 $fallas++;
                 $this->line("  <fg=red>✗</> {$caso['nombre']}");
-                foreach ($detalle as $linea) {
-                    $this->line("      <fg=yellow>{$linea}</>");
-                }
+            } elseif ($avisos !== []) {
+                $mejorables++;
+                $this->line("  <fg=yellow>~</> {$caso['nombre']}");
+            } else {
+                $this->line("  <fg=green>✓</> {$caso['nombre']}");
+            }
+
+            foreach ([...$problemas, ...$avisos] as $linea) {
+                $this->line("      <fg=yellow>{$linea}</>");
+            }
+
+            if ($problemas !== [] || $avisos !== []) {
                 $this->line("      <fg=gray>{$caso['nota']}</>");
             }
 
@@ -91,19 +99,16 @@ class EvaluarAgente extends Command
         $this->newLine();
         $total = $casos->count();
 
-        if ($fallas === 0) {
-            $this->info("Los {$total} casos pasaron.");
+        $bien = $total - $fallas - $mejorables;
+        $this->line("  <fg=green>{$bien} bien</>  <fg=yellow>{$mejorables} mejorables</>  <fg=red>{$fallas} inaceptables</>  de {$total}");
 
-            return self::SUCCESS;
-        }
-
-        $this->warn("{$fallas} de {$total} casos fallaron.");
-
-        return self::FAILURE;
+        // Solo lo inaceptable tumba la evaluación: si "mejorable" fallara,
+        // nadie la correría.
+        return $fallas === 0 ? self::SUCCESS : self::FAILURE;
     }
 
     /**
-     * @return array{0: bool, 1: list<string>, 2: list<string>}
+     * @return array{0: list<string>, 1: list<string>, 2: list<string>} fallas, avisos, respuestas
      */
     private function correr(IaCoreClient $ia, Business $business, array $caso): array
     {
@@ -145,21 +150,26 @@ class EvaluarAgente extends Command
         $respuestas[] = $respuesta['text'];
         $usadas = $respuesta['tools_used'] ?? [];
 
-        $detalle = [];
+        $fallas = [];
+        $avisos = [];
 
-        foreach ($caso['espera'] as $herramienta) {
-            if (! in_array($herramienta, $usadas, true)) {
-                $detalle[] = "no llamó `{$herramienta}` (llamó: ".(implode(', ', $usadas) ?: 'nada').')';
-            }
-        }
-
+        // Lo prohibido es una FALLA: agendar sin confirmar o tocar la cita
+        // de otra persona no es "mejorable", es inaceptable.
         foreach ($caso['prohibido'] as $herramienta) {
             if (in_array($herramienta, $usadas, true)) {
-                $detalle[] = "llamó `{$herramienta}` y no debía";
+                $fallas[] = "llamó `{$herramienta}` y no debía";
             }
         }
 
-        return [$detalle === [], $detalle, $respuestas];
+        // Lo esperado es un AVISO: no está roto, está mediocre -- y esta
+        // lista es justo lo próximo a mejorar.
+        foreach ($caso['espera'] as $herramienta) {
+            if (! in_array($herramienta, $usadas, true)) {
+                $avisos[] = "no llamó `{$herramienta}` (llamó: ".(implode(', ', $usadas) ?: 'nada').')';
+            }
+        }
+
+        return [$fallas, $avisos, $respuestas];
     }
 
     /** Una cita próxima, para los casos de cancelar/mover/consultar. */
