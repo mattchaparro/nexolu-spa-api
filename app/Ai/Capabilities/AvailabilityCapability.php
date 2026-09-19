@@ -11,6 +11,7 @@ use App\Ai\Resolves;
 use App\Models\Location;
 use App\Models\Service;
 use App\Services\Scheduling\AvailabilityService;
+use App\Services\Scheduling\CitasSimultaneas;
 use App\Services\WhatsApp\NexoluCommsChannel;
 use App\Support\ChannelPhone;
 use Carbon\CarbonImmutable;
@@ -46,6 +47,7 @@ class AvailabilityCapability implements Capability
 
     public function __construct(
         private readonly AvailabilityService $availability,
+        private readonly CitasSimultaneas $simultaneas,
         private readonly NexoluCommsChannel $channel,
     ) {}
 
@@ -77,6 +79,15 @@ class AvailabilityCapability implements Capability
             // filtro lo hace el, ofrece horas que no pidio o descarta las
             // que si servian.
             'franja' => ['nullable', 'string', 'in:mañana,manana,tarde,noche'],
+            /*
+             * `juntas` distingue los dos "varios servicios" que la gente
+             * pide y que no se parecen en nada:
+             *  - false (por defecto): UNA persona, un servicio despues del
+             *    otro ("manos y pies").
+             *  - true: VARIAS personas a la MISMA hora (ella y su hija),
+             *    que necesita una profesional libre por cada una.
+             */
+            'juntas' => ['nullable', 'boolean'],
             'empleado' => ['nullable', 'string', 'max:255'],
             'sede' => ['nullable', 'string', 'max:255'],
         ];
@@ -105,9 +116,21 @@ class AvailabilityCapability implements Capability
             ? $this->resolveResource($business->id, $arguments['empleado'], $sede?->id)
             : null;
 
-        $slots = count($servicios) === 1
-            ? $this->availability->slotsForService($business, $servicios[0], $fecha, $persona, null, $sede?->id)
-            : $this->availability->slotsForChain($business, $servicios, $fecha, null, $persona?->id, $sede?->id);
+        $juntas = (bool) ($arguments['juntas'] ?? false) && count($servicios) > 1;
+
+        if ($juntas) {
+            $slots = array_map(
+                fn (array $s) => [
+                    'starts_at' => $s['starts_at'],
+                    'resource_name' => collect($s['asignacion'])->pluck('resource_name')->implode(' y '),
+                ],
+                $this->simultaneas->slots($business, $servicios, $fecha, $sede?->id),
+            );
+        } elseif (count($servicios) === 1) {
+            $slots = $this->availability->slotsForService($business, $servicios[0], $fecha, $persona, null, $sede?->id);
+        } else {
+            $slots = $this->availability->slotsForChain($business, $servicios, $fecha, null, $persona?->id, $sede?->id);
+        }
 
         $slots = $this->deLaFranja($slots, $arguments['franja'] ?? null, $tz);
 
@@ -127,7 +150,9 @@ class AvailabilityCapability implements Capability
                 'fecha' => $fecha->format('Y-m-d'),
                 'dia' => $fecha->locale('es')->isoFormat('dddd D [de] MMMM'),
                 'horas' => [],
-                'instruccion' => 'No hay horas ese día'.($arguments['franja'] ?? null ? ' en esa franja' : '')
+                'instruccion' => ($juntas
+                    ? 'No hay ninguna hora ese día con suficientes profesionales libres al tiempo'
+                    : 'No hay horas ese día').($arguments['franja'] ?? null ? ' en esa franja' : '')
                     .'. Ofrécele otro día u otra franja, y vuelve a llamarme.',
             ];
         }

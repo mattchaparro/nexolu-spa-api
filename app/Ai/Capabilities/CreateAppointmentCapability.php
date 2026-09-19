@@ -13,9 +13,11 @@ use App\Models\Client;
 use App\Services\ClientResolver;
 use App\Services\Scheduling\AvailabilityService;
 use App\Services\Scheduling\BookingService;
+use App\Services\Scheduling\CitasSimultaneas;
 use App\Services\Scheduling\Exceptions\OutsideWorkingHoursException;
 use App\Services\Scheduling\Exceptions\SlotUnavailableException;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Agendar. La escritura que justifica todo el agente.
@@ -41,6 +43,7 @@ class CreateAppointmentCapability implements Capability
         private readonly BookingService $booking,
         private readonly ClientResolver $clients,
         private readonly AvailabilityService $availability,
+        private readonly CitasSimultaneas $simultaneas,
     ) {}
 
     public function requiredPermission(): ?string
@@ -67,6 +70,13 @@ class CreateAppointmentCapability implements Capability
             // pedirlo y terminaba diciendo "el sistema no me deja".
             'servicios' => ['required_without:servicio', 'array', 'min:1', 'max:5'],
             'servicios.*' => ['required', 'string', 'max:255'],
+            // Varias personas a la MISMA hora (ella y su hija), no una
+            // sola pasando de un servicio al otro.
+            'juntas' => ['nullable', 'boolean'],
+            // Como se llama cada una, en el mismo orden que `servicios`.
+            // Sin esto el local no sabe a quien va a atender en cada silla.
+            'nombres' => ['nullable', 'array', 'max:5'],
+            'nombres.*' => ['required', 'string', 'max:120'],
             // Texto: "el lunes" lo resuelve el codigo, no el modelo.
             'fecha' => ['required', 'string', 'max:40'],
             'hora' => ['required', 'date_format:H:i'],
@@ -111,6 +121,10 @@ class CreateAppointmentCapability implements Capability
         }
 
         $inicio = $dia->setTimeFromTimeString($arguments['hora'].':00');
+
+        if ((bool) ($arguments['juntas'] ?? false) && count($servicios) > 1) {
+            return $this->citasSimultaneas($caller, $business, $servicios, $inicio, $sede?->id, $arguments);
+        }
 
         /*
          * Una cadena de dos servicios no empieza los dos a la misma hora:
@@ -170,6 +184,87 @@ class CreateAppointmentCapability implements Capability
             'fecha' => $cita->starts_at?->setTimezone($tz)->format('Y-m-d'),
             'hora' => HoraLegible::de($cita->starts_at, $tz),
             'hora_24' => $cita->starts_at?->setTimezone($tz)->format('H:i'),
+            'precio' => collect($servicios)->sum(fn ($s) => (float) $s->price),
+        ];
+    }
+
+    /**
+     * Dos personas a la misma hora: dos citas, una por cada una.
+     *
+     * TODO O NADA. Si la segunda falla, la primera se deshace: dejar a la
+     * mama agendada y a la hija afuera es peor que no agendar nada --
+     * llegan las dos y solo cabe una.
+     *
+     * @param  list<\App\Models\Service>  $servicios
+     */
+    private function citasSimultaneas(
+        AiCaller $caller,
+        \App\Models\Business $business,
+        array $servicios,
+        CarbonImmutable $inicio,
+        ?int $sedeId,
+        array $arguments,
+    ): array {
+        $tz = $business->businessTimezone();
+
+        $slot = collect($this->simultaneas->slots($business, $servicios, $inicio->startOfDay(), $sedeId))
+            ->first(fn (array $s) => $s['starts_at']->equalTo($inicio));
+
+        if ($slot === null) {
+            return [
+                'agendada' => false,
+                'motivo' => 'A esa hora no hay suficientes profesionales libres al tiempo. '
+                    .'Ofrécele otra hora.',
+            ];
+        }
+
+        [$client, $nombre, $telefono] = $this->whoFor($caller, $arguments);
+        $nombres = $arguments['nombres'] ?? [];
+
+        $citas = DB::transaction(function () use ($business, $slot, $inicio, $client, $nombre, $telefono, $nombres, $caller, $arguments) {
+            $creadas = [];
+
+            foreach ($slot['asignacion'] as $indice => $parte) {
+                /*
+                 * Todas las citas quedan a nombre de QUIEN ESCRIBE: ahi
+                 * llegan los recordatorios y desde ahi se pueden cancelar.
+                 * A quien se atiende en cada silla va en la nota, que es
+                 * lo que el local necesita saber.
+                 */
+                $paraQuien = $nombres[$indice] ?? null;
+
+                $creadas[] = $this->booking->book(
+                    $business,
+                    [[
+                        'service_id' => $parte['service_id'],
+                        'resource_id' => $parte['resource_id'],
+                        'starts_at' => $inicio,
+                    ]],
+                    $client,
+                    $nombre,
+                    $telefono,
+                    Appointment::SOURCE_WHATSAPP_AGENT,
+                    $paraQuien === null
+                        ? $this->notaDeTerceros($caller, $arguments)
+                        : 'Para '.$paraQuien.' (agendó '.($nombre ?: 'quien escribe').').',
+                );
+            }
+
+            return $creadas;
+        });
+
+        return [
+            'agendada' => true,
+            'personas' => count($citas),
+            'ids' => array_map(fn (Appointment $c) => $c->id, $citas),
+            'fecha' => $inicio->format('Y-m-d'),
+            'dia' => $inicio->locale('es')->isoFormat('dddd D [de] MMMM'),
+            'hora' => HoraLegible::de($inicio, $tz),
+            'detalle' => array_map(fn (array $p, int $i) => [
+                'para' => $nombres[$i] ?? 'quien escribe',
+                'servicio' => $p['service_name'],
+                'con' => $p['resource_name'],
+            ], $slot['asignacion'], array_keys($slot['asignacion'])),
             'precio' => collect($servicios)->sum(fn ($s) => (float) $s->price),
         ];
     }
