@@ -248,9 +248,15 @@ class CreateAppointmentCapability implements Capability
                     $nombre,
                     $telefono,
                     Appointment::SOURCE_WHATSAPP_AGENT,
-                    $paraQuien === null
-                        ? $this->notaDeTerceros($caller, $arguments)
-                        : 'Para '.$paraQuien.' (agendó '.($nombre ?: 'quien escribe').').',
+                    // El sello de evaluación también acá: si no, las citas
+                    // de las pruebas de "ella y su hija" se quedan en la
+                    // agenda del salón.
+                    $this->conSello(
+                        $caller,
+                        $paraQuien === null
+                            ? $this->notaDeTerceros($caller, $arguments)
+                            : 'Para '.$paraQuien.' (agendó '.($nombre ?: 'quien escribe').').',
+                    ),
                 );
             }
 
@@ -326,26 +332,32 @@ class CreateAppointmentCapability implements Capability
     {
         $otra = trim((string) ($arguments['para_quien'] ?? ''));
 
-        $nota = $otra === '' || $caller->isStaff()
-            ? null
-            : 'La cita es para '.$otra.'. Agendó '
-                .($caller->client?->fullName() ?? $caller->phone).' por WhatsApp.';
+        return $this->conSello(
+            $caller,
+            $otra === '' || $caller->isStaff()
+                ? null
+                : 'La cita es para '.$otra.'. Agendó '
+                    .($caller->client?->fullName() ?? $caller->phone).' por WhatsApp.',
+        );
+    }
 
-        /*
-         * Si esta conversación es una evaluación, la cita queda marcada.
-         *
-         * `ia:evaluar` conversa con un teléfono de verdad -- el de quien
-         * mantiene esto -- y después borra lo que el bot dejó. Borrar
-         * "todas las citas de esa ficha creadas en los últimos segundos"
-         * casi nunca se equivoca, y "casi nunca" no alcanza cuando lo que
-         * está en juego es la cita de alguien. Con la marca solo se borra
-         * lo que nació de la evaluación.
-         */
-        if (EsUnaPrueba::si((string) $caller->phone)) {
-            $nota = trim(($nota ?? '').' '.EsUnaPrueba::SELLO);
+    /**
+     * La nota, más la marca si esta conversación es una evaluación.
+     *
+     * `ia:evaluar` conversa con un teléfono de verdad -- el de quien
+     * mantiene esto -- y después borra lo que el bot dejó. Borrar "todas
+     * las citas de esa ficha creadas en los últimos segundos" casi nunca
+     * se equivoca, y "casi nunca" no alcanza cuando lo que está en juego
+     * es la cita de alguien. Con la marca solo se borra lo que nació de
+     * la evaluación.
+     */
+    private function conSello(AiCaller $caller, ?string $nota): ?string
+    {
+        if (! EsUnaPrueba::si((string) $caller->phone)) {
+            return $nota;
         }
 
-        return $nota;
+        return trim(($nota ?? '').' '.EsUnaPrueba::SELLO);
     }
 
     /**

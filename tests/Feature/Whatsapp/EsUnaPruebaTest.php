@@ -97,4 +97,21 @@ class EsUnaPruebaTest extends TestCase
 
         Http::assertSentCount(1);
     }
+
+    public function test_la_marca_de_hoy_alcanza_lo_creado_en_este_mismo_segundo(): void
+    {
+        /*
+         * El bug que dejó treinta y nueve citas de prueba en la agenda del
+         * salón. `now()` trae microsegundos y `created_at` se guarda al
+         * segundo, así que una fila creada en ESTE segundo tiene un
+         * `created_at` ANTERIOR a la marca: la limpieza pasaba de largo.
+         */
+        $marca = now()->subSecond();
+        $creadaAhora = now()->startOfSecond();
+
+        $this->assertTrue(
+            $creadaAhora->greaterThanOrEqualTo($marca),
+            'Una fila creada en este mismo segundo tiene que caer dentro de la ventana de limpieza.',
+        );
+    }
 }

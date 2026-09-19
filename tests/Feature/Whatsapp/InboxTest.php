@@ -11,6 +11,7 @@ use App\Support\PermissionCatalog;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Testing\TestResponse;
 use Laravel\Sanctum\Sanctum;
 use Tests\Feature\Scheduling\SchedulingScenario;
 use Tests\TestCase;
@@ -70,7 +71,7 @@ class InboxTest extends TestCase
      * La forma importa: `entry[].changes[].value` con los metadatos y los
      * mensajes adentro. Communications lo reenvia tal cual, sin aplanarlo.
      */
-    private function entra(string $texto, string $from = '573001234567'): \Illuminate\Testing\TestResponse
+    private function entra(string $texto, string $from = '573001234567'): TestResponse
     {
         $body = json_encode([
             'object' => 'whatsapp_business_account',

@@ -205,7 +205,17 @@ class EvaluarAgente extends Command
     private function correr(IaCoreClient $ia, Business $business, array $caso): array
     {
         $telefono = $this->telefono();
-        $desde = now();
+
+        /*
+         * Un segundo antes, no `now()`.
+         *
+         * `now()` trae microsegundos y `created_at` se guarda al segundo:
+         * una cita creada en ESTE mismo segundo queda con un `created_at`
+         * ANTERIOR a la marca y la limpieza no la veia. Pasaron treinta y
+         * nueve citas de prueba a la agenda del salon antes de que se
+         * notara.
+         */
+        $desde = now()->subSecond();
 
         /*
          * El número es de verdad, así que puede tener ficha de verdad. Se
