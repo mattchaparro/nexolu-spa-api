@@ -99,3 +99,20 @@ if (filled(config('spa.defaults.legacy_sync_business'))
         ->withoutOverlapping()
         ->runInBackground();
 }
+
+/*
+ * El resumen del dia para quien es duenio del negocio.
+ *
+ * A las 21:00 hora del servidor: despues de que cierra el local, cuando el
+ * dia ya esta completo. Avisar por cada cita agendada seria ruido -- en un
+ * dia normal son decenas --, pero no saber nada tampoco sirve.
+ *
+ * Lo urgente no pasa por aca: una cancelacion libera un cupo que alguien
+ * tiene que llenar hoy y sale al instante por las acciones de etapa, y lo de
+ * "hay clientas sin responder" lo manda Connect, que es quien tiene la
+ * bandeja.
+ */
+Schedule::command('resumen:diario')
+    ->dailyAt('21:00')
+    ->withoutOverlapping()
+    ->runInBackground();
