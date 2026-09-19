@@ -34,7 +34,11 @@ class IaCoreClient
     }
 
     /**
-     * @return array{text: string, conversation_id: ?string}|null null si el Core no respondio
+     * @return array{text: string, conversation_id: ?string, tools_used: list<string>}|null null si el Core no respondio
+     *
+     * `text` puede venir VACIO: significa que una herramienta ya le
+     * respondio a la clienta (ver `ofrecer_opciones`) y mandar algo mas
+     * seria repetirle lo mismo.
      */
     public function ask(WhatsappConversation $conversation, string $message): ?array
     {
@@ -105,14 +109,24 @@ class IaCoreClient
         }
 
         $texto = trim((string) $response->json('text'));
+        $herramientas = (array) ($response->json('tools_used') ?? []);
 
-        if ($texto === '') {
+        /*
+         * `ofrecer_opciones` YA le mandó el mensaje a la clienta (con los
+         * botones o la lista). Si además mandáramos el texto del modelo,
+         * recibiría la misma cosa dos veces: la lista y debajo las mismas
+         * horas escritas. Por eso el turno puede terminar sin texto.
+         */
+        $yaRespondio = in_array('ofrecer_opciones', $herramientas, true);
+
+        if ($texto === '' && ! $yaRespondio) {
             return null;
         }
 
         return [
-            'text' => $texto,
+            'text' => $yaRespondio ? '' : $texto,
             'conversation_id' => $response->json('conversation_id'),
+            'tools_used' => $herramientas,
         ];
     }
 }

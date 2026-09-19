@@ -7,6 +7,7 @@ use App\Ai\Capabilities\CancelAppointmentCapability;
 use App\Ai\Capabilities\CreateAppointmentCapability;
 use App\Ai\Capabilities\HandoffCapability;
 use App\Ai\Capabilities\MyAppointmentsCapability;
+use App\Ai\Capabilities\OfferOptionsCapability;
 use App\Ai\Capabilities\RescheduleAppointmentCapability;
 use App\Ai\Capabilities\SaveContactCapability;
 use App\Ai\Capabilities\ServicesCapability;
@@ -35,6 +36,7 @@ class Registry
         'cancelar_cita' => CancelAppointmentCapability::class,
         'reagendar_cita' => RescheduleAppointmentCapability::class,
         'hablar_con_persona' => HandoffCapability::class,
+        'ofrecer_opciones' => OfferOptionsCapability::class,
     ];
 
     public function resolve(string $name): ?Capability

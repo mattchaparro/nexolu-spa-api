@@ -45,6 +45,36 @@ class NexoluCommsChannel implements MessagingChannel
     }
 
     /**
+     * Opciones tocables: botones (hasta 3) o lista (4 a 10).
+     *
+     * Es lo que hace que agendar sea tocar en vez de escribir. A la gente
+     * le da pereza leer una lista de horas y transcribir una; tocar "3 pm"
+     * es un gesto. Connect decide botones o lista según cuántas van.
+     *
+     * @param  list<array{id: string, title: string, description?: string}>  $opciones
+     */
+    public function sendOptions(
+        string $to,
+        string $body,
+        array $opciones,
+        ?int $businessId = null,
+        string $boton = 'Ver opciones',
+        ?string $idempotencyKey = null,
+    ): bool {
+        return $this->send(
+            $to,
+            [
+                'text' => $body,
+                'whatsapp_options' => ['options' => array_values($opciones), 'button' => $boton],
+            ],
+            $businessId,
+            // Dentro de la ventana de 24h: es una respuesta, no una plantilla.
+            'service',
+            $idempotencyKey,
+        );
+    }
+
+    /**
      * @param  list<array<string, mixed>>  $components
      */
     public function sendTemplate(

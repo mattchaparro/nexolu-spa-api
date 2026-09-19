@@ -82,6 +82,16 @@ class AnswerWhatsappMessageJob implements ShouldQueue
             $conversacion->update(['ia_conversation_id' => $respuesta['conversation_id']]);
         }
 
+        /*
+         * Texto vacio = una herramienta ya le contesto (`ofrecer_opciones`
+         * manda los botones ella misma). Mandar ademas el texto del modelo
+         * le llegaria a la clienta como la lista y, debajo, lo mismo
+         * escrito.
+         */
+        if (trim($respuesta['text']) === '') {
+            return;
+        }
+
         $dispatcher->queue(
             $conversacion->business,
             Message::KIND_AGENT,
