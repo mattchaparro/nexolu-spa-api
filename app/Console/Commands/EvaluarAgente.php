@@ -29,6 +29,12 @@ use Illuminate\Support\Facades\DB;
  *
  * Gasta tokens de verdad (llama al modelo), así que no corre solo: se
  * corre cuando se toca el prompt o las herramientas.
+ *
+ * Y NO da el mismo número dos veces: se midió 23, 24, 25 y 26 de 28 sin
+ * tocar una línea. Una mejora de menos de tres puntos en una sola pasada
+ * no dice nada -- para creerle a un cambio, `--repetir=3` y mirar el
+ * (bien/veces) de cada caso, que separa lo roto de lo inestable. Lo que
+ * se pueda fijar con una prueba de PHPUnit se fija ahí y no acá.
  */
 class EvaluarAgente extends Command
 {
@@ -36,6 +42,7 @@ class EvaluarAgente extends Command
                             {--business=1 : Negocio contra el que se evalúa}
                             {--caso= : Solo los casos cuyo nombre contenga esto}
                             {--ver-respuestas : Muestra lo que contestó, no solo el veredicto}
+                            {--repetir=1 : Cuántas veces corre cada caso (el modelo no es determinista)}
                             {--telefono= : Con qué número conversa (por defecto, el de services.ia_eval.phone)}
                             {--enviar : Deja que los mensajes lleguen de verdad a ese número}';
 
@@ -135,22 +142,53 @@ class EvaluarAgente extends Command
              * evaluación NO puede dejar citas de mentira en la agenda del
              * local ni fichas de clientas inventadas.
              */
-            DB::beginTransaction();
+            /*
+             * El mismo caso, varias veces. El modelo no es determinista:
+             * dos corridas seguidas del MISMO código dieron 23 y 26 de
+             * 28. Con una sola pasada no se distingue un caso roto de uno
+             * inestable, y ahí es donde uno "arregla" algo que no estaba
+             * dañado y daña otra cosa.
+             */
+            $veces = max(1, (int) $this->option('repetir'));
+            $problemas = [];
+            $avisos = [];
+            $respuestas = [];
+            $bien = 0;
 
-            try {
-                [$problemas, $avisos, $respuestas] = $this->correr($ia, $business, $caso);
-            } finally {
-                DB::rollBack();
+            for ($i = 0; $i < $veces; $i++) {
+                OpcionesEnviadas::olvidar($telefono);
+
+                DB::beginTransaction();
+
+                try {
+                    [$p, $a, $r] = $this->correr($ia, $business, $caso);
+                } finally {
+                    DB::rollBack();
+                }
+
+                // Se guarda lo PEOR que pasó, que es lo que le va a pasar
+                // a alguna clienta, y se cuenta cuántas veces salió bien.
+                $problemas = [...$problemas, ...$p];
+                $avisos = [...$avisos, ...$a];
+                $respuestas = [...$respuestas, ...$r];
+
+                if ($p === [] && $a === []) {
+                    $bien++;
+                }
             }
+
+            $problemas = array_values(array_unique($problemas));
+            $avisos = array_values(array_unique($avisos));
+            $deCuantas = $veces > 1 ? " <fg=gray>({$bien}/{$veces})</>" : '';
 
             if ($problemas !== []) {
                 $fallas++;
-                $this->line("  <fg=red>✗</> {$caso['nombre']}");
+                $this->line("  <fg=red>✗</> {$caso['nombre']}{$deCuantas}");
             } elseif ($avisos !== []) {
                 $mejorables++;
-                $this->line("  <fg=yellow>~</> {$caso['nombre']}");
+                $this->line("  <fg=yellow>~</> {$caso['nombre']}{$deCuantas}");
             } else {
-                $this->line("  <fg=green>✓</> {$caso['nombre']}");
+                $this->line("  <fg=green>✓</> {$caso['nombre']}{$deCuantas}");
             }
 
             foreach ([...$problemas, ...$avisos] as $linea) {
