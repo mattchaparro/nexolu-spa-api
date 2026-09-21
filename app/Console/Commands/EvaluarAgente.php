@@ -4,14 +4,10 @@ namespace App\Console\Commands;
 
 use App\Ai\EsUnaPrueba;
 use App\Ai\OpcionesEnviadas;
-use App\Models\Appointment;
 use App\Models\Business;
-use App\Models\Client;
-use App\Models\Message;
-use App\Models\WhatsappConversation;
+use App\Services\Ia\Evaluacion\Banco;
 use App\Services\Ia\Evaluacion\CasosReales;
 use App\Services\Ia\IaCoreClient;
-use Carbon\CarbonInterface;
 use Illuminate\Console\Command;
 use Illuminate\Support\Collection;
 
@@ -111,10 +107,7 @@ class EvaluarAgente extends Command
      */
     private function telefono(): string
     {
-        return ltrim(
-            (string) ($this->option('telefono') ?: config('services.ia_eval.phone')),
-            '+',
-        );
+        return Banco::telefono($this->option('telefono'));
     }
 
     /**
@@ -204,85 +197,8 @@ class EvaluarAgente extends Command
      */
     private function correr(IaCoreClient $ia, Business $business, array $caso): array
     {
-        $telefono = $this->telefono();
-
-        /*
-         * Un segundo antes, no `now()`.
-         *
-         * `now()` trae microsegundos y `created_at` se guarda al segundo:
-         * una cita creada en ESTE mismo segundo queda con un `created_at`
-         * ANTERIOR a la marca y la limpieza no la veia. Pasaron treinta y
-         * nueve citas de prueba a la agenda del salon antes de que se
-         * notara.
-         */
-        $desde = now()->subSecond();
-
-        /*
-         * El número es de verdad, así que puede tener ficha de verdad. Se
-         * reusa en vez de crear otra: dos fichas con el mismo teléfono es
-         * exactamente el enredo que hace que el bot no encuentre las citas
-         * de quien le escribe.
-         */
-        $cliente = Client::withoutGlobalScope('business')
-            ->where('business_id', $business->id)
-            ->where('phone', $telefono)
-            ->first()
-            ?? Client::create([
-                'business_id' => $business->id,
-                'name' => 'Evaluación',
-                'phone' => $telefono,
-                'is_active' => true,
-            ]);
-
-        /*
-         * La conversación también puede existir de verdad -- hay un índice
-         * único por negocio y teléfono -- así que se reusa. Lo que NO se
-         * reusa es el hilo del Core: se arranca uno nuevo en cada caso,
-         * porque si no, las veintiocho clientas inventadas quedan pegadas
-         * a la memoria de la charla real y el bot se acuerda de ellas la
-         * próxima vez que escriba una persona.
-         */
-        $conversacion = WhatsappConversation::withoutGlobalScope('business')
-            ->firstOrNew([
-                'business_id' => $business->id,
-                'phone' => $telefono,
-            ]);
-
-        // Cómo estaba, para devolverla igual: es la conversación real de
-        // alguien, no un sobrante de prueba.
-        $comoEstaba = $conversacion->exists
-            ? $conversacion->only([
-                'client_id', 'ia_conversation_id', 'last_message_at', 'last_inbound_at',
-                'status', 'read_at', 'agent_paused_until',
-            ])
-            : null;
-
-        /*
-         * Y NADA de esto va dentro de una transacción abierta.
-         *
-         * Parecía lo prudente -- envolver el caso y revertir -- pero quien
-         * agenda no es este proceso: la evaluación le habla al Core, el
-         * Core le pega al endpoint de herramientas, y ese es otro request
-         * con otra conexión. No veía nada de lo que hay acá adentro, así
-         * que no protegía de nada... y en cambio dejaba esta fila trancada:
-         * `hablar_con_persona` se quedaba 45 segundos esperando el candado
-         * y el Core lo daba por caído. La evaluación reportaba que el bot
-         * no pasaba un reclamo a una persona, y el bot sí lo pasaba.
-         *
-         * Se limpia a mano al final, que es lo que de verdad borra lo que
-         * el bot haya creado desde el otro lado.
-         */
-        $conversacion->forceFill([
-            'client_id' => $cliente->id,
-            'ia_conversation_id' => null,
-            'last_message_at' => now(),
-            'last_inbound_at' => now(),
-            'status' => WhatsappConversation::STATUS_OPEN,
-        ])->save();
-
-        if ($caso['con_cita'] ?? false) {
-            $this->citaDePrueba($business, $cliente);
-        }
+        $banco = new Banco($business);
+        $sesion = $banco->preparar($this->telefono(), (bool) ($caso['con_cita'] ?? false));
 
         $respuestas = [];
 
@@ -292,9 +208,10 @@ class EvaluarAgente extends Command
              * producción: evaluar pedazo por pedazo mediría algo que no pasa
              * en la vida real.
              */
-            $respuesta = $ia->ask($conversacion, implode("\n", $caso['mensajes']));
+            $respuesta = $ia->ask($sesion->conversacion, implode('
+', $caso['mensajes']));
         } finally {
-            $this->limpiar($business, $cliente, $conversacion, $comoEstaba, $desde);
+            $banco->limpiar($sesion);
         }
 
         if ($respuesta === null) {
@@ -331,122 +248,5 @@ class EvaluarAgente extends Command
         }
 
         return [$fallas, $avisos, $respuestas];
-    }
-
-    /**
-     * Borrar lo que dejó el caso, sin tocar lo que ya estaba.
-     *
-     * Es la parte que la transacción no hacía. Las citas las crea el bot
-     * desde otro proceso, así que se van con un `delete`, no con un
-     * rollback -- y se borran por FECHA DE CREACIÓN, no por `source`: la
-     * clienta de verdad también agenda por WhatsApp y esas citas son
-     * suyas. Borrarle una cita real por limpiar una de prueba es el peor
-     * error que puede cometer este comando.
-     *
-     * @param  array<string, mixed>|null  $comoEstaba  null si la conversación no existía
-     */
-    private function limpiar(
-        Business $business,
-        Client $cliente,
-        WhatsappConversation $conversacion,
-        ?array $comoEstaba,
-        CarbonInterface $desde,
-    ): void {
-        /*
-         * Por el SELLO y no solo por la fecha. El teléfono es de verdad y
-         * la ficha también: si quien está midiendo agenda una cita suya
-         * mientras esto corre, borrarla porque "se creó en los últimos
-         * segundos" sería el peor error que puede cometer este comando.
-         * Solo se va lo que nació marcado.
-         */
-        Appointment::withoutGlobalScopes()
-            ->where('business_id', $business->id)
-            ->where('client_id', $cliente->id)
-            ->where('created_at', '>=', $desde)
-            ->where('notes', 'like', '%'.EsUnaPrueba::SELLO.'%')
-            ->get()
-            ->each(function (Appointment $cita) {
-                // `forceDelete` y no `delete`: un borrado suave deja la
-                // fila en la tabla con `deleted_at`, y estas citas no son
-                // algo que el local cancelo -- son algo que no debio
-                // existir. En una papelera que alguien puede mirar, cada
-                // corrida deja treinta mentiras mas.
-                $cita->items()->forceDelete();
-                $cita->forceDelete();
-            });
-
-        Message::withoutGlobalScopes()
-            ->where('conversation_id', $conversacion->id)
-            ->where('created_at', '>=', $desde)
-            ->delete();
-
-        if ($comoEstaba === null) {
-            // No existía antes de esta corrida: se va entera.
-            $conversacion->delete();
-
-            return;
-        }
-
-        /*
-         * Con un UPDATE directo y no con `save()`.
-         *
-         * Quien pausa al bot durante el caso ("pide hablar con alguien")
-         * es OTRO proceso -- el que atiende la herramienta --, así que el
-         * modelo que tenemos en memoria no se enteró. Para Eloquent, poner
-         * de vuelta el valor que ya tenía no es un cambio, y `save()` no
-         * escribía nada: la pausa se quedaba en la conversación real y el
-         * bot dejaba de contestarle a Alejandro una hora entera. Así se
-         * perdió un "Hola, quiero agendar una cita" suyo.
-         */
-        WhatsappConversation::withoutGlobalScope('business')
-            ->whereKey($conversacion->getKey())
-            ->update($comoEstaba);
-    }
-
-    /** Una cita próxima, para los casos de cancelar/mover/consultar. */
-    private function citaDePrueba(Business $business, Client $cliente): void
-    {
-        /*
-         * El primer servicio del catálogo puede no tener a nadie que lo
-         * preste: hay que buscar uno que SÍ, o la cita de prueba no se
-         * crea y el caso mide otra cosa (pasó: el bot contestaba "no
-         * tienes citas" y la evaluación lo daba por bueno).
-         */
-        $servicio = $business->services()->where('is_active', true)->get()
-            ->first(fn ($s) => $s->resources()->exists());
-        $recurso = $servicio?->resources()->first();
-
-        if ($servicio === null || $recurso === null) {
-            return;
-        }
-
-        $cita = Appointment::create([
-            'business_id' => $business->id,
-            'location_id' => $business->primaryLocation()?->id,
-            'client_id' => $cliente->id,
-            'client_name' => $cliente->name,
-            'client_phone' => $cliente->phone,
-            'starts_at' => now()->addDay()->setTime(10, 0),
-            'ends_at' => now()->addDay()->setTime(11, 0),
-            'status' => Appointment::STATUS_CONFIRMED,
-            'source' => Appointment::SOURCE_WHATSAPP_AGENT,
-            // Marcada igual que las que crea el bot durante la evaluación:
-            // es lo que la limpieza busca para borrarla.
-            'notes' => EsUnaPrueba::SELLO,
-        ]);
-
-        $cita->items()->create([
-            'business_id' => $business->id,
-            'service_id' => $servicio->id,
-            'resource_id' => $recurso->id,
-            'starts_at' => $cita->starts_at,
-            'ends_at' => $cita->ends_at,
-            // Con buffers, lo que ocupa al recurso y lo que ve la clienta
-            // no son lo mismo; acá no hay buffers, así que coinciden.
-            'service_starts_at' => $cita->starts_at,
-            'service_ends_at' => $cita->ends_at,
-            'price' => $servicio->price,
-            'sort_order' => 0,
-        ]);
     }
 }

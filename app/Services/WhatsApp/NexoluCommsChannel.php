@@ -195,6 +195,9 @@ class NexoluCommsChannel implements MessagingChannel
          */
         if (EsUnaPrueba::si($to)) {
             $this->logSafe('info', 'Nexolu Communications: evaluacion en curso, el mensaje no sale', ['to' => $to]);
+            // Queda anotado lo que HABRIA salido, para que la prueba pueda
+            // leer las listas y botones igual que los leeria la clienta.
+            EsUnaPrueba::registrar($to, $extra);
 
             // `true` porque para quien llama el envio "funciono": lo que se
             // esta midiendo es que el bot ofrezca opciones, no que Meta las

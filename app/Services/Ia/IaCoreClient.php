@@ -2,6 +2,7 @@
 
 namespace App\Services\Ia;
 
+use App\Models\Business;
 use App\Models\WhatsappConversation;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
@@ -31,6 +32,52 @@ class IaCoreClient
     {
         return ! empty(config('services.ia_core.api_key'))
             && ! empty(config('services.ia_core.base_url'));
+    }
+
+    /**
+     * Una redacción de una sola pasada, sin conversación ni herramientas.
+     *
+     * Lo usa el simulador de clientas: el modelo juega a ser una persona
+     * concreta -- una abuela, alguien con afán -- y contesta lo que esa
+     * persona escribiría. Va a `/v1/completions` y no a `/v1/chat` porque
+     * no es el bot: no tiene herramientas ni memoria, y no debe tenerlas.
+     *
+     * La temperatura va alta a propósito: a cero todas las abuelas
+     * escriben igual, y lo que se busca es la variedad que trae la gente.
+     */
+    public function completar(Business $business, string $system, string $user, float $temperature = 0.9): ?string
+    {
+        if (! $this->isConfigured()) {
+            return null;
+        }
+
+        try {
+            $response = Http::withToken((string) config('services.ia_core.api_key'))
+                ->timeout(45)
+                ->baseUrl(rtrim((string) config('services.ia_core.base_url'), '/'))
+                ->post('/v1/completions', [
+                    'system' => $system,
+                    'user' => $user,
+                    'max_tokens' => 300,
+                    'temperature' => $temperature,
+                    'context' => [
+                        'business_id' => (string) $business->id,
+                        'user_id' => 'simulador',
+                    ],
+                ]);
+        } catch (ConnectionException $e) {
+            Log::warning('IA Core: error de red en completions', ['error' => $e->getMessage()]);
+
+            return null;
+        }
+
+        if ($response->failed()) {
+            Log::warning('IA Core: completions con error', ['status' => $response->status()]);
+
+            return null;
+        }
+
+        return trim((string) $response->json('text'));
     }
 
     /**

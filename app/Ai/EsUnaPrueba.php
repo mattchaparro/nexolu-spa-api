@@ -58,6 +58,34 @@ final class EsUnaPrueba
         return (bool) Cache::get(self::clave($phone), false);
     }
 
+    /**
+     * Lo que el bot HABRÍA mandado, para que la prueba lo pueda leer.
+     *
+     * Las horas y los servicios le llegan a la clienta como listas que
+     * manda el canal, no como texto del modelo. Si la prueba solo ve el
+     * texto, no ve las listas -- y entonces la clienta simulada no puede
+     * "tocar" una fila, que es justo lo que hace una persona.
+     *
+     * @param  array<string, mixed>  $envio
+     */
+    public static function registrar(string $phone, array $envio): void
+    {
+        $clave = self::clave($phone).':enviados';
+        $lista = Cache::get($clave, []);
+        $lista[] = $envio;
+        Cache::put($clave, $lista, self::TTL_SEGUNDOS);
+    }
+
+    /**
+     * Lo registrado desde la última vez que se preguntó. Leer limpia.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public static function enviados(string $phone): array
+    {
+        return Cache::pull(self::clave($phone).':enviados', []);
+    }
+
     private static function clave(string $phone): string
     {
         return 'ia:es-una-prueba:'.ltrim($phone, '+');
