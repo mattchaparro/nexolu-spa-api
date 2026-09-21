@@ -217,30 +217,48 @@ final class Toques
     private function agendar(AiCaller $caller, WhatsappConversation $conversacion, string $phone, array $pedido): array
     {
         $hora = $pedido['confirmar'];
-        $resultado = $this->reserva->execute($caller, [...$this->argumentosDe($pedido), 'hora' => $hora['hora_24']]);
+
+        /*
+         * Con quien se le ofrecio, si fue una sola persona. La agenda dijo
+         * "2:30 pm con Anyi"; reservar sin decir con quien dejaba que la
+         * reserva tomara a la primera del servicio, que a esa hora no
+         * trabaja, y dos clientas simuladas "agendaron" en el vacio.
+         */
+        $con = (string) ($hora['con'] ?? '');
+        $argumentos = [...$this->argumentosDe($pedido), 'hora' => $hora['hora_24']];
+
+        if ($con !== '' && ! str_contains($con, ' y ') && empty($argumentos['empleado']) && empty($argumentos['juntas'])) {
+            $argumentos['empleado'] = $con;
+        }
+
+        $resultado = $this->reserva->execute($caller, $argumentos);
 
         if (! ($resultado['agendada'] ?? false)) {
             /*
-             * Se ocupó mientras decidía, o no alcanzan los servicios a esa
-             * hora. No se explica el porqué técnico: se le vuelven a mandar
-             * las horas que sí hay.
+             * Se ocupo mientras decidia, o no alcanzan los servicios a esa
+             * hora. Se dice -- callarse aqui es dejarla creyendo que
+             * agendo -- y se le vuelven a mandar las horas que si hay,
+             * consultadas de nuevo (sin la guarda de "ya las vio": la
+             * situacion cambio).
              */
-            unset($pedido['confirmar']);
+            unset($pedido['confirmar'], $pedido['mostrado_at']);
             UltimoPedido::guardar($phone, $pedido);
 
             $otras = $this->disponibilidad->execute($caller, $this->argumentosDe($pedido));
+            $aviso = 'No pude dejar esa hora 😕 ('.mb_strtolower(rtrim((string) ($resultado['motivo'] ?? 'se acabó de ocupar'), '.')).').';
 
             if (($otras['ofrecidas'] ?? []) === []) {
                 UltimoPedido::olvidar($phone);
 
                 return [
-                    'text' => 'Esa hora se acabó de ocupar y no quedan más ese día 😕 ¿Te sirve otro día?',
+                    'text' => $aviso.' Y no me quedan más horas ese día. ¿Te sirve otro día?',
                     'conversation_id' => null,
                     'tools_used' => ['crear_cita'],
                 ];
             }
 
-            return ['text' => '', 'conversation_id' => null, 'tools_used' => ['crear_cita', 'disponibilidad']];
+            // La lista ya salio; el aviso va aparte para que se lea antes.
+            return ['text' => $aviso.' Estas son las que sí tengo 👆', 'conversation_id' => null, 'tools_used' => ['crear_cita', 'disponibilidad']];
         }
 
         UltimoPedido::olvidar($phone);

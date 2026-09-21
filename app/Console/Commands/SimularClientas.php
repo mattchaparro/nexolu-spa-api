@@ -247,7 +247,8 @@ class SimularClientas extends Command
             ."- Escribe exactamente como escribiría esa persona (largo, ortografía, tono).\n"
             ."- Si el salón te muestra OPCIONES (botones o una lista) y una te sirve, respóndela con su texto EXACTO, tal cual aparece.\n"
             ."- Solo puedes elegir servicios que el salón te ofrezca; no inventes nombres.\n"
-            .'- Si YA lograste tu meta (por ejemplo te confirmaron la cita, o te dieron lo que pedías), responde exactamente '.self::MARCA_LISTO.".\n"
+            .'- Si YA lograste tu meta, responde exactamente '.self::MARCA_LISTO.'. Una cita está lograda SOLO cuando '
+            ."te dicen que QUEDÓ agendada; que te pregunten \"¿lo agendo?\" no es haberla logrado: ahí contestas.\n"
             .'- Si te frustras, te ignoran lo que pediste dos veces, o llevas muchos mensajes sin avanzar, responde exactamente '.self::MARCA_ME_VOY.".\n"
             .'- Nunca digas que eres una simulación ni una IA.';
 

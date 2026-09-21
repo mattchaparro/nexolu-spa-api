@@ -57,12 +57,15 @@ class ToquesTest extends TestCase
         ]);
 
         $this->business = $this->makeBusiness(['min_booking_notice_min' => 0]);
-        $persona = $this->makeResource($this->business, 'Maria');
+        // Dos profesionales con jornadas que no se cruzan, como en el salon
+        // de verdad: Maria en la manana, Lucia en la tarde.
+        $maria = $this->makeResource($this->business, 'Maria', '09:00:00', '13:00:00');
+        $lucia = $this->makeResource($this->business, 'Lucia', '14:00:00', '18:00:00');
 
         $manicure = ServiceCategory::create(['business_id' => $this->business->id, 'name' => 'Manicure', 'is_active' => true]);
 
         foreach (['Semipermanente', 'Semi + Rubber', 'Tradicional'] as $nombre) {
-            $this->makeService($this->business, 60, [$persona], name: $nombre)
+            $this->makeService($this->business, 60, [$maria, $lucia], name: $nombre)
                 ->update(['service_category_id' => $manicure->id]);
         }
 
@@ -157,6 +160,46 @@ class ToquesTest extends TestCase
         $cita = Appointment::withoutGlobalScopes()->with('items.service')->sole();
         $this->assertSame('Semipermanente', $cita->items->first()->service->name);
         $this->assertSame($horas[0]['hora_24'], $cita->starts_at->timezone('America/Bogota')->format('H:i'));
+    }
+
+    public function test_se_agenda_con_quien_de_verdad_esta_libre_a_esa_hora(): void
+    {
+        /*
+         * El bug de produccion que destapo el simulador: la agenda ofrecia
+         * "2:30 pm con Anyi" y la reserva, sin que nadie dijera con quien,
+         * tomaba a la primera profesional del servicio -- que a esa hora no
+         * trabaja -- y fallaba. La clienta tocaba "Si, agendar" y no
+         * quedaba nada.
+         */
+        $horas = $this->invoke('disponibilidad', ['servicio' => 'Semipermanente', 'fecha' => $this->manana()])
+            ->json('data.ofrecidas');
+        $deLaTarde = collect($horas)->first(fn ($h) => (int) substr($h['hora_24'], 0, 2) >= 14);
+        $this->assertNotNull($deLaTarde, 'la agenda tiene que ofrecer alguna hora de la tarde');
+
+        $this->toques()->atender($this->conversacion, $deLaTarde['hora']);
+        $respuesta = $this->toques()->atender($this->conversacion, Toques::SI);
+
+        $this->assertStringContainsString('Quedó agendada', $respuesta['text']);
+        $cita = Appointment::withoutGlobalScopes()->with('items.resource')->sole();
+        $this->assertSame('Lucia', $cita->items->first()->resource->name);
+    }
+
+    public function test_si_no_se_pudo_agendar_se_dice_y_no_se_calla(): void
+    {
+        // Callarse despues de "Si, agendar" deja a la clienta creyendo que
+        // agendo. Se ocupa la hora por otro lado y se toca "Si".
+        $horas = $this->invoke('disponibilidad', ['servicio' => 'Semipermanente', 'fecha' => $this->manana()])
+            ->json('data.ofrecidas');
+        $this->toques()->atender($this->conversacion, $horas[0]['hora']);
+
+        // Alguien mas se lleva esa hora antes de que confirme.
+        $this->invoke('crear_cita', ['servicio' => 'Semipermanente', 'fecha' => $this->manana(), 'hora' => $horas[0]['hora_24']])
+            ->assertJsonPath('data.agendada', true);
+
+        $respuesta = $this->toques()->atender($this->conversacion, Toques::SI);
+
+        $this->assertStringContainsString('No pude dejar esa hora', $respuesta['text']);
+        $this->assertSame(1, Appointment::withoutGlobalScopes()->count());
     }
 
     public function test_tocar_otra_hora_vuelve_a_mandar_las_horas(): void

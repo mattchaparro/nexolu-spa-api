@@ -162,7 +162,7 @@ class CreateAppointmentCapability implements Capability
         $items = count($servicios) === 1
             ? [[
                 'service_id' => $servicios[0]->id,
-                'resource_id' => ($preferida ?? $this->anyResourceFor($servicios[0]->id, $sede?->id))->id,
+                'resource_id' => ($preferida ?? $this->quienEstaLibre($business, $servicios[0], $inicio, $sede?->id))->id,
                 'starts_at' => $inicio,
             ]]
             : $this->cadena($business, $servicios, $inicio, $preferida?->id, $sede?->id);
@@ -420,6 +420,34 @@ class CreateAppointmentCapability implements Capability
     }
 
     /** La primera persona activa que presta ese servicio en esa sede. */
+    /**
+     * Quien de verdad esta libre a esa hora.
+     *
+     * La agenda ofrecio "2:30 pm con Anyi" y, al reservar sin decir con
+     * quien, se tomaba a la PRIMERA profesional del servicio -- Alejandra,
+     * que a esa hora no trabaja -- y la reserva fallaba. La clienta tocaba
+     * "Si, agendar" y no quedaba nada. Se pregunta a la misma agenda que
+     * ofrecio la hora quien la tiene libre; solo si nadie aparece se cae a
+     * la primera, para que el error que salga sea el de la reserva y no
+     * uno inventado aca.
+     */
+    private function quienEstaLibre(Business $business, Service $servicio, CarbonImmutable $inicio, ?int $sedeId): \App\Models\Resource
+    {
+        $libres = $this->availability->slotsForService($business, $servicio, $inicio->startOfDay(), null, null, $sedeId);
+
+        foreach ($libres as $slot) {
+            if (isset($slot['resource_id']) && $slot['starts_at']->equalTo($inicio)) {
+                $recurso = \App\Models\Resource::withoutGlobalScope('business')->find($slot['resource_id']);
+
+                if ($recurso !== null) {
+                    return $recurso;
+                }
+            }
+        }
+
+        return $this->anyResourceFor($servicio->id, $sedeId);
+    }
+
     private function anyResourceFor(int $serviceId, ?int $locationId): \App\Models\Resource
     {
         $recurso = \App\Models\Resource::withoutGlobalScope('business')
