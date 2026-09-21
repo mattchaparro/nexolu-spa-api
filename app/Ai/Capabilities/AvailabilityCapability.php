@@ -81,7 +81,11 @@ class AvailabilityCapability implements Capability
             'servicios.*' => ['required', 'string', 'max:255'],
             // Texto y no `date_format`: "el lunes" lo resuelve el código,
             // no el modelo, que se equivocó ofreciendo el martes.
-            'fecha' => ['required', 'string', 'max:40'],
+            // Opcional a proposito: si acaba de tocar un servicio de la
+            // lista, el dia con que se pidio esa lista ya quedo guardado
+            // (ver ServiciosPendientes::contexto) y no hay que hacerla
+            // repetirlo. Sin lista pendiente sigue haciendo falta.
+            'fecha' => ['nullable', 'string', 'max:40'],
             // "en la tarde" lo filtra la herramienta, no el modelo: si el
             // filtro lo hace el, ofrece horas que no pidio o descarta las
             // que si servian.
@@ -104,6 +108,34 @@ class AvailabilityCapability implements Capability
     {
         $business = $caller->business;
         $tz = $business->businessTimezone();
+
+        /*
+         * Lo que no vino, se completa con lo que se pidio la ultima vez.
+         *
+         * Despues de mandar la lista de servicios lo unico que vuelve es el
+         * nombre tocado; el dia, la franja y si eran varias personas se
+         * dijeron antes. Al modelo se le olvidaba y volvia a preguntar el
+         * dia a quien ya habia dicho "hoy" -- paso en la simulacion y en
+         * una conversacion real.
+         */
+        $phoneCtx = ChannelPhone::normalize((string) $caller->phone, $business->country_code ?? 'CO');
+        $pendiente = $phoneCtx === null ? [] : ServiciosPendientes::contexto($phoneCtx);
+
+        foreach (['fecha', 'franja', 'juntas', 'empleado', 'sede'] as $campo) {
+            if (! isset($arguments[$campo]) && isset($pendiente[$campo])) {
+                $arguments[$campo] = $pendiente[$campo];
+            }
+        }
+
+        if (! isset($arguments['fecha'])) {
+            return [
+                'horas' => [],
+                'falta_informacion' => 'No sé para qué día.',
+                'instruccion' => 'Pregúntale qué día quiere (puedes decirle "hoy", "mañana" '
+                    .'o un día de la semana) y vuelve a llamarme con `fecha`.',
+            ];
+        }
+
         $fecha = FechaDicha::resolver($arguments['fecha'], $tz);
 
         if ($fecha === null) {
@@ -148,6 +180,19 @@ class AvailabilityCapability implements Capability
             if ($elegir === null) {
                 throw $cualDeTodos;
             }
+
+            if ($phoneCtx !== null) {
+                ServiciosPendientes::guardarContexto($phoneCtx, [
+                    'fecha' => $arguments['fecha'],
+                    'franja' => $arguments['franja'] ?? null,
+                    'juntas' => $arguments['juntas'] ?? null,
+                    'empleado' => $arguments['empleado'] ?? null,
+                    'sede' => $arguments['sede'] ?? null,
+                ]);
+            }
+
+            $elegir['instruccion'] .= " El día ya lo dijo («{$arguments['fecha']}»): cuando toque un "
+                .'servicio, llámame con ese nombre en `servicio` y NO le vuelvas a preguntar el día.';
 
             return $elegir;
         }

@@ -19,5 +19,7 @@ final class Sesion
         public readonly WhatsappConversation $conversacion,
         public readonly ?array $comoEstaba,
         public readonly CarbonInterface $desde,
+        /** El nombre que tenía la ficha antes de prestársela a la persona simulada. */
+        public readonly ?string $nombreOriginal = null,
     ) {}
 }

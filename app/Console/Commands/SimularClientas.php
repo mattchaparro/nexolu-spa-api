@@ -108,7 +108,7 @@ class SimularClientas extends Command
      */
     private function conversar(IaCoreClient $ia, Business $business, Banco $banco, array $perfil, string $telefono): array
     {
-        $sesion = $banco->preparar($telefono, (bool) ($perfil['con_cita'] ?? false));
+        $sesion = $banco->preparar($telefono, (bool) ($perfil['con_cita'] ?? false), $perfil['nombre_propio'] ?? null);
         $catalogo = $this->catalogo($business);
 
         $transcripcion = [];
@@ -137,15 +137,23 @@ class SimularClientas extends Command
                 }
 
                 $turnos++;
+                $mensaje = $this->comoLlegaria($mensaje, $transcripcion);
                 $transcripcion[] = ['quien' => 'clienta', 'texto' => $mensaje];
 
                 EsUnaPrueba::marcar($telefono);
                 $respuesta = $ia->ask($sesion->conversacion, $mensaje);
                 $enviados = EsUnaPrueba::enviados($telefono);
 
-                $textoBot = trim((string) ($respuesta['text'] ?? ''));
                 $opciones = $this->opcionesDe($enviados);
                 $textosDeListas = $this->textosDe($enviados);
+                /*
+                 * Igual que en produccion: si una herramienta ya mando
+                 * botones, el job NO manda el texto del modelo (ver
+                 * AnswerWhatsappMessageJob y OpcionesEnviadas::consumir).
+                 * Mostrarlo aca seria medir un mensaje que la clienta
+                 * nunca recibe.
+                 */
+                $textoBot = $opciones !== [] ? '' : trim((string) ($respuesta['text'] ?? ''));
                 $usadas = $respuesta['tools_used'] ?? [];
                 $herramientas[] = $usadas;
 
@@ -234,10 +242,15 @@ class SimularClientas extends Command
             $linea = 'SALÓN: '.$t['texto'];
 
             if (! empty($t['opciones'])) {
-                $linea .= "\n   OPCIONES PARA TOCAR: ".implode(' | ', array_map(
-                    fn (array $o) => $o['title'].(isset($o['description']) ? " ({$o['description']})" : ''),
+                $linea .= "\n   BOTONES (para tocar uno, responde SOLO su texto exacto): "
+                    .implode(' | ', array_column($t['opciones'], 'title'));
+                $detalles = array_filter(array_map(
+                    fn (array $o) => isset($o['description']) ? "{$o['title']}: {$o['description']}" : null,
                     $t['opciones'],
                 ));
+                if ($detalles !== []) {
+                    $linea .= "\n   (debajo de cada botón se lee: ".implode(' · ', $detalles).')';
+                }
             }
 
             $lineas[] = $linea;
@@ -280,10 +293,13 @@ class SimularClientas extends Command
 
         // La misma respuesta dos veces seguidas: se lee como que no entendió.
         $anteriores = array_values(array_filter($transcripcion, fn ($t) => $t['quien'] === 'bot'));
-        $previa = count($anteriores) >= 2 ? $anteriores[count($anteriores) - 2]['texto'] ?? '' : '';
+        array_pop($anteriores); // la de este turno ya esta en la transcripcion
 
-        if ($texto !== '' && $previa !== '' && $this->plano($texto) === $this->plano($previa)) {
-            $hallazgos[] = 'repitió exactamente la respuesta anterior';
+        foreach ($anteriores as $previa) {
+            if ($texto !== '' && $this->plano($texto) === $this->plano($previa['texto'] ?? '')) {
+                $hallazgos[] = 'repitió una respuesta que ya había dado';
+                break;
+            }
         }
 
         // Una lista de horas o servicios escrita a mano, en vez de botones.
@@ -296,7 +312,10 @@ class SimularClientas extends Command
             foreach ($m[1] as $negrilla) {
                 $n = mb_strtolower(trim($negrilla));
                 $pareceServicio = preg_match('/manicur|pedicur|semi|u[nñ]as|acr[ií]l|rubber|capping|retoque|retiro|pesta|ceja|tradicional/u', $n);
-                $existe = collect($catalogo['servicios'])->contains(fn ($s) => $n === mb_strtolower($s) || str_contains(mb_strtolower($s), $n) || str_contains($n, mb_strtolower($s)));
+                // Existe si es un nombre del catalogo o un pedazo de uno
+                // ("Semi" de "Semi + Rubber"). NO al reves: "Semipermanente
+                // con Rubber" contiene "Semipermanente" y aun asi no existe.
+                $existe = collect($catalogo['servicios'])->contains(fn ($s) => $n === mb_strtolower($s) || str_contains(mb_strtolower($s), $n));
                 $esOtraCosa = collect($catalogo['otros'])->contains(fn ($o) => str_contains($n, mb_strtolower($o)));
 
                 if ($pareceServicio && ! $existe && ! $esOtraCosa) {
@@ -352,6 +371,35 @@ class SimularClientas extends Command
     private function textosDe(array $enviados): array
     {
         return array_values(array_filter(array_map(fn ($e) => trim((string) ($e['text'] ?? '')), $enviados)));
+    }
+
+    /**
+     * Lo que WhatsApp entregaria si la clienta toco una fila.
+     *
+     * De una fila tocada solo llega el TITULO. La clienta simulada a veces
+     * copia tambien lo que va debajo ("semi + rubber (60 min · 55.000
+     * cop)"); en produccion eso no existe, asi que se normaliza al titulo.
+     *
+     * @param  list<array<string, mixed>>  $transcripcion
+     */
+    private function comoLlegaria(string $mensaje, array $transcripcion): string
+    {
+        $ultimoBot = null;
+
+        foreach (array_reverse($transcripcion) as $t) {
+            if ($t['quien'] === 'bot') {
+                $ultimoBot = $t;
+                break;
+            }
+        }
+
+        foreach ($ultimoBot['opciones'] ?? [] as $o) {
+            if (str_starts_with($this->plano($mensaje), $this->plano($o['title']))) {
+                return $o['title'];
+            }
+        }
+
+        return $mensaje;
     }
 
     private function plano(string $texto): string

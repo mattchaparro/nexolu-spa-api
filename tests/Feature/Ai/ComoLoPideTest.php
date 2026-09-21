@@ -58,7 +58,7 @@ class ComoLoPideTest extends TestCase
         return $this->catalogo([
             'Manicure' => [
                 'Semipermanente', 'Tradicional', 'Capping', 'Retoque Capping',
-                'Retoque Acrílico Semi', 'Retiro Semipermanente',
+                'Retoque Acrílico Semi', 'Retiro Semipermanente', 'Semi + Rubber',
             ],
             'Pedicure' => ['Pedi - Jellyspa', 'Pedi + Jelly Spa + Semi'],
             'Pestañas' => ['Wispy', 'Egipcio 5D', 'Retoque de pestañas'],
@@ -72,7 +72,7 @@ class ComoLoPideTest extends TestCase
 
         $this->assertSame(
             ['Semipermanente', 'Tradicional', 'Capping', 'Retoque Capping',
-                'Retoque Acrílico Semi', 'Retiro Semipermanente'],
+                'Retoque Acrílico Semi', 'Retiro Semipermanente', 'Semi + Rubber'],
             $candidatos->pluck('name')->all(),
         );
     }
@@ -121,7 +121,7 @@ class ComoLoPideTest extends TestCase
         $candidatos = ComoLoPide::candidatos($this->luxury(), 'queria ver si alcanzo a hacerme las uñas');
 
         $this->assertSame('Manicure', $candidatos->first()->category->name);
-        $this->assertCount(6, $candidatos);
+        $this->assertCount(7, $candidatos);
     }
 
     public function test_un_tipo_que_no_existe_en_esa_categoria_no_deja_sin_nada(): void
@@ -148,5 +148,27 @@ class ComoLoPideTest extends TestCase
         $soloUnas = $this->catalogo(['Manicure' => ['Semipermanente'], 'Pedicure' => ['Pedi - Jellyspa']]);
 
         $this->assertTrue(ComoLoPide::candidatos($soloUnas, 'quiero pestañas')->isEmpty());
+    }
+
+    public function test_dos_tipos_juntos_dan_el_que_tiene_los_dos(): void
+    {
+        /*
+         * "Semi con rubber" es Semi + Rubber, con todas las letras. Con
+         * "cualquiera de los dos" salian los diez que llevan "semi" y la
+         * clienta recibia una lista para elegir lo que ya habia dicho --
+         * paso con una clienta simulada, que se fue.
+         */
+        $candidatos = ComoLoPide::candidatos($this->luxury(), 'semi con rubber');
+
+        $this->assertSame(['Semi + Rubber'], $candidatos->pluck('name')->all());
+    }
+
+    public function test_si_ningun_servicio_tiene_los_dos_tipos_vale_cualquiera(): void
+    {
+        // "Retoque de rubber" no existe: se ofrecen los retoques y los rubber.
+        $candidatos = ComoLoPide::candidatos($this->luxury(), 'retoque rubber');
+
+        $this->assertContains('Retoque Capping', $candidatos->pluck('name')->all());
+        $this->assertContains('Semi + Rubber', $candidatos->pluck('name')->all());
     }
 }

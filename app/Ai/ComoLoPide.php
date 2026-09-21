@@ -158,17 +158,38 @@ final class ComoLoPide
             return $porCategoria->values();
         }
 
-        $porNombre = $porCategoria->filter(function (Service $s) use ($enElNombre) {
+        /*
+         * Si dijo VARIOS tipos ("semi con rubber"), primero los que tienen
+         * TODOS: "Semi + Rubber" y nada mas. Con "cualquiera de los dos"
+         * salian los diez que llevan "semi" en el nombre y la clienta
+         * recibia una lista para elegir lo que ya habia dicho con todas
+         * las letras. Si ninguno los tiene todos, vale cualquiera.
+         */
+        $conTodos = $porCategoria->filter(function (Service $s) use ($enElNombre) {
             $nombre = self::normalizar($s->name);
 
             foreach ($enElNombre as $pedazo) {
-                if (str_contains($nombre, $pedazo)) {
-                    return true;
+                if (! str_contains($nombre, $pedazo)) {
+                    return false;
                 }
             }
 
-            return false;
+            return true;
         });
+
+        $porNombre = $conTodos->isNotEmpty()
+            ? $conTodos
+            : $porCategoria->filter(function (Service $s) use ($enElNombre) {
+                $nombre = self::normalizar($s->name);
+
+                foreach ($enElNombre as $pedazo) {
+                    if (str_contains($nombre, $pedazo)) {
+                        return true;
+                    }
+                }
+
+                return false;
+            });
 
         /*
          * Si el tipo no existe dentro de la categoría ("un retoque de

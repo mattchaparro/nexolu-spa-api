@@ -195,4 +195,28 @@ class ListaDeServiciosTest extends TestCase
 
         $this->assertTrue(true);
     }
+
+    public function test_al_tocar_un_servicio_no_hay_que_repetir_el_dia(): void
+    {
+        /*
+         * La lista se pidio "para manana". Cuando toca "Servicio 3", lo
+         * unico que vuelve es ese nombre: el dia lo tiene que recordar el
+         * sistema, no la clienta ni el modelo. Al modelo se le olvidaba y
+         * volvia a preguntar el dia a quien ya habia dicho "hoy".
+         */
+        $this->invoke('disponibilidad', ['servicio' => 'las manitos', 'fecha' => $this->manana()])->assertOk();
+
+        $respuesta = $this->invoke('disponibilidad', ['servicio' => 'Servicio 3'])->assertOk();
+
+        $this->assertNotEmpty($respuesta->json('data.horas'));
+        $this->assertSame($this->manana(), $respuesta->json('data.fecha'));
+    }
+
+    public function test_sin_lista_previa_el_dia_sigue_haciendo_falta(): void
+    {
+        $respuesta = $this->invoke('disponibilidad', ['servicio' => 'Servicio 3'])->assertOk();
+
+        $this->assertSame([], $respuesta->json('data.horas'));
+        $this->assertNotNull($respuesta->json('data.falta_informacion'));
+    }
 }

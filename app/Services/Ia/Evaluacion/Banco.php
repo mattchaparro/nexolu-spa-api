@@ -50,7 +50,7 @@ final class Banco
      * un hilo NUEVO del Core: si no, las clientas inventadas quedan
      * pegadas a la memoria de la charla real.
      */
-    public function preparar(string $telefono, bool $conCita = false): Sesion
+    public function preparar(string $telefono, bool $conCita = false, ?string $nombre = null): Sesion
     {
         /*
          * Un segundo antes, no `now()`: `created_at` se guarda al segundo
@@ -102,7 +102,19 @@ final class Banco
             $this->citaDePrueba($cliente);
         }
 
-        return new Sesion($cliente, $conversacion, $comoEstaba, $desde);
+        /*
+         * La ficha es la del dueño, así que el bot saludaría a "Mateo" a
+         * una abuela que se llama Gloria y la conversación se iría en
+         * corregir el nombre. Se le presta el nombre de la persona
+         * simulada y se devuelve al terminar.
+         */
+        $nombreOriginal = $cliente->name;
+
+        if ($nombre !== null) {
+            $cliente->forceFill(['name' => $nombre])->save();
+        }
+
+        return new Sesion($cliente, $conversacion, $comoEstaba, $desde, $nombreOriginal);
     }
 
     /**
@@ -137,6 +149,12 @@ final class Banco
         OpcionesEnviadas::olvidar($sesion->cliente->phone);
         ServiciosPendientes::olvidar($sesion->cliente->phone);
         EsUnaPrueba::enviados($sesion->cliente->phone);
+
+        if ($sesion->nombreOriginal !== null && $sesion->cliente->name !== $sesion->nombreOriginal) {
+            Client::withoutGlobalScope('business')
+                ->whereKey($sesion->cliente->getKey())
+                ->update(['name' => $sesion->nombreOriginal]);
+        }
 
         if ($sesion->comoEstaba === null) {
             $sesion->conversacion->delete();
