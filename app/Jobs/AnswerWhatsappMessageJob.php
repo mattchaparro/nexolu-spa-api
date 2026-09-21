@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Ai\OpcionesEnviadas;
+use App\Ai\Toques;
 use App\Models\Message;
 use App\Models\WhatsappConversation;
 use App\Services\Ia\IaCoreClient;
@@ -92,7 +93,13 @@ class AnswerWhatsappMessageJob implements ShouldQueue
             return;
         }
 
-        $respuesta = $ia->ask($conversacion, $pendientes);
+        /*
+         * Un boton tocado -- una hora, un servicio, "Si, agendar" -- es un
+         * dato que ya conocemos: no se le pide al modelo que lo interprete.
+         * Solo si el mensaje no es un toque, habla el modelo.
+         */
+        $respuesta = app(Toques::class)->atender($conversacion, $pendientes)
+            ?? $ia->ask($conversacion, $pendientes);
 
         if ($respuesta === null) {
             /*

@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Ai\EsUnaPrueba;
+use App\Ai\Toques;
 use App\Models\Business;
 use App\Models\Resource;
 use App\Models\Service;
@@ -159,7 +160,9 @@ class SimularClientas extends Command
                     continue;
                 }
 
-                $respuesta = $ia->ask($sesion->conversacion, $mensaje);
+                // Como el job: los toques los atiende el codigo, el resto el modelo.
+                $respuesta = app(Toques::class)->atender($sesion->conversacion, $mensaje)
+                    ?? $ia->ask($sesion->conversacion, $mensaje);
                 $enviados = EsUnaPrueba::enviados($telefono);
 
                 $opciones = $this->opcionesDe($enviados);

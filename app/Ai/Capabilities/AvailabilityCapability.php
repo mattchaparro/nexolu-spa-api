@@ -18,6 +18,7 @@ use App\Services\Scheduling\CitasSimultaneas;
 use App\Services\WhatsApp\NexoluCommsChannel;
 use App\Support\ChannelPhone;
 use App\Support\TituloCorto;
+use Carbon\Carbon;
 use Carbon\CarbonImmutable;
 
 /**
@@ -258,19 +259,67 @@ class AvailabilityCapability implements Capability
         // Repartidas, no las primeras cuatro seguidas: ofrecer 10:00,
         // 10:15, 10:30 y 10:45 es ofrecer la misma hora cuatro veces.
         $ofrecidas = $this->repartidas($horas->all(), self::MAX_OPCIONES);
+
+        /*
+         * La misma consulta dos veces en pocos minutos NO vuelve a mandar
+         * la lista. Cuando la clienta tocaba una hora, el modelo volvia a
+         * llamar aca con los mismos datos y ella recibia las mismas cuatro
+         * horas otra vez -- tres veces seguidas en una simulacion. Lo que
+         * pidio ya lo esta viendo; lo que falta es que el modelo confirme.
+         */
+        $previo = $phoneCtx === null ? [] : UltimoPedido::ver($phoneCtx);
+        $repetida = ($previo['fecha_iso'] ?? null) === $fecha->format('Y-m-d')
+            && ($previo['servicios'] ?? null) === $nombreServicios
+            && ($previo['franja'] ?? null) === ($arguments['franja'] ?? null)
+            && isset($previo['mostrado_at'])
+            && now()->diffInMinutes(Carbon::parse($previo['mostrado_at'])) < 10;
+
+        if ($repetida) {
+            return [
+                'servicios' => $nombreServicios,
+                'fecha' => $fecha->format('Y-m-d'),
+                'dia' => $fecha->locale('es')->isoFormat('dddd D [de] MMMM'),
+                'ofrecidas' => $ofrecidas,
+                'ya_las_vio' => true,
+                'instruccion' => 'Estas horas YA se las mandaste hace un momento y las está viendo: '
+                    .'NO las repitas ni llames a `ofrecer_opciones`. Si te dijo una hora, confírmale '
+                    .'en una frase servicio, día, hora y con quién, y con su sí llama a `crear_cita` '
+                    .'con esa `hora_24`. Si no dijo ninguna, pregúntale cuál le sirve o si prefiere '
+                    .'otro día.',
+            ];
+        }
+
         $mostrado = $this->mostrar($caller, $nombreServicios, $fecha, $ofrecidas);
 
         // Lo que se acaba de entender queda guardado: la siguiente llamada
         // -- "6 pm" tocado, sin mas -- ya sabe de que servicio y de que dia.
         if ($phoneCtx !== null) {
+            $tocables = [];
+            foreach ($ofrecidas as $h) {
+                $tocables[mb_strtolower(trim($h['hora']))] = ['hora_24' => $h['hora_24'], 'hora' => $h['hora'], 'con' => $h['con'] ?? null];
+            }
+
+            // Y TODAS las que hay, para que "Otra hora" pueda mandar las
+            // que no se mostraron sin volver a consultar la agenda.
+            $todas = [];
+            foreach ($horas->take(12) as $h) {
+                $todas[mb_strtolower(trim($h['hora']))] = ['hora_24' => $h['hora_24'], 'hora' => $h['hora'], 'con' => $h['con'] ?? null];
+            }
+
             UltimoPedido::guardar($phoneCtx, [
                 'servicios' => $nombreServicios,
                 'fecha' => $arguments['fecha'],
+                'fecha_iso' => $fecha->format('Y-m-d'),
+                'dia' => $fecha->locale('es')->isoFormat('dddd D [de] MMMM'),
                 'franja' => $arguments['franja'] ?? null,
                 'juntas' => $arguments['juntas'] ?? null,
                 'empleado' => $arguments['empleado'] ?? null,
                 'sede' => $arguments['sede'] ?? null,
-                'opciones' => array_column($ofrecidas, 'hora'),
+                // Las horas que le llegaron como botones, para que tocar
+                // una no tenga que pasar por el modelo (ver Toques).
+                'horas' => $mostrado ? $tocables : [],
+                'todas' => $todas,
+                'mostrado_at' => $mostrado ? now()->toIso8601String() : null,
             ]);
         }
 
