@@ -105,6 +105,12 @@ final class ComoLoPide
         'acrigel' => ['acrigel'],
         'poligel' => ['poligel', 'acrigel'],
         'lifting' => ['lifting'],
+        // "Para hombre" acota igual que un tipo: en este catalogo los de
+        // hombre llevan la palabra en el nombre.
+        'hombre' => ['hombre'],
+        'hombres' => ['hombre'],
+        'caballero' => ['hombre'],
+        'caballeros' => ['hombre'],
         'henna' => ['henna'],
         'reparacion' => ['reparacion'],
         'restauracion' => ['restauracion'],

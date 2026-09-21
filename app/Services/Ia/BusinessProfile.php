@@ -39,9 +39,31 @@ class BusinessProfile
             $this->sedes($business),
             $this->horario($business),
             $this->politicas($business),
+            $this->agendaEnLinea($business),
         ]);
 
         return mb_substr(implode("\n", $lineas), 0, self::MAX_CHARS);
+    }
+
+    /**
+     * El enlace para agendar sola, en la pagina.
+     *
+     * Hay gente que no quiere chatear con un bot: quiere el calendario
+     * completo y elegir ella. Una clienta simulada lo pidio dos veces y el
+     * bot le contesto que "no tenemos un link", que era falso. El enlace
+     * existe y es la salida mas barata que hay: cero tokens, cero turnos.
+     */
+    private function agendaEnLinea(Business $business): ?string
+    {
+        $base = rtrim((string) config('spa.public_booking_url'), '/');
+
+        if ($base === '' || empty($business->slug)) {
+            return null;
+        }
+
+        return "Agenda en linea: {$base}/reservar/{$business->slug} . Si pide el enlace, la pagina, "
+            .'o prefiere agendar sola, MANDALE ESE ENLACE tal cual (es un link, WhatsApp lo abre). '
+            .'Tambien ofrecelo si despues de dos intentos no logran ponerse de acuerdo por chat.';
     }
 
     /** La voz del negocio, si la escribio en su pagina publica. */

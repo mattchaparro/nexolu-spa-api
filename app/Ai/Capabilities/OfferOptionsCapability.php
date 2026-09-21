@@ -9,6 +9,7 @@ use App\Models\Message;
 use App\Models\WhatsappConversation;
 use App\Services\WhatsApp\NexoluCommsChannel;
 use App\Support\ChannelPhone;
+use App\Support\TituloCorto;
 
 /**
  * Ofrecerle a la clienta opciones que pueda TOCAR.
@@ -52,10 +53,11 @@ class OfferOptionsCapability implements Capability
         return [
             'mensaje' => ['required', 'string', 'max:900'],
             'opciones' => ['required', 'array', 'min:1', 'max:10'],
-            // 24 caracteres es el tope de Meta para el título de un botón o
-            // fila. Se valida acá para que el error sea entendible y no un
-            // rechazo opaco de la Cloud API.
-            'opciones.*' => ['required', 'string', 'max:24'],
+            // Meta corta los titulos en 24 caracteres, pero eso se resuelve
+            // recortando (TituloCorto), no rechazando: el modelo escribia "6 pm
+            // con Anyi Ruiz", la validacion fallaba y la clienta leia "no pude
+            // consultar la agenda" por una fila dos letras mas larga.
+            'opciones.*' => ['required', 'string', 'max:120'],
             'boton' => ['nullable', 'string', 'max:20'],
         ];
     }
@@ -89,7 +91,7 @@ class OfferOptionsCapability implements Capability
 
         $opciones = [];
         foreach (array_values($arguments['opciones']) as $i => $titulo) {
-            $opciones[] = ['id' => 'op'.$i, 'title' => $titulo];
+            $opciones[] = ['id' => 'op'.$i, 'title' => TituloCorto::de($titulo)];
         }
 
         $enviado = $this->channel->sendOptions(

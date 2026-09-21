@@ -141,6 +141,24 @@ class SimularClientas extends Command
                 $transcripcion[] = ['quien' => 'clienta', 'texto' => $mensaje];
 
                 EsUnaPrueba::marcar($telefono);
+
+                /*
+                 * Igual que en produccion: si `hablar_con_persona` pauso al
+                 * bot, el job NO le pregunta al Core (ver AnswerWhatsappMessageJob).
+                 * Sin esto la simulacion mostraba al bot repitiendo "ya avise
+                 * a alguien" cinco veces, cosa que en la vida real no pasa:
+                 * ahi el bot se calla y contesta una persona.
+                 */
+                $sesion->conversacion->refresh();
+
+                if ($sesion->conversacion->agentIsPaused()) {
+                    $transcripcion[] = ['quien' => 'bot', 'texto' => '(el bot está en pausa: la atiende una persona)', 'opciones' => [], 'herramientas' => []];
+                    $herramientas[] = [];
+                    $mensaje = $this->clienta($ia, $business, $perfil, $transcripcion);
+
+                    continue;
+                }
+
                 $respuesta = $ia->ask($sesion->conversacion, $mensaje);
                 $enviados = EsUnaPrueba::enviados($telefono);
 
@@ -310,16 +328,20 @@ class SimularClientas extends Command
         // Nombres de servicio que no existen en el catálogo.
         if (preg_match_all('/\*([^*\n]{3,60})\*/u', $texto, $m)) {
             foreach ($m[1] as $negrilla) {
-                $n = mb_strtolower(trim($negrilla));
-                $pareceServicio = preg_match('/manicur|pedicur|semi|u[nñ]as|acr[ií]l|rubber|capping|retoque|retiro|pesta|ceja|tradicional/u', $n);
-                // Existe si es un nombre del catalogo o un pedazo de uno
-                // ("Semi" de "Semi + Rubber"). NO al reves: "Semipermanente
-                // con Rubber" contiene "Semipermanente" y aun asi no existe.
-                $existe = collect($catalogo['servicios'])->contains(fn ($s) => $n === mb_strtolower($s) || str_contains(mb_strtolower($s), $n));
-                $esOtraCosa = collect($catalogo['otros'])->contains(fn ($o) => str_contains($n, mb_strtolower($o)));
+                // "Tradicional y Semipermanente Hombre" son dos nombres
+                // reales unidos: se mira cada pedazo.
+                foreach (preg_split('/\s+y\s+/u', $negrilla) ?: [] as $pedazo) {
+                    $n = mb_strtolower(trim($pedazo));
+                    $pareceServicio = preg_match('/manicur|pedicur|semi|u[nñ]as|acr[ií]l|rubber|capping|retoque|retiro|pesta|ceja|tradicional/u', $n);
+                    // Existe si es un nombre del catalogo o un pedazo de uno
+                    // ("Semi" de "Semi + Rubber"). NO al reves: "Semipermanente
+                    // con Rubber" contiene "Semipermanente" y aun asi no existe.
+                    $existe = collect($catalogo['servicios'])->contains(fn ($s) => $n === mb_strtolower($s) || str_contains(mb_strtolower($s), $n));
+                    $esOtraCosa = collect($catalogo['otros'])->contains(fn ($o) => str_contains($n, mb_strtolower($o)));
 
-                if ($pareceServicio && ! $existe && ! $esOtraCosa) {
-                    $hallazgos[] = "nombró un servicio que no existe: «{$negrilla}»";
+                    if ($pareceServicio && ! $existe && ! $esOtraCosa) {
+                        $hallazgos[] = "nombró un servicio que no existe: «{$pedazo}»";
+                    }
                 }
             }
         }

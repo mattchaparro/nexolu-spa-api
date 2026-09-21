@@ -10,6 +10,7 @@ use App\Ai\HoraLegible;
 use App\Ai\OpcionesEnviadas;
 use App\Ai\Resolves;
 use App\Ai\ServiciosPendientes;
+use App\Ai\UltimoPedido;
 use App\Models\Location;
 use App\Models\Service;
 use App\Services\Scheduling\AvailabilityService;
@@ -76,8 +77,12 @@ class AvailabilityCapability implements Capability
     public function rules(): array
     {
         return [
-            'servicio' => ['required_without:servicios', 'string', 'max:255'],
-            'servicios' => ['required_without:servicio', 'array', 'min:1', 'max:5'],
+            // Opcionales: si no vienen, se completan con lo ultimo que pidio
+            // (ver UltimoPedido). Cuando tocaba "6 pm" el modelo llamaba sin
+            // servicio, esto rechazaba la llamada y la clienta leia "no pude
+            // consultar la agenda". Faltar un dato es una pregunta, no un error.
+            'servicio' => ['nullable', 'string', 'max:255'],
+            'servicios' => ['nullable', 'array', 'min:1', 'max:5'],
             'servicios.*' => ['required', 'string', 'max:255'],
             // Texto y no `date_format`: "el lunes" lo resuelve el código,
             // no el modelo, que se equivocó ofreciendo el martes.
@@ -119,12 +124,18 @@ class AvailabilityCapability implements Capability
          * una conversacion real.
          */
         $phoneCtx = ChannelPhone::normalize((string) $caller->phone, $business->country_code ?? 'CO');
-        $pendiente = $phoneCtx === null ? [] : ServiciosPendientes::contexto($phoneCtx);
 
-        foreach (['fecha', 'franja', 'juntas', 'empleado', 'sede'] as $campo) {
-            if (! isset($arguments[$campo]) && isset($pendiente[$campo])) {
-                $arguments[$campo] = $pendiente[$campo];
-            }
+        if ($phoneCtx !== null) {
+            $arguments = UltimoPedido::completar($phoneCtx, $arguments);
+        }
+
+        if (empty($arguments['servicio']) && empty($arguments['servicios'])) {
+            return [
+                'horas' => [],
+                'falta_informacion' => 'No sé qué servicio quiere.',
+                'instruccion' => 'Pregúntale qué se quiere hacer -- o mándame sus palabras tal cual '
+                    .'en `servicio` ("las uñas", "manos y pies") -- y vuelve a llamarme.',
+            ];
         }
 
         if (! isset($arguments['fecha'])) {
@@ -182,7 +193,8 @@ class AvailabilityCapability implements Capability
             }
 
             if ($phoneCtx !== null) {
-                ServiciosPendientes::guardarContexto($phoneCtx, [
+                UltimoPedido::guardar($phoneCtx, [
+                    'opciones' => $cualDeTodos->opciones,
                     'fecha' => $arguments['fecha'],
                     'franja' => $arguments['franja'] ?? null,
                     'juntas' => $arguments['juntas'] ?? null,
@@ -248,6 +260,20 @@ class AvailabilityCapability implements Capability
         $ofrecidas = $this->repartidas($horas->all(), self::MAX_OPCIONES);
         $mostrado = $this->mostrar($caller, $nombreServicios, $fecha, $ofrecidas);
 
+        // Lo que se acaba de entender queda guardado: la siguiente llamada
+        // -- "6 pm" tocado, sin mas -- ya sabe de que servicio y de que dia.
+        if ($phoneCtx !== null) {
+            UltimoPedido::guardar($phoneCtx, [
+                'servicios' => $nombreServicios,
+                'fecha' => $arguments['fecha'],
+                'franja' => $arguments['franja'] ?? null,
+                'juntas' => $arguments['juntas'] ?? null,
+                'empleado' => $arguments['empleado'] ?? null,
+                'sede' => $arguments['sede'] ?? null,
+                'opciones' => array_column($ofrecidas, 'hora'),
+            ]);
+        }
+
         return array_filter([
             'servicios' => $nombreServicios,
             // La fecha RESUELTA, no la que dijo el modelo: si pidió "el
@@ -273,7 +299,11 @@ class AvailabilityCapability implements Capability
             'instruccion' => $mostrado
                 ? 'Las horas YA le llegaron como botones y las está viendo. NO llames a '
                     .'`ofrecer_opciones` con ellas ni las escribas: responde con una cadena '
-                    .'vacía. Cuando toque una, te llega como su próximo mensaje.'
+                    .'vacía. Cuando toque una, te llega como su próximo mensaje: confírmale en '
+                    .'UNA frase servicio, día, hora y con quién, y con su sí llama a `crear_cita` '
+                    .'con `servicios` = ['.implode(', ', $nombreServicios).'], `fecha` = «'
+                    .$arguments['fecha'].'» y la `hora_24` de la que tocó. No vuelvas a '
+                    .'preguntarle nada de eso.'
                     .($supuestos === [] ? '' : ' Cuando toque la hora, ANTES de agendar dile qué '
                         .'servicios le busqué (vienen en `supuse`, elegidos por ser los más '
                         .'pedidos) y pregúntale si son esos.')

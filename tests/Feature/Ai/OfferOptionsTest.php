@@ -134,16 +134,28 @@ class OfferOptionsTest extends TestCase
         $this->assertSame(Message::STATUS_SENT, $mensaje->status);
     }
 
-    public function test_un_titulo_demasiado_largo_se_rechaza_con_un_error_entendible(): void
+    public function test_un_titulo_demasiado_largo_se_recorta_en_vez_de_rechazarse(): void
     {
-        // Meta corta en 24 caracteres; mejor un 422 claro que un rechazo
-        // opaco de la Cloud API a mitad de conversación.
+        /*
+         * Antes esto era un 422. Sonaba prudente -- "mejor un error claro
+         * que un rechazo opaco de Meta" -- pero el error le llegaba al
+         * modelo, y el modelo se lo traducia a la clienta como "no pude
+         * consultar la agenda". Una clienta simulada se fue por eso: el
+         * modelo habia escrito "6 pm con Anyi Ruiz", dos letras de mas.
+         * Meta corta en 24; nosotros recortamos bien y seguimos.
+         */
         $this->commsResponde();
 
         $this->invoke([
             'mensaje' => '¿Cuál?',
             'opciones' => ['Recubrimiento de acrílico con semipermanente y decoración'],
-        ])->assertStatus(422);
+        ])->assertOk()->assertJsonPath('data.mostrado', true);
+
+        Http::assertSent(function ($request) {
+            $titulo = $request->data()['whatsapp_options']['options'][0]['title'] ?? '';
+
+            return mb_strlen($titulo) <= 24 && str_ends_with($titulo, '…');
+        });
     }
 
     public function test_si_connect_no_las_entrega_el_agente_las_escribe(): void

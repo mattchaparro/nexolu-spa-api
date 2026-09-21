@@ -1,0 +1,115 @@
+<?php
+
+namespace App\Ai;
+
+use Illuminate\Support\Facades\Cache;
+
+/**
+ * Lo último que la clienta pidió, para no hacerla repetirlo.
+ *
+ * Las clientas simuladas destaparon el mismo derrumbe ocho veces de
+ * ocho: en cuanto la conversación pasaba de dos turnos, el modelo perdía
+ * algo que ya le habían dicho. Tocaba "Tradicional" después de pedir
+ * "mañana en la mañana" y el modelo llamaba a la agenda con «hoy»;
+ * tocaba "6 pm" y el modelo llamaba sin servicio, la herramienta
+ * rechazaba la llamada y la clienta leía "no pude consultar la agenda".
+ * Nadie llegó a agendar.
+ *
+ * El modelo no es un buen sitio para guardar estado. Esto sí lo es: cada
+ * vez que una herramienta entiende un pedido -- qué servicios, qué día,
+ * qué franja, para cuántas -- lo deja acá, y la siguiente llamada
+ * completa lo que el modelo olvidó. Y cuando lo que llega es un TOQUE
+ * sobre algo que se ofreció, lo guardado manda por encima de lo que el
+ * modelo diga: la clienta ya dijo el día; el "hoy" se lo inventó él.
+ *
+ * Vive media hora, en caché y no en la conversación, porque es de una
+ * gestión: si vuelve mañana empieza de cero.
+ */
+final class UltimoPedido
+{
+    private const TTL_SEGUNDOS = 1800;
+
+    /** Lo que se puede completar desde lo guardado. */
+    private const CAMPOS = ['fecha', 'franja', 'juntas', 'empleado', 'sede'];
+
+    /**
+     * @param  array<string, mixed>  $pedido  servicios (nombres reales), fecha (como la dijo),
+     *                                        franja, juntas, empleado, sede, opciones (títulos ofrecidos)
+     */
+    public static function guardar(string $phone, array $pedido): void
+    {
+        $limpio = array_filter($pedido, fn ($v) => $v !== null && $v !== '' && $v !== []);
+
+        Cache::put(self::clave($phone), $limpio, self::TTL_SEGUNDOS);
+    }
+
+    /** @return array<string, mixed> */
+    public static function ver(string $phone): array
+    {
+        return Cache::get(self::clave($phone), []);
+    }
+
+    public static function olvidar(string $phone): void
+    {
+        Cache::forget(self::clave($phone));
+    }
+
+    /**
+     * Los argumentos de una llamada, completados con lo que ya se sabía.
+     *
+     * Dos reglas, y el orden importa:
+     *
+     * 1. Si `servicio` es uno de los que se le OFRECIERON (lo tocó), el
+     *    día, la franja y el resto del pedido guardado pisan lo que traiga
+     *    la llamada. Es el turno donde el modelo peor recuerda, y lo que
+     *    la clienta dijo antes vale más que lo que él supone ahora.
+     * 2. Lo que no venga se rellena con lo guardado -- incluido el
+     *    servicio, para que "6 pm" después de ver las horas no llegue sin
+     *    saber de qué.
+     *
+     * @param  array<string, mixed>  $arguments
+     * @return array<string, mixed>
+     */
+    public static function completar(string $phone, array $arguments): array
+    {
+        $pedido = self::ver($phone);
+
+        if ($pedido === []) {
+            return $arguments;
+        }
+
+        $tocado = isset($arguments['servicio'])
+            && in_array(
+                self::plano((string) $arguments['servicio']),
+                array_map(fn ($o) => self::plano((string) $o), $pedido['opciones'] ?? []),
+                true,
+            );
+
+        foreach (self::CAMPOS as $campo) {
+            $traeAlgo = isset($arguments[$campo]) && $arguments[$campo] !== '';
+
+            if (isset($pedido[$campo]) && ($tocado || ! $traeAlgo)) {
+                $arguments[$campo] = $pedido[$campo];
+            }
+        }
+
+        $sinServicio = empty($arguments['servicio']) && empty($arguments['servicios']);
+
+        if ($sinServicio && ! empty($pedido['servicios'])) {
+            $arguments['servicios'] = array_values($pedido['servicios']);
+            unset($arguments['servicio']);
+        }
+
+        return $arguments;
+    }
+
+    private static function plano(string $texto): string
+    {
+        return trim(mb_strtolower(strtr($texto, ['á' => 'a', 'é' => 'e', 'í' => 'i', 'ó' => 'o', 'ú' => 'u', 'ñ' => 'n'])));
+    }
+
+    private static function clave(string $phone): string
+    {
+        return 'ia:ultimo-pedido:'.ltrim($phone, '+');
+    }
+}

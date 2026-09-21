@@ -16,6 +16,13 @@
 
 return [
 
+    /*
+    | Donde vive la pagina publica de reservas (sin barra final). El bot se
+    | lo manda a quien prefiere agendar sola, y el menu de WhatsApp lo abre
+    | con un boton. Por defecto la agenda de produccion.
+    */
+    'public_booking_url' => env('PUBLIC_BOOKING_URL', 'https://agenda.nexolu.co'),
+
     'defaults' => [
         // Granularidad de la rejilla de disponibilidad, en minutos.
         'slot_granularity_min' => 15,

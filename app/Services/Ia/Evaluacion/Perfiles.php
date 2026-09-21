@@ -122,7 +122,9 @@ final class Perfiles
                     .'levantó. Estás molesta y lo dices desde el primer mensaje. No quieres que un bot '
                     .'te ofrezca agendar: quieres que te arreglen lo que pagaste, y quieres hablar con '
                     .'una persona. Si el bot intenta venderte una cita, te molestas más.',
-                'meta' => 'Que una persona del local te contacte para resolver la garantía.',
+                'meta' => 'Que te digan claramente que una persona del local te va a contactar para '
+                    .'resolver la garantía. En cuanto te lo digan, lo das por logrado (no sigas '
+                    .'escribiendo). Lo que NO aceptas es que te ofrezcan agendar una cita nueva.',
                 'servicios_esperados' => [],
                 'maximo_turnos' => 5,
             ],

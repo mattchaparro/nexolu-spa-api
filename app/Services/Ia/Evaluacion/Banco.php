@@ -5,6 +5,7 @@ namespace App\Services\Ia\Evaluacion;
 use App\Ai\EsUnaPrueba;
 use App\Ai\OpcionesEnviadas;
 use App\Ai\ServiciosPendientes;
+use App\Ai\UltimoPedido;
 use App\Models\Appointment;
 use App\Models\Business;
 use App\Models\Client;
@@ -96,6 +97,7 @@ final class Banco
         // todo esto: sin borrarlas, la sesión hereda las de la anterior.
         OpcionesEnviadas::olvidar($telefono);
         ServiciosPendientes::olvidar($telefono);
+        UltimoPedido::olvidar($telefono);
         EsUnaPrueba::enviados($telefono);
 
         if ($conCita) {
@@ -148,6 +150,7 @@ final class Banco
 
         OpcionesEnviadas::olvidar($sesion->cliente->phone);
         ServiciosPendientes::olvidar($sesion->cliente->phone);
+        UltimoPedido::olvidar($sesion->cliente->phone);
         EsUnaPrueba::enviados($sesion->cliente->phone);
 
         if ($sesion->nombreOriginal !== null && $sesion->cliente->name !== $sesion->nombreOriginal) {
@@ -210,8 +213,11 @@ final class Banco
             'client_id' => $cliente->id,
             'client_name' => $cliente->name,
             'client_phone' => $cliente->phone,
-            'starts_at' => now()->addDay()->setTime(10, 0),
-            'ends_at' => now()->addDay()->setTime(11, 0),
+            // A las diez DEL NEGOCIO, no de UTC: en UTC quedaba a las 5 am de
+            // Bogota y la clienta simulada que "tenia cita a las 10" no la
+            // reconocia.
+            'starts_at' => now($this->business->businessTimezone())->addDay()->setTime(10, 0)->setTimezone('UTC'),
+            'ends_at' => now($this->business->businessTimezone())->addDay()->setTime(11, 0)->setTimezone('UTC'),
             'status' => Appointment::STATUS_CONFIRMED,
             'source' => Appointment::SOURCE_WHATSAPP_AGENT,
             'notes' => EsUnaPrueba::SELLO,

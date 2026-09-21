@@ -9,6 +9,7 @@ use App\Ai\EsUnaPrueba;
 use App\Ai\FechaDicha;
 use App\Ai\HoraLegible;
 use App\Ai\Resolves;
+use App\Ai\UltimoPedido;
 use App\Models\Appointment;
 use App\Models\Business;
 use App\Models\Client;
@@ -20,6 +21,7 @@ use App\Services\Scheduling\BookingService;
 use App\Services\Scheduling\CitasSimultaneas;
 use App\Services\Scheduling\Exceptions\OutsideWorkingHoursException;
 use App\Services\Scheduling\Exceptions\SlotUnavailableException;
+use App\Support\ChannelPhone;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 
@@ -68,11 +70,14 @@ class CreateAppointmentCapability implements Capability
     public function rules(): array
     {
         return [
-            'servicio' => ['required_without:servicios', 'string', 'max:255'],
+            // Opcionales: lo que no venga se completa con lo ultimo que pidio
+            // (UltimoPedido). Tocar "6 pm" despues de ver las horas tiene que
+            // alcanzar para agendar sin que nadie repita el servicio ni el dia.
+            'servicio' => ['nullable', 'string', 'max:255'],
             // Varios servicios = UNA cita encadenada ("manos y pies"), no
             // dos citas. El motor ya sabe hacerlo; antes el agente no podia
             // pedirlo y terminaba diciendo "el sistema no me deja".
-            'servicios' => ['required_without:servicio', 'array', 'min:1', 'max:5'],
+            'servicios' => ['nullable', 'array', 'min:1', 'max:5'],
             'servicios.*' => ['required', 'string', 'max:255'],
             // Varias personas a la MISMA hora (ella y su hija), no una
             // sola pasando de un servicio al otro.
@@ -82,7 +87,7 @@ class CreateAppointmentCapability implements Capability
             'nombres' => ['nullable', 'array', 'max:5'],
             'nombres.*' => ['required', 'string', 'max:120'],
             // Texto: "el lunes" lo resuelve el codigo, no el modelo.
-            'fecha' => ['required', 'string', 'max:40'],
+            'fecha' => ['nullable', 'string', 'max:40'],
             'hora' => ['required', 'date_format:H:i'],
             'empleado' => ['nullable', 'string', 'max:255'],
             'sede' => ['nullable', 'string', 'max:255'],
@@ -106,6 +111,20 @@ class CreateAppointmentCapability implements Capability
     {
         $business = $caller->business;
         $tz = $business->businessTimezone();
+
+        $phoneCtx = ChannelPhone::normalize((string) $caller->phone, $business->country_code ?? 'CO');
+
+        if ($phoneCtx !== null) {
+            $arguments = UltimoPedido::completar($phoneCtx, $arguments);
+        }
+
+        if (empty($arguments['servicio']) && empty($arguments['servicios'])) {
+            return ['agendada' => false, 'motivo' => 'No sé qué servicio agendar. Pregúntale y vuelve a llamarme.'];
+        }
+
+        if (! isset($arguments['fecha'])) {
+            return ['agendada' => false, 'motivo' => 'No sé para qué día. Pregúntale y vuelve a llamarme.'];
+        }
 
         $nombres = $arguments['servicios'] ?? [$arguments['servicio']];
         // Igual que al mirar horas: con varios servicios, lo ambiguo se

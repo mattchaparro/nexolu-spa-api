@@ -219,4 +219,57 @@ class ListaDeServiciosTest extends TestCase
         $this->assertSame([], $respuesta->json('data.horas'));
         $this->assertNotNull($respuesta->json('data.falta_informacion'));
     }
+
+    public function test_al_tocar_un_servicio_lo_guardado_pisa_el_dia_que_invente_el_modelo(): void
+    {
+        /*
+         * Lo que derrumbo a las ocho clientas simuladas: pedian "manana en
+         * la manana", tocaban un servicio de la lista, y el modelo llamaba
+         * con fecha "hoy". La clienta leia "hoy no tengo horas" para un dia
+         * que no habia pedido. En el turno del toque, lo que ella dijo vale
+         * mas que lo que el modelo supone.
+         */
+        $this->invoke('disponibilidad', ['servicio' => 'las manitos', 'fecha' => $this->manana(), 'franja' => 'manana']);
+
+        $respuesta = $this->invoke('disponibilidad', ['servicio' => 'Servicio 3', 'fecha' => 'hoy'])->assertOk();
+
+        $this->assertSame($this->manana(), $respuesta->json('data.fecha'));
+        $this->assertNotEmpty($respuesta->json('data.horas'));
+    }
+
+    public function test_tocar_una_hora_alcanza_para_agendar_sin_repetir_nada(): void
+    {
+        /*
+         * Despues de ver las horas, la clienta toca "6 pm" y el modelo
+         * llama con la hora y poco mas. Antes eso era un error de
+         * validacion -- "el servicio es obligatorio" -- que le llegaba como
+         * "no pude consultar la agenda". Nadie agendo asi.
+         */
+        $horas = $this->invoke('disponibilidad', ['servicio' => 'Servicio 3', 'fecha' => $this->manana()])
+            ->assertOk()->json('data.horas');
+
+        $this->invoke('crear_cita', ['hora' => $horas[0]['hora_24']])
+            ->assertOk()
+            ->assertJsonPath('data.agendada', true)
+            ->assertJsonPath('data.servicio', 'Servicio 3');
+    }
+
+    public function test_preguntar_por_otra_franja_sin_repetir_el_servicio_funciona(): void
+    {
+        // "¿Y en la tarde?" despues de ver las horas de la manana: el servicio
+        // ya se dijo; la herramienta lo completa en vez de rechazar la llamada.
+        $this->invoke('disponibilidad', ['servicio' => 'Servicio 3', 'fecha' => $this->manana(), 'franja' => 'manana']);
+
+        $respuesta = $this->invoke('disponibilidad', ['fecha' => $this->manana(), 'franja' => 'tarde'])->assertOk();
+
+        $this->assertSame(['Servicio 3'], $respuesta->json('data.servicios'));
+        $this->assertNull($respuesta->json('data.falta_informacion'));
+    }
+
+    public function test_sin_nada_dicho_antes_pide_el_servicio_en_vez_de_fallar(): void
+    {
+        $respuesta = $this->invoke('disponibilidad', ['fecha' => $this->manana(), 'franja' => 'tarde'])->assertOk();
+
+        $this->assertSame('No sé qué servicio quiere.', $respuesta->json('data.falta_informacion'));
+    }
 }

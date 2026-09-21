@@ -58,33 +58,6 @@ final class ServiciosPendientes
     public static function olvidar(string $phone): void
     {
         Cache::forget(self::clave($phone));
-        Cache::forget(self::clave($phone).':contexto');
-    }
-
-    /**
-     * Con qué se pidió la lista: el día, la franja, si eran varias personas,
-     * con quién.
-     *
-     * Cuando la clienta toca un servicio de la lista, lo que vuelve es solo
-     * el nombre. El modelo tenía que acordarse de que había dicho "hoy" tres
-     * mensajes antes, y no siempre se acordaba: volvía a preguntar el día.
-     * Guardarlo acá hace que la herramienta lo complete sola.
-     *
-     * @param  array<string, mixed>  $contexto
-     */
-    public static function guardarContexto(string $phone, array $contexto): void
-    {
-        Cache::put(
-            self::clave($phone).':contexto',
-            array_filter($contexto, fn ($v) => $v !== null && $v !== ''),
-            self::TTL_SEGUNDOS,
-        );
-    }
-
-    /** @return array<string, mixed> */
-    public static function contexto(string $phone): array
-    {
-        return Cache::get(self::clave($phone).':contexto', []);
     }
 
     /**
