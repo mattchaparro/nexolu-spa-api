@@ -108,7 +108,11 @@ class CreateAppointmentCapability implements Capability
         $tz = $business->businessTimezone();
 
         $nombres = $arguments['servicios'] ?? [$arguments['servicio']];
-        $servicios = array_map(fn (string $n) => $this->resolveService($business->id, $n), $nombres);
+        // Igual que al mirar horas: con varios servicios, lo ambiguo se
+        // resuelve al mas probable. Si aca se resolviera distinto, la
+        // clienta veria las horas de unos servicios y quedaria agendada
+        // en otros.
+        [$servicios] = $this->resolveServices($business->id, $nombres);
         $sede = $this->resolveLocation($business->id, $arguments['sede'] ?? null);
 
         $preferida = isset($arguments['empleado'])

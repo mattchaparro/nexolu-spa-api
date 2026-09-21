@@ -22,18 +22,83 @@ trait Resolves
     /** @throws AiArgumentException */
     protected function resolveService(int $businessId, string $nombre): Service
     {
-        /*
-         * `is_active` y `is_bookable_online` no son un detalle: son el
-         * interruptor con el que el local esconde una familia entera
-         * desde el panel ("esconder Pestañas"). Si se pierde este filtro,
-         * WhatsApp sigue ofreciendo y agendando algo que el salón dejó
-         * de prestar.
-         *
-         * La categoría viene cargada porque es lo que traduce "las
-         * manitos" a los servicios de Manicure -- ver ComoLoPide -- y
-         * el orden es el que puso el local, que sabe qué ofrecer primero.
-         */
-        $servicios = LoQueMasPiden::ordenar(
+        return $this->resolveServiceIn($this->catalogoEnLinea($businessId), $nombre);
+    }
+
+    /**
+     * Varios servicios de una vez, como los pide la gente: "manos y pies
+     * en semi".
+     *
+     * Con UNO solo, si es ambiguo se lanza la excepcion con las opciones
+     * y quien llama se las muestra para que elija -- elegir entre Semi y
+     * Semi + Rubber es de ella.
+     *
+     * Con VARIOS no se puede preguntar: una lista de WhatsApp pregunta una
+     * cosa, no dos. Mostrar la de manos se tragaba los pies y la clienta
+     * terminaba escribiendo "no esta el servicio" (paso con Alejandro).
+     * Asi que en cada parte ambigua se toma el mas probable -- el que se
+     * llama exactamente como lo dijo, o si no, el mas pedido -- y se
+     * devuelve anotado en `supuestos` para que quede a la vista y lo pueda
+     * corregir antes de agendar.
+     *
+     * @param  list<string>  $nombres
+     * @return array{0: list<Service>, 1: list<string>} los servicios, y lo que se supuso
+     *
+     * @throws AiArgumentException
+     */
+    protected function resolveServices(int $businessId, array $nombres): array
+    {
+        $catalogo = $this->catalogoEnLinea($businessId);
+
+        if (count($nombres) === 1) {
+            return [[$this->resolveServiceIn($catalogo, $nombres[0])], []];
+        }
+
+        $servicios = [];
+        $supuestos = [];
+
+        foreach ($nombres as $nombre) {
+            try {
+                $servicios[] = $this->resolveServiceIn($catalogo, $nombre);
+            } catch (AiArgumentException $ambiguo) {
+                if ($ambiguo->opciones === []) {
+                    throw $ambiguo;
+                }
+
+                $elegido = ComoLoPide::elMasProbable(
+                    $catalogo->filter(fn (Service $s) => in_array($s->name, $ambiguo->opciones, true))->values(),
+                    $nombre,
+                );
+
+                if ($elegido === null) {
+                    throw $ambiguo;
+                }
+
+                $servicios[] = $elegido;
+                $supuestos[] = "«{$nombre}» → {$elegido->name}";
+            }
+        }
+
+        return [$servicios, $supuestos];
+    }
+
+    /**
+     * Lo que se puede reservar por internet, en el orden en que se ofrece.
+     *
+     * `is_active` y `is_bookable_online` no son un detalle: son el
+     * interruptor con el que el local esconde una familia entera desde el
+     * panel ("esconder Pestañas"). Si se pierde este filtro, WhatsApp sigue
+     * ofreciendo y agendando algo que el salon dejo de prestar.
+     *
+     * La categoria viene cargada porque es lo que traduce "las manitos" a
+     * los servicios de Manicure -- ver ComoLoPide -- y el orden es el de lo
+     * que mas pide la gente.
+     *
+     * @return Collection<int, Service>
+     */
+    private function catalogoEnLinea(int $businessId): Collection
+    {
+        return LoQueMasPiden::ordenar(
             $businessId,
             Service::withoutGlobalScope('business')
                 ->where('business_id', $businessId)
@@ -44,7 +109,15 @@ trait Resolves
                 ->orderBy('name')
                 ->get(),
         );
+    }
 
+    /**
+     * @param  Collection<int, Service>  $servicios
+     *
+     * @throws AiArgumentException
+     */
+    private function resolveServiceIn(Collection $servicios, string $nombre): Service
+    {
         try {
             return $this->pickByName($servicios, $nombre, 'servicio');
         } catch (AiArgumentException $noSeParece) {

@@ -111,6 +111,22 @@ final class ComoLoPide
     ];
 
     /**
+     * Palabras que, dichas solas, nombran UN servicio y no una familia.
+     *
+     * "Manos en semi" no pide cualquiera de los diez que llevan "semi" en
+     * el nombre -- Retiro Semipermanente, Extensión Acrigel + Semi... --
+     * pide el que se llama Semipermanente. Lo usa `elMasProbable`.
+     *
+     * @var array<string, string>
+     */
+    private const EXACTO = [
+        'semi' => 'semipermanente',
+        'semipermanente' => 'semipermanente',
+        'permanente' => 'semipermanente',
+        'tradicional' => 'tradicional',
+    ];
+
+    /**
      * Los servicios del catálogo que encajan con lo que dijo.
      *
      * Vacío significa que no se entendió: el que llama decide qué hacer
@@ -161,6 +177,40 @@ final class ComoLoPide
          * que le digan que no hay nada.
          */
         return ($porNombre->isEmpty() ? $porCategoria : $porNombre)->values();
+    }
+
+    /**
+     * El que más probablemente quiso, cuando no se le puede preguntar.
+     *
+     * Solo para cuando pide VARIOS servicios a la vez ("manos y pies en
+     * semi"): una lista de WhatsApp pregunta una cosa, no dos, y mostrarle
+     * la de manos se tragaba los pies -- pasó con Alejandro. Con UN solo
+     * servicio se sigue mostrando la lista: elegir entre Semi y Semi +
+     * Rubber es de ella, no nuestro.
+     *
+     * Primero el que se llama exactamente como lo dijo ("semi" en manos es
+     * Semipermanente, no Retiro Semipermanente); si no hay, el más pedido,
+     * que es el primero porque el catálogo ya llega ordenado así.
+     *
+     * @param  Collection<int, Service>  $candidatos
+     */
+    public static function elMasProbable(Collection $candidatos, string $dicho): ?Service
+    {
+        foreach (self::palabras($dicho) as $palabra) {
+            $exacto = self::EXACTO[$palabra] ?? null;
+
+            if ($exacto === null) {
+                continue;
+            }
+
+            $uno = $candidatos->filter(fn (Service $s) => self::normalizar($s->name) === $exacto);
+
+            if ($uno->count() === 1) {
+                return $uno->first();
+            }
+        }
+
+        return $candidatos->first();
     }
 
     /**

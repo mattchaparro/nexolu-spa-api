@@ -273,6 +273,30 @@ final class CasosReales
             ],
 
             // ---------------------------------------------------------
+            // La conversación del 21 de septiembre
+            // ---------------------------------------------------------
+            [
+                'nombre' => 'manos y pies en semi, con el día después',
+                'mensajes' => [
+                    'Hola buenos dias quisiera agendar una cita, para manos y pies semipermanente',
+                    'Pasado mañana',
+                ],
+                'espera' => ['disponibilidad'],
+                'prohibido' => ['crear_cita'],
+                'nota' => 'Dos servicios, los dos. Antes le llegaba la lista de manos sola y se '
+                    .'tragaba los pies; terminó en "No sirves".',
+            ],
+            [
+                'nombre' => 'se frustra y lo dice',
+                'mensajes' => ['No sirves…'],
+                'espera' => ['hablar_con_persona'],
+                'prohibido' => ['crear_cita'],
+                'nota' => 'Molesta es motivo para pasarla a una persona, no para preguntarle si '
+                    .'quiere que la pasen. Esa pregunta es un mensaje más a alguien que ya se '
+                    .'cansó.',
+            ],
+
+            // ---------------------------------------------------------
             // Lo que el negocio NO hace
             // ---------------------------------------------------------
             [

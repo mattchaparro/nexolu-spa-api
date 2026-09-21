@@ -387,7 +387,20 @@ class EvaluarAgente extends Command
             return;
         }
 
-        $conversacion->forceFill($comoEstaba)->save();
+        /*
+         * Con un UPDATE directo y no con `save()`.
+         *
+         * Quien pausa al bot durante el caso ("pide hablar con alguien")
+         * es OTRO proceso -- el que atiende la herramienta --, así que el
+         * modelo que tenemos en memoria no se enteró. Para Eloquent, poner
+         * de vuelta el valor que ya tenía no es un cambio, y `save()` no
+         * escribía nada: la pausa se quedaba en la conversación real y el
+         * bot dejaba de contestarle a Alejandro una hora entera. Así se
+         * perdió un "Hola, quiero agendar una cita" suyo.
+         */
+        WhatsappConversation::withoutGlobalScope('business')
+            ->whereKey($conversacion->getKey())
+            ->update($comoEstaba);
     }
 
     /** Una cita próxima, para los casos de cancelar/mover/consultar. */

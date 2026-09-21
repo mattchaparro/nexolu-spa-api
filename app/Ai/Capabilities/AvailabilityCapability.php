@@ -134,7 +134,7 @@ class AvailabilityCapability implements Capability
         }
 
         try {
-            $servicios = array_map(fn (string $n) => $this->resolveService($business->id, $n), $nombres);
+            [$servicios, $supuestos] = $this->resolveServices($business->id, $nombres);
         } catch (AiArgumentException $cualDeTodos) {
             /*
              * Pidio algo que puede ser varias cosas ("hacerme las unas").
@@ -217,11 +217,21 @@ class AvailabilityCapability implements Capability
             // lo libre, por si pide "algo mas temprano" y hay que buscar
             // ahi sin volver a consultar.
             'ofrecidas' => $ofrecidas,
+            /*
+             * Lo que se eligio por ella al pedir varios servicios de una
+             * vez ("pies en semi" -> Pedi + Jelly Spa + Semi, el mas
+             * pedido). Va a la vista en la cabecera de las horas, y el
+             * modelo lo repite al confirmar para que lo pueda cambiar.
+             */
+            'supuse' => $supuestos === [] ? null : $supuestos,
             'horas' => $horas->take(12)->all(),
             'instruccion' => $mostrado
                 ? 'Las horas YA le llegaron como botones y las está viendo. NO llames a '
                     .'`ofrecer_opciones` con ellas ni las escribas: responde con una cadena '
                     .'vacía. Cuando toque una, te llega como su próximo mensaje.'
+                    .($supuestos === [] ? '' : ' Cuando toque la hora, ANTES de agendar dile qué '
+                        .'servicios le busqué (vienen en `supuse`, elegidos por ser los más '
+                        .'pedidos) y pregúntale si son esos.')
                 : 'Ofrécele dos o tres de `ofrecidas` usando el campo `hora`, nunca `hora_24`.',
         ], fn ($v) => $v !== null);
     }
