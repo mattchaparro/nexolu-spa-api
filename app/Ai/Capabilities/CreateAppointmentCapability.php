@@ -16,6 +16,7 @@ use App\Models\Business;
 use App\Models\Client;
 use App\Models\Location;
 use App\Models\Service;
+use App\Services\ClientPortalService;
 use App\Services\ClientResolver;
 use App\Services\Scheduling\AvailabilityService;
 use App\Services\Scheduling\BookingService;
@@ -51,6 +52,7 @@ class CreateAppointmentCapability implements Capability
         private readonly ClientResolver $clients,
         private readonly AvailabilityService $availability,
         private readonly CitasSimultaneas $simultaneas,
+        private readonly ClientPortalService $portal,
     ) {}
 
     public function requiredPermission(): ?string
@@ -105,6 +107,13 @@ class CreateAppointmentCapability implements Capability
              * llega no es quien dice la ficha.
              */
             'para_quien' => ['nullable', 'string', 'max:120'],
+            /*
+             * "Sí, quiero OTRA cita aparte de la que ya tengo". Sin esto,
+             * pedir el mismo servicio teniendo una cita en pie no agenda:
+             * devuelve la cita existente para preguntar si la mueve o si
+             * de verdad quiere dos.
+             */
+            'otra_mas' => ['nullable', 'boolean'],
         ];
     }
 
@@ -149,6 +158,12 @@ class CreateAppointmentCapability implements Capability
         }
 
         $inicio = $dia->setTimeFromTimeString($arguments['hora'].':00');
+
+        $repetida = $this->citaRepetida($caller, $servicios, $inicio, $arguments);
+
+        if ($repetida !== null) {
+            return $repetida;
+        }
 
         if ((bool) ($arguments['juntas'] ?? false) && count($servicios) > 1) {
             return $this->citasSimultaneas($caller, $business, $servicios, $inicio, $sede?->id, $arguments);
@@ -301,20 +316,58 @@ class CreateAppointmentCapability implements Capability
             return $creadas;
         });
 
+        $detalle = array_map(fn (array $p, int $i) => [
+            'para' => $nombres[$i] ?? 'quien escribe',
+            'servicio' => $p['service_name'],
+            'con' => $p['resource_name'],
+        ], $slot['asignacion'], array_keys($slot['asignacion']));
+
+        /*
+         * La confirmacion tambien aca. La clienta simulada que vino con la
+         * hija toco "Si, agendar", las DOS citas quedaron... y el bot se
+         * quedo callado: solo la ruta de una cita mandaba confirmacion.
+         */
+        $confirmada = $this->confirmarJuntas($caller, $inicio, $detalle);
+
         return [
+            'confirmacion_enviada' => $confirmada,
+            'instruccion' => $confirmada
+                ? 'La confirmación YA le llegó a la clienta por WhatsApp. NO la repitas: responde con una cadena vacía.'
+                : 'Confírmale en una frase: quiénes, servicio, día, hora y con quién cada una.',
             'agendada' => true,
             'personas' => count($citas),
             'ids' => array_map(fn (Appointment $c) => $c->id, $citas),
             'fecha' => $inicio->format('Y-m-d'),
             'dia' => $inicio->locale('es')->isoFormat('dddd D [de] MMMM'),
             'hora' => HoraLegible::de($inicio, $tz),
-            'detalle' => array_map(fn (array $p, int $i) => [
-                'para' => $nombres[$i] ?? 'quien escribe',
-                'servicio' => $p['service_name'],
-                'con' => $p['resource_name'],
-            ], $slot['asignacion'], array_keys($slot['asignacion'])),
+            'detalle' => $detalle,
             'precio' => collect($servicios)->sum(fn ($s) => (float) $s->price),
         ];
+    }
+
+    /**
+     * "¡Listo! Quedaron agendadas…", una línea por persona.
+     *
+     * @param  list<array{para: string, servicio: string, con: string}>  $detalle
+     */
+    private function confirmarJuntas(AiCaller $caller, CarbonImmutable $inicio, array $detalle): bool
+    {
+        if (! $caller->isCustomer() || $caller->channel !== 'whatsapp') {
+            return false;
+        }
+
+        $tz = $caller->business->businessTimezone();
+        $lineas = array_map(
+            fn (array $p) => sprintf('• *%s* para %s, con *%s*', $p['servicio'], $p['para'], $p['con']),
+            $detalle,
+        );
+
+        return app(EnvioDirecto::class)->texto($caller, sprintf(
+            "¡Listo! Quedaron agendadas para el *%s* a las *%s*:\n%s\nLas esperamos 💅",
+            $inicio->setTimezone($tz)->locale('es')->isoFormat('dddd D [de] MMMM'),
+            HoraLegible::de($inicio, $tz),
+            implode("\n", $lineas),
+        ));
     }
 
     /**
@@ -355,6 +408,77 @@ class CreateAppointmentCapability implements Capability
         }
 
         return [];
+    }
+
+    /**
+     * ¿No será la MISMA cita que ya tiene?
+     *
+     * Laura pidió mover su cita del jueves al viernes; el modelo, en vez
+     * de llamar a `reagendar_cita`, creó una nueva -- y Laura quedó con
+     * DOS citas en la agenda del salón. Nadie que ya tiene una cita del
+     * mismo servicio pide otra "así porque sí": casi siempre la está
+     * moviendo. Pero "casi siempre" no alcanza para decidir por ella (la
+     * del viernes puede ser para la otra semana, además de la que tiene),
+     * así que esto no agenda ni mueve: devuelve la cita existente y quien
+     * llama pregunta. `otra_mas` es la respuesta "sí, quiero las dos".
+     *
+     * @param  list<Service>  $servicios
+     * @return array<string, mixed>|null null = vía libre para agendar
+     */
+    private function citaRepetida(AiCaller $caller, array $servicios, CarbonImmutable $inicio, array $arguments): ?array
+    {
+        if (
+            ! $caller->isCustomer()
+            || $caller->client === null
+            || (bool) ($arguments['otra_mas'] ?? false)
+            || (bool) ($arguments['juntas'] ?? false)
+            // Para otra persona sí puede haber dos: la suya y la de la mamá.
+            || trim((string) ($arguments['para_quien'] ?? '')) !== ''
+        ) {
+            return null;
+        }
+
+        $ids = collect($servicios)->pluck('id');
+
+        $cita = $this->portal->upcoming($caller->client, $caller->business)
+            ->first(fn (Appointment $c) => $c->items->pluck('service_id')->intersect($ids)->isNotEmpty());
+
+        if ($cita === null) {
+            return null;
+        }
+
+        $tz = $caller->business->businessTimezone();
+        $cuando = [
+            'id' => $cita->id,
+            'servicio' => $cita->items->map(fn ($i) => $i->service?->name)->filter()->unique()->implode(' y '),
+            'fecha' => $cita->starts_at->setTimezone($tz)->format('Y-m-d'),
+            'dia' => $cita->starts_at->setTimezone($tz)->locale('es')->isoFormat('dddd D [de] MMMM'),
+            'hora' => HoraLegible::de($cita->starts_at, $tz),
+        ];
+
+        if ($cita->starts_at->equalTo($inicio)) {
+            return [
+                'agendada' => false,
+                'ya_existia' => true,
+                'cita' => $cuando,
+                'motivo' => 'Esa cita YA está agendada tal cual. Dile que ya la tiene y no agendes otra.',
+            ];
+        }
+
+        return [
+            'agendada' => false,
+            'ya_tiene_cita' => $cuando,
+            'motivo' => sprintf(
+                'OJO: ya tiene una cita de %s el %s a las %s. Pregúntale si quiere MOVER esa cita '
+                .'a la fecha nueva (entonces llama a reagendar_cita con cita_id=%d) o si quiere una '
+                .'cita ADICIONAL (entonces repite crear_cita con otra_mas=true). No agendes nada '
+                .'hasta que responda.',
+                $cuando['servicio'],
+                $cuando['dia'],
+                $cuando['hora'],
+                $cita->id,
+            ),
+        ];
     }
 
     private function variasSedes(int $businessId): bool

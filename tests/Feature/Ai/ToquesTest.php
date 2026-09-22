@@ -87,7 +87,7 @@ class ToquesTest extends TestCase
     }
 
     /** @param array<string, mixed> $arguments */
-    private function invoke(string $tool, array $arguments): TestResponse
+    private function invoke(string $tool, array $arguments, ?string $phone = null): TestResponse
     {
         return $this->withHeader('Authorization', 'Bearer '.self::KEY)
             ->postJson('/api/ai/tools/invoke', [
@@ -95,7 +95,7 @@ class ToquesTest extends TestCase
                 'arguments' => $arguments,
                 'context' => [
                     'business_id' => (string) $this->business->id,
-                    'user_id' => self::PHONE,
+                    'user_id' => $phone ?? self::PHONE,
                     'channel' => 'whatsapp',
                 ],
             ]);
@@ -199,9 +199,13 @@ class ToquesTest extends TestCase
             ->json('data.ofrecidas');
         $this->toques()->atender($this->conversacion, $horas[0]['hora']);
 
-        // Alguien mas se lleva esa hora antes de que confirme.
-        $this->invoke('crear_cita', ['servicio' => 'Semipermanente', 'fecha' => $this->manana(), 'hora' => $horas[0]['hora_24']])
-            ->assertJsonPath('data.agendada', true);
+        // Alguien mas (OTRO telefono: si fuera el mismo, seria "esa cita ya
+        // la tienes") se lleva esa hora antes de que confirme.
+        $this->invoke(
+            'crear_cita',
+            ['servicio' => 'Semipermanente', 'fecha' => $this->manana(), 'hora' => $horas[0]['hora_24'], 'cliente' => 'Otra Persona'],
+            '573009998877',
+        )->assertJsonPath('data.agendada', true);
 
         $respuesta = $this->toques()->atender($this->conversacion, Toques::SI);
 
@@ -236,6 +240,79 @@ class ToquesTest extends TestCase
         // Las horas, sin que nadie repita el día.
         $this->assertSame('', $respuesta['text']);
         Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'Para *Tradicional*'));
+    }
+
+    /**
+     * El bug de Laura: pidió mover su cita y el modelo, en vez de moverla,
+     * creó una nueva. Quedó con dos citas y el salón esperándola dos veces.
+     * Ahora la reserva detecta que ya tiene una del mismo servicio y el
+     * flujo pregunta con botones qué hacer.
+     */
+    public function test_pedir_lo_mismo_teniendo_cita_pregunta_si_la_mueve(): void
+    {
+        // Su cita en pie, y luego pide horas otra vez y confirma otra hora.
+        $horas = $this->invoke('disponibilidad', ['servicio' => 'Semipermanente', 'fecha' => $this->manana()])
+            ->json('data.ofrecidas');
+        $this->invoke('crear_cita', ['servicio' => 'Semipermanente', 'fecha' => $this->manana(), 'hora' => $horas[0]['hora_24']])
+            ->assertJsonPath('data.agendada', true);
+
+        $this->toques()->atender($this->conversacion, $horas[1]['hora']);
+        $respuesta = $this->toques()->atender($this->conversacion, Toques::SI);
+
+        // No agendó ni movió: preguntó, con la cita existente a la vista.
+        $this->assertSame('', $respuesta['text']);
+        $this->assertSame(1, Appointment::withoutGlobalScopes()->count());
+        $this->assertSame([Toques::MOVER, Toques::OTRA_CITA], array_column($this->ultimaLista(), 'title'));
+        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'Ya tienes una cita'));
+    }
+
+    public function test_tocar_mover_mi_cita_la_mueve_sin_duplicar(): void
+    {
+        $horas = $this->invoke('disponibilidad', ['servicio' => 'Semipermanente', 'fecha' => $this->manana()])
+            ->json('data.ofrecidas');
+        $this->invoke('crear_cita', ['servicio' => 'Semipermanente', 'fecha' => $this->manana(), 'hora' => $horas[0]['hora_24']]);
+        $this->toques()->atender($this->conversacion, $horas[1]['hora']);
+        $this->toques()->atender($this->conversacion, Toques::SI);
+
+        $respuesta = $this->toques()->atender($this->conversacion, Toques::MOVER);
+
+        // UNA cita, a la hora nueva; el aviso del cambio salió por el canal.
+        $this->assertSame('', $respuesta['text']);
+        $cita = Appointment::withoutGlobalScopes()->sole();
+        $this->assertSame($horas[1]['hora_24'], $cita->starts_at->timezone('America/Bogota')->format('H:i'));
+        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'quedó para el'));
+    }
+
+    public function test_tocar_agendar_otra_si_deja_las_dos_citas(): void
+    {
+        // El espejo de Laura: quien SÍ quiere dos citas (esta semana y la
+        // otra) no puede terminar con la primera movida.
+        $horas = $this->invoke('disponibilidad', ['servicio' => 'Semipermanente', 'fecha' => $this->manana()])
+            ->json('data.ofrecidas');
+        $this->invoke('crear_cita', ['servicio' => 'Semipermanente', 'fecha' => $this->manana(), 'hora' => $horas[0]['hora_24']]);
+        $this->toques()->atender($this->conversacion, $horas[1]['hora']);
+        $this->toques()->atender($this->conversacion, Toques::SI);
+
+        $respuesta = $this->toques()->atender($this->conversacion, Toques::OTRA_CITA);
+
+        $this->assertSame('', $respuesta['text']);
+        $this->assertSame(2, Appointment::withoutGlobalScopes()->count());
+        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'Quedó agendada'));
+    }
+
+    public function test_la_cita_exacta_que_ya_existe_no_se_duplica(): void
+    {
+        $horas = $this->invoke('disponibilidad', ['servicio' => 'Semipermanente', 'fecha' => $this->manana()])
+            ->json('data.ofrecidas');
+        $this->invoke('crear_cita', ['servicio' => 'Semipermanente', 'fecha' => $this->manana(), 'hora' => $horas[0]['hora_24']])
+            ->assertJsonPath('data.agendada', true);
+
+        // El modelo (o un doble toque) repite la misma llamada, tal cual.
+        $repetida = $this->invoke('crear_cita', ['servicio' => 'Semipermanente', 'fecha' => $this->manana(), 'hora' => $horas[0]['hora_24']]);
+
+        $repetida->assertJsonPath('data.agendada', false)
+            ->assertJsonPath('data.ya_existia', true);
+        $this->assertSame(1, Appointment::withoutGlobalScopes()->count());
     }
 
     public function test_la_misma_consulta_no_vuelve_a_mandar_la_misma_lista(): void

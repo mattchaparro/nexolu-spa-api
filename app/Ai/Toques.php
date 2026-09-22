@@ -4,6 +4,7 @@ namespace App\Ai;
 
 use App\Ai\Capabilities\AvailabilityCapability;
 use App\Ai\Capabilities\CreateAppointmentCapability;
+use App\Ai\Capabilities\RescheduleAppointmentCapability;
 use App\Models\Message;
 use App\Models\WhatsappConversation;
 use App\Services\WhatsApp\NexoluCommsChannel;
@@ -42,9 +43,16 @@ final class Toques
     /** Lo que dice el botón de pedir otras horas. */
     public const OTRA_HORA = 'Otra hora';
 
+    /** Ya tenía una cita del mismo servicio: moverla… */
+    public const MOVER = 'Mover mi cita';
+
+    /** …o de verdad quiere las dos. */
+    public const OTRA_CITA = 'Agendar otra';
+
     public function __construct(
         private readonly AvailabilityCapability $disponibilidad,
         private readonly CreateAppointmentCapability $reserva,
+        private readonly RescheduleAppointmentCapability $mudanza,
         private readonly NexoluCommsChannel $channel,
     ) {}
 
@@ -83,6 +91,24 @@ final class Toques
         $candidatos = array_unique(array_filter([$this->plano($texto), $this->plano($ultimaLinea)]));
 
         $caller = AiCaller::customer($business, $phone, $conversacion->client, 'whatsapp');
+
+        // 0) Le preguntamos si movía su cita o agendaba otra.
+        if (isset($pedido['decidir_mover'])) {
+            foreach ($candidatos as $plano) {
+                if (in_array($plano, ['mover mi cita', 'mover', 'moverla', 'muevela', 'cambiala', 'mejor muevela', 'si, muevela'], true)) {
+                    return $this->mover($caller, $conversacion, $phone, $pedido);
+                }
+
+                if (in_array($plano, ['agendar otra', 'otra cita', 'las dos', 'aparte', 'una mas', 'otra aparte'], true)) {
+                    unset($pedido['decidir_mover']);
+
+                    return $this->agendar($caller, $conversacion, $phone, $pedido, otraMas: true);
+                }
+            }
+
+            // Escribió otra cosa: conversación, y es del modelo.
+            return null;
+        }
 
         // 1) Había una confirmación esperando.
         if (isset($pedido['confirmar'])) {
@@ -229,7 +255,7 @@ final class Toques
      * @param  array<string, mixed>  $pedido
      * @return array{text: string, conversation_id: null, tools_used: list<string>}
      */
-    private function agendar(AiCaller $caller, WhatsappConversation $conversacion, string $phone, array $pedido): array
+    private function agendar(AiCaller $caller, WhatsappConversation $conversacion, string $phone, array $pedido, bool $otraMas = false): array
     {
         $hora = $pedido['confirmar'];
 
@@ -242,11 +268,36 @@ final class Toques
         $con = (string) ($hora['con'] ?? '');
         $argumentos = [...$this->argumentosDe($pedido), 'hora' => $hora['hora_24']];
 
+        if ($otraMas) {
+            $argumentos['otra_mas'] = true;
+        }
+
         if ($con !== '' && ! str_contains($con, ' y ') && empty($argumentos['empleado']) && empty($argumentos['juntas'])) {
             $argumentos['empleado'] = $con;
         }
 
         $resultado = $this->reserva->execute($caller, $argumentos);
+
+        // La cita que pidio YA existe, tal cual: decirselo y no crear otra.
+        if (! empty($resultado['ya_existia'])) {
+            UltimoPedido::olvidar($phone);
+
+            return [
+                'text' => sprintf(
+                    'Esa cita ya la tienes agendada 😊 *%s* el *%s* a las *%s*. Te esperamos 💅',
+                    $resultado['cita']['servicio'],
+                    $resultado['cita']['dia'],
+                    $resultado['cita']['hora'],
+                ),
+                'conversation_id' => null,
+                'tools_used' => ['crear_cita'],
+            ];
+        }
+
+        // Ya tiene una del mismo servicio en otra fecha: ¿la mueve o son dos?
+        if (! empty($resultado['ya_tiene_cita'])) {
+            return $this->preguntarSiMueve($conversacion, $phone, $pedido, $hora, $resultado['ya_tiene_cita']);
+        }
 
         if (! ($resultado['agendada'] ?? false)) {
             /*
@@ -281,6 +332,94 @@ final class Toques
         // La confirmacion ya la mando la propia herramienta de reserva
         // (EnvioDirecto): repetirla aqui seria el mismo mensaje dos veces.
         return ['text' => '', 'conversation_id' => null, 'tools_used' => ['crear_cita']];
+    }
+
+    /**
+     * Ya tiene una cita del mismo servicio: ¿la movemos o agenda otra?
+     *
+     * Decidirlo por ella es recrear el bug de Laura (quedó con dos citas
+     * porque el modelo "movió" creando) o su espejo (moverle la cita a
+     * quien quería dos). Se pregunta con dos botones y se guarda la cita
+     * en juego para que el toque siguiente no tenga que averiguar nada.
+     *
+     * @param  array<string, mixed>  $pedido
+     * @param  array{hora_24: string, hora: string, con?: string}  $hora
+     * @param  array{id: int, servicio: string, dia: string, hora: string}  $existente
+     * @return array{text: string, conversation_id: null, tools_used: list<string>}
+     */
+    private function preguntarSiMueve(WhatsappConversation $conversacion, string $phone, array $pedido, array $hora, array $existente): array
+    {
+        $texto = sprintf(
+            'Ya tienes una cita de *%s* el *%s* a las *%s* 🤔 ¿La muevo para el *%s* a las *%s*, o te agendo otra aparte?',
+            $existente['servicio'],
+            $existente['dia'],
+            $existente['hora'],
+            $pedido['dia'] ?? $pedido['fecha'],
+            $hora['hora'],
+        );
+
+        $enviado = $this->channel->sendOptions(
+            $phone,
+            $texto,
+            [
+                ['id' => 'mover', 'title' => self::MOVER],
+                ['id' => 'otra_cita', 'title' => self::OTRA_CITA],
+            ],
+            $conversacion->business_id,
+        );
+
+        UltimoPedido::guardar($phone, [...$pedido, 'decidir_mover' => $existente]);
+
+        if (! $enviado) {
+            // Sin canal no hay botones: la pregunta va en palabras y la
+            // respuesta escrita la atiende el mismo flujo.
+            return ['text' => $texto, 'conversation_id' => null, 'tools_used' => ['crear_cita']];
+        }
+
+        OpcionesEnviadas::marcar($phone);
+        $this->anotar($conversacion, $phone, $texto."\n\n▸ ".self::MOVER."\n▸ ".self::OTRA_CITA);
+
+        return ['text' => '', 'conversation_id' => null, 'tools_used' => ['crear_cita']];
+    }
+
+    /**
+     * Tocó "Mover mi cita": la existente pasa a la fecha y hora confirmadas.
+     *
+     * @param  array<string, mixed>  $pedido
+     * @return array{text: string, conversation_id: null, tools_used: list<string>}|null
+     */
+    private function mover(AiCaller $caller, WhatsappConversation $conversacion, string $phone, array $pedido): ?array
+    {
+        $hora = $pedido['confirmar'] ?? null;
+        $existente = $pedido['decidir_mover'];
+
+        if ($hora === null || empty($pedido['fecha'])) {
+            // Se perdio la mitad del pedido (cache vencida a medias): mejor
+            // que lo lleve el modelo a inventar una mudanza.
+            return null;
+        }
+
+        $resultado = $this->mudanza->execute($caller, array_filter([
+            'cita_id' => $existente['id'],
+            'fecha' => $pedido['fecha'],
+            'hora' => $hora['hora_24'],
+            'empleado' => (isset($hora['con']) && ! str_contains((string) $hora['con'], ' y ')) ? $hora['con'] : null,
+        ], fn ($v) => $v !== null));
+
+        if (! ($resultado['movida'] ?? false)) {
+            UltimoPedido::olvidar($phone);
+
+            return [
+                'text' => 'No pude moverla 😕 '.rtrim((string) ($resultado['motivo'] ?? ''), '.').'.',
+                'conversation_id' => null,
+                'tools_used' => ['reagendar_cita'],
+            ];
+        }
+
+        UltimoPedido::olvidar($phone);
+
+        // La confirmacion del cambio ya la mando la herramienta de mover.
+        return ['text' => '', 'conversation_id' => null, 'tools_used' => ['reagendar_cita']];
     }
 
     /**
