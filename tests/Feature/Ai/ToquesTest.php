@@ -325,6 +325,26 @@ class ToquesTest extends TestCase
         Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'Quedó agendada'));
     }
 
+    public function test_otro_servicio_el_mismo_dia_tambien_pregunta(): void
+    {
+        /*
+         * La segunda forma del bug de Laura: pidió mover su cita, el modelo
+         * consultó horas de OTRO servicio, y como el nombre no coincidía la
+         * guarda no saltaba -- quedó con las dos citas el mismo martes. Dos
+         * visitas el mismo día casi siempre son una mudanza a medio hacer.
+         */
+        $horas = $this->invoke('disponibilidad', ['servicio' => 'Semipermanente', 'fecha' => $this->manana()])
+            ->json('data.ofrecidas');
+        $this->invoke('crear_cita', ['servicio' => 'Semipermanente', 'fecha' => $this->manana(), 'hora' => $horas[0]['hora_24']])
+            ->assertJsonPath('data.agendada', true);
+
+        $repetida = $this->invoke('crear_cita', ['servicio' => 'Tradicional', 'fecha' => $this->manana(), 'hora' => $horas[1]['hora_24']]);
+
+        $repetida->assertJsonPath('data.agendada', false);
+        $this->assertNotNull($repetida->json('data.ya_tiene_cita'));
+        $this->assertSame(1, Appointment::withoutGlobalScopes()->count());
+    }
+
     public function test_la_cita_exacta_que_ya_existe_no_se_duplica(): void
     {
         $horas = $this->invoke('disponibilidad', ['servicio' => 'Semipermanente', 'fecha' => $this->manana()])

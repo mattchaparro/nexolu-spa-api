@@ -225,6 +225,16 @@ class SimularClientas extends Command
                 'servicios' => $c->items->map(fn ($i) => $i->service?->name)->filter()->values()->all(),
                 'con' => $c->items->map(fn ($i) => $i->resource?->name)->filter()->unique()->values()->all(),
             ])->all();
+
+            /*
+             * Quien vino a MOVER su cita no puede terminar con dos. La
+             * clienta simulada quedo feliz ("mi cita quedo en la tarde")
+             * sin saber que la de las 10 am seguia viva: el salon la iba
+             * a esperar dos veces. La meta lograda no tapa este dato.
+             */
+            if (($perfil['con_cita'] ?? false) && count($citas) > 1) {
+                $hallazgos[] = 'vino a mover UNA cita y terminó con '.count($citas).' (la original no se movió)';
+            }
         } finally {
             $banco->limpiar($sesion);
         }

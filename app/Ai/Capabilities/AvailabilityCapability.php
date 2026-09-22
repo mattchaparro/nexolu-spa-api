@@ -274,6 +274,20 @@ class AvailabilityCapability implements Capability
         $nombreServicios = array_map(fn (Service $s) => $s->name, $servicios);
 
         if ($horas->isEmpty()) {
+            /*
+             * Tambien SIN horas el pedido se recuerda. Valentina pidio
+             * "semi con rubber" para hoy, no habia, y al contestar "para
+             * mañana despues de las 5" el servicio ya se habia olvidado:
+             * recibio la lista completa para volver a elegir lo que habia
+             * dicho con todas las letras -- dos veces.
+             */
+            if ($phoneCtx !== null) {
+                UltimoPedido::guardar($phoneCtx, [
+                    ...UltimoPedido::ver($phoneCtx),
+                    'servicios' => $nombreServicios,
+                ]);
+            }
+
             return [
                 'servicios' => $nombreServicios,
                 'fecha' => $fecha->format('Y-m-d'),
@@ -282,7 +296,8 @@ class AvailabilityCapability implements Capability
                 'instruccion' => ($juntas
                     ? 'No hay ninguna hora ese día con suficientes profesionales libres al tiempo'
                     : 'No hay horas ese día').($arguments['franja'] ?? null ? ' en esa franja' : '')
-                    .'. Ofrécele otro día u otra franja, y vuelve a llamarme.',
+                    .'. Ofrécele otro día u otra franja, y vuelve a llamarme '
+                    .'(recuerdo el servicio: basta la fecha nueva).',
             ];
         }
 

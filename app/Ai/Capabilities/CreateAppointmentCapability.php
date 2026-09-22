@@ -439,15 +439,23 @@ class CreateAppointmentCapability implements Capability
         }
 
         $ids = collect($servicios)->pluck('id');
+        $tz = $caller->business->businessTimezone();
 
+        /*
+         * Cuenta como "la misma": mismo servicio en cualquier fecha, o
+         * CUALQUIER servicio el mismo día. Laura pidió mover su cita de
+         * Arabe/4D; el modelo consultó horas de otro servicio y, como no
+         * coincidía el nombre, la guarda no saltó -- quedó con la de las
+         * 10 am y una nueva a las 5 pm el mismo martes. Dos visitas el
+         * mismo día casi siempre son una mudanza a medio hacer.
+         */
         $cita = $this->portal->upcoming($caller->client, $caller->business)
-            ->first(fn (Appointment $c) => $c->items->pluck('service_id')->intersect($ids)->isNotEmpty());
+            ->first(fn (Appointment $c) => $c->items->pluck('service_id')->intersect($ids)->isNotEmpty()
+                || $c->starts_at->setTimezone($tz)->isSameDay($inicio));
 
         if ($cita === null) {
             return null;
         }
-
-        $tz = $caller->business->businessTimezone();
         $cuando = [
             'id' => $cita->id,
             'servicio' => $cita->items->map(fn ($i) => $i->service?->name)->filter()->unique()->implode(' y '),
