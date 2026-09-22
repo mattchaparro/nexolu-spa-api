@@ -4,6 +4,7 @@ namespace App\Ai\Capabilities;
 
 use App\Ai\AiArgumentException;
 use App\Ai\AiCaller;
+use App\Ai\BookingForm;
 use App\Ai\Capability;
 use App\Ai\ComoLoPide;
 use App\Ai\EnvioDirecto;
@@ -704,6 +705,30 @@ class AvailabilityCapability implements Capability
 
         $queServicio = $this->comoSeNombran($servicios);
         $dia = $fecha->locale('es')->isoFormat('dddd D [de] MMMM');
+        $pedido = UltimoPedido::ver($phone);
+
+        /*
+         * Con el Flow publicado, la confirmacion es UNA pantalla nativa:
+         * la hora a elegir entre las libres, el nombre, y confirmar. Solo
+         * para el caso simple -- un servicio, para ella, cita nueva --
+         * porque el nfm_reply termina en crear_cita: una mudanza o unas
+         * citas juntas siguen por los botones de siempre. Y si el envio
+         * falla, tambien: nada nuevo rompe lo que ya funcionaba.
+         */
+        if (
+            count($servicios) === 1
+            && ! isset($pedido['mudanza'])
+            && empty($pedido['juntas'])
+            && app(BookingForm::class)->send(
+                $caller,
+                $servicios[0],
+                $dia,
+                $fecha->format('Y-m-d'),
+                array_map(fn (array $h) => ['hora_24' => $h['hora_24'], 'hora' => $h['hora'], 'con' => $h['con'] ?? null], $horas),
+            )
+        ) {
+            return true;
+        }
 
         /*
          * Si el pedido es la MUDANZA de una cita, el encabezado lo dice.

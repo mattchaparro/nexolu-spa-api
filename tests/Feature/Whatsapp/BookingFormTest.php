@@ -2,6 +2,9 @@
 
 namespace Tests\Feature\Whatsapp;
 
+use App\Ai\AiCaller;
+use App\Ai\Capabilities\AvailabilityCapability;
+use App\Ai\UltimoPedido;
 use App\Models\Appointment;
 use App\Models\Business;
 use App\Models\Client;
@@ -110,6 +113,67 @@ class BookingFormTest extends TestCase
     private function manana(): CarbonImmutable
     {
         return CarbonImmutable::now('America/Bogota')->addDay();
+    }
+
+    public function test_con_el_flow_publicado_las_horas_llegan_como_formulario(): void
+    {
+        config()->set('spa.whatsapp_booking_flow_id', '1624992425831128');
+
+        $caller = AiCaller::customer(
+            $this->luxury,
+            (string) ChannelPhone::normalize(self::PHONE),
+            $this->conversacion->client,
+            'whatsapp',
+        );
+
+        $resultado = app(AvailabilityCapability::class)->execute($caller, [
+            'servicio' => 'Semipermanente',
+            'fecha' => $this->manana()->format('Y-m-d'),
+        ]);
+
+        $this->assertNotEmpty($resultado['ofrecidas']);
+        $primera = $resultado['ofrecidas'][0]['hora_24'];
+
+        // Salió el formulario pre-cargado, no la lista de botones.
+        Http::assertSent(function ($request) use ($primera) {
+            $flow = $request->data()['whatsapp_flow'] ?? null;
+
+            return $flow !== null
+                && $flow['flow_id'] === '1624992425831128'
+                && $flow['screen'] === 'CONFIRMAR'
+                && str_contains($flow['data']['resumen'], 'Semipermanente')
+                && $flow['data']['nombre'] === 'Carolina'
+                && collect($flow['data']['horas'])->contains(fn ($h) => $h['id'] === $primera);
+        });
+        Http::assertNotSent(fn ($r) => isset($r->data()['whatsapp_options']));
+
+        // Y el envío de vuelta agenda (el círculo completo).
+        $this->formulario([
+            'pedido' => 'cita', 'servicio' => 'Semipermanente',
+            'fecha' => $this->manana()->format('Y-m-d'), 'hora' => $primera,
+        ])->assertOk();
+        $this->assertSame(1, Appointment::withoutGlobalScopes()->count());
+    }
+
+    public function test_una_mudanza_no_va_por_el_formulario(): void
+    {
+        // El nfm_reply termina en crear_cita: mover debe seguir por los
+        // botones, cuyo Sí ejecuta reagendar_cita.
+        config()->set('spa.whatsapp_booking_flow_id', '1624992425831128');
+
+        $phone = (string) ChannelPhone::normalize(self::PHONE);
+        UltimoPedido::guardar($phone, ['mudanza' => ['id' => 99]]);
+
+        $caller = AiCaller::customer($this->luxury, $phone, $this->conversacion->client, 'whatsapp');
+        app(AvailabilityCapability::class)->execute($caller, [
+            'servicio' => 'Semipermanente',
+            'fecha' => $this->manana()->format('Y-m-d'),
+        ]);
+
+        Http::assertNotSent(fn ($r) => isset($r->data()['whatsapp_flow']));
+        Http::assertSent(fn ($r) => isset($r->data()['whatsapp_options']));
+
+        UltimoPedido::olvidar($phone);
     }
 
     public function test_el_formulario_enviado_se_vuelve_cita_y_se_confirma(): void

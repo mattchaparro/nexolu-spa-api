@@ -74,6 +74,41 @@ final class EnvioDirecto
         return true;
     }
 
+    /**
+     * Un formulario nativo (Flow), directo a la clienta.
+     *
+     * @param  array<string, mixed>  $data  lo que pre-carga la pantalla
+     */
+    public function formulario(AiCaller $caller, string $flowId, string $pantalla, string $texto, string $boton, array $data): bool
+    {
+        $phone = $this->phone($caller);
+
+        if ($phone === null) {
+            return false;
+        }
+
+        $enviado = $this->channel->sendFlow(
+            $phone,
+            $flowId,
+            $pantalla,
+            $texto,
+            $boton,
+            $data,
+            // Opaco y rastreable; la respuesta vuelve por el webhook con
+            // su propio payload, así que aquí no se decide nada.
+            'spa-'.$caller->business->id.'-'.now()->timestamp,
+            $caller->business->id,
+        );
+
+        if (! $enviado) {
+            return false;
+        }
+
+        $this->registrar($caller, $phone, $texto."\n\n▸ ".$boton.' (formulario)');
+
+        return true;
+    }
+
     private function phone(AiCaller $caller): ?string
     {
         if ($caller->isStaff()) {

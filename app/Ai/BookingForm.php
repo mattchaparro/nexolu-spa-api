@@ -38,6 +38,67 @@ final class BookingForm
         private readonly SaveContactCapability $contact,
     ) {}
 
+    /** ¿Hay un Flow publicado para confirmar citas? */
+    public static function enabled(): bool
+    {
+        return trim((string) config('spa.whatsapp_booking_flow_id')) !== '';
+    }
+
+    /**
+     * Manda el formulario pre-cargado en lugar de la lista de horas.
+     *
+     * La clienta recibe UNA pantalla: el resumen fijo (servicio y día),
+     * la hora a elegir entre las libres de ese día, y su nombre — que es
+     * donde los perfiles raros de WhatsApp por fin dicen cómo se llaman.
+     * Confirmar ahí dispara el nfm_reply que `handle` convierte en cita.
+     *
+     * False = no se pudo (canal caído, sin Flow publicado): quien llama
+     * cae a la lista de botones de siempre. Nada nuevo puede romper lo
+     * que ya funcionaba.
+     *
+     * @param  array<string, array{hora_24: string, hora: string, con?: ?string}>  $horas
+     */
+    public function send(
+        AiCaller $caller,
+        string $servicio,
+        string $dia,
+        string $fechaIso,
+        array $horas,
+    ): bool {
+        if (! self::enabled() || $horas === []) {
+            return false;
+        }
+
+        $filas = [];
+
+        foreach ($horas as $h) {
+            $filas[] = [
+                'id' => $h['hora_24'],
+                'title' => $h['hora'].(empty($h['con']) ? '' : ' con '.$h['con']),
+            ];
+        }
+
+        $nombre = trim((string) $caller->client?->fullName());
+
+        return app(EnvioDirecto::class)->formulario(
+            $caller,
+            (string) config('spa.whatsapp_booking_flow_id'),
+            'CONFIRMAR',
+            sprintf('Tu cita de *%s* para el *%s* está casi lista: elige la hora y confirma 👇', $servicio, $dia),
+            'Confirmar cita',
+            [
+                'resumen' => $servicio.' — '.$dia,
+                'horas' => $filas,
+                'servicio' => $servicio,
+                'fecha' => $fechaIso,
+                'hora' => $filas[0]['id'],
+                // El nombre de la ficha solo si parece de persona: un
+                // «🦋 Yess 🦋» pre-cargado invita a dejarlo así.
+                'nombre' => NombreRaro::es($nombre) ? '' : $nombre,
+            ],
+        );
+    }
+
     /**
      * ¿Este formulario es el nuestro de agendar?
      *
