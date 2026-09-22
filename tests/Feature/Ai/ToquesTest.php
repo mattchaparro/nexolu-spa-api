@@ -316,8 +316,8 @@ class ToquesTest extends TestCase
         $filas = $this->ultimaLista();
         // En el orden del catálogo, con «Cualquiera» de primera.
         $this->assertSame([AvailabilityCapability::CUALQUIERA, 'Lucia', 'Maria'], array_column($filas, 'title'));
-        // Lucia trabaja de lunes a sábado, de 2 pm a 6 pm.
-        $this->assertSame('Lun a Sáb · 2 pm a 6 pm', $filas[1]['description']);
+        // Lucia trabaja de lunes a sábado, de 2:00 pm a 6:00 pm.
+        $this->assertSame('Lun a Sáb · 2:00 pm a 6:00 pm', $filas[1]['description']);
     }
 
     public function test_tocar_una_profesional_sigue_con_el_dia_y_filtra_sus_horas(): void

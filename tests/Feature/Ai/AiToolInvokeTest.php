@@ -276,7 +276,7 @@ class AiToolInvokeTest extends TestCase
             'fecha' => $this->manana()->format('Y-m-d'),
         ])->assertOk()->json('data.horas');
 
-        $this->assertSame('9 am', $horas[0]['hora']);
+        $this->assertSame('9:00 am', $horas[0]['hora']);
         $this->assertSame('09:00', $horas[0]['hora_24']);
     }
 

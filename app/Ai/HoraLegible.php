@@ -30,8 +30,12 @@ final class HoraLegible
 
         $doce = $h % 12;
         $doce = $doce === 0 ? 12 : $doce;
-        $minutos = $m === 0 ? '' : ':'.str_pad((string) $m, 2, '0', STR_PAD_LEFT);
 
-        return $doce.$minutos.' '.($h < 12 ? 'am' : 'pm');
+        /*
+         * SIEMPRE con minutos: "9 am" al lado de "10:30 am" en la misma
+         * lista se lee desparejo y hace dudar de si falta algo. Todas
+         * iguales -- 9:00 am, 10:30 am, 12:00 pm -- se leen de un vistazo.
+         */
+        return $doce.':'.str_pad((string) $m, 2, '0', STR_PAD_LEFT).' '.($h < 12 ? 'am' : 'pm');
     }
 }
