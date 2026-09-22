@@ -261,7 +261,7 @@ class BookingFormTest extends TestCase
         );
 
         // La confirmación salió por el canal y el hilo registró el envío.
-        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'Quedó agendada'));
+        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', '¡Tu cita quedó confirmada!'));
         $this->assertTrue(Message::withoutGlobalScopes()
             ->where('direction', Message::DIRECTION_IN)
             ->where('body', 'like', '%formulario%')->exists());
@@ -295,7 +295,7 @@ class BookingFormTest extends TestCase
             'fecha' => $this->manana()->format('Y-m-d'), 'hora' => '10:00',
         ], 'wamid.otro')->assertOk();
 
-        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'Quedó agendada'));
+        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', '¡Tu cita quedó confirmada!'));
 
         // El mismo formulario de otra clienta... aquí, la misma con otra
         // hora ocupada: el sistema avisa en vez de callarse.

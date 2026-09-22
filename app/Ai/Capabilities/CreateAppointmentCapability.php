@@ -9,6 +9,7 @@ use App\Ai\EnvioDirecto;
 use App\Ai\EsUnaPrueba;
 use App\Ai\FechaDicha;
 use App\Ai\HoraLegible;
+use App\Ai\InfoPostCita;
 use App\Ai\Resolves;
 use App\Ai\UltimoPedido;
 use App\Models\Appointment;
@@ -24,6 +25,7 @@ use App\Services\Scheduling\CitasSimultaneas;
 use App\Services\Scheduling\Exceptions\OutsideWorkingHoursException;
 use App\Services\Scheduling\Exceptions\SlotUnavailableException;
 use App\Support\ChannelPhone;
+use App\Support\PublicProfile;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 
@@ -510,16 +512,55 @@ class CreateAppointmentCapability implements Capability
         $tz = $caller->business->businessTimezone();
         $servicios = $cita->items->map(fn ($i) => $i->service?->name)->filter()->unique()->values();
         $con = $cita->items->map(fn ($i) => $i->resource?->name)->filter()->unique()->values();
+        $precio = (float) $cita->items->sum(fn ($i) => (float) ($i->price ?? $i->service?->price ?? 0));
 
-        $texto = sprintf(
-            '¡Listo! Quedó agendada: *%s* el *%s* a las *%s*%s. Te esperamos 💅',
-            $servicios->implode(' y '),
-            $cita->starts_at->setTimezone($tz)->locale('es')->isoFormat('dddd D [de] MMMM'),
-            HoraLegible::de($cita->starts_at, $tz),
-            $con->isEmpty() ? '' : ' con *'.$con->implode(' y ').'*',
-        );
+        /*
+         * La confirmación, con TODO lo que la clienta necesita para no
+         * volver a preguntar: día, hora, servicio, precio y quién la
+         * atiende. Es el formato que Luxury ya usa en ManyChat y que sus
+         * clientas reconocen (lo trajo Alejandro).
+         */
+        $lineas = [
+            '¡Tu cita quedó confirmada! ✅',
+            '',
+            '📅 Día: *'.ucfirst($cita->starts_at->setTimezone($tz)->locale('es')->isoFormat('dddd D [de] MMMM')).'*',
+            '⏰ Hora: *'.HoraLegible::de($cita->starts_at, $tz).'*',
+            '💅 Servicio: *'.$servicios->implode(' y ').'*',
+        ];
 
-        return app(EnvioDirecto::class)->texto($caller, $texto);
+        if ($precio > 0) {
+            $lineas[] = '💵 Precio: *$'.number_format($precio, 0, ',', '.').'*';
+        }
+
+        if ($con->isNotEmpty()) {
+            $lineas[] = '🙋‍♀️ Te atiende: *'.$con->implode(' y ').'*';
+        }
+
+        $lineas[] = '';
+        $lineas[] = 'Gracias por agendar en *'.$caller->business->name.'* 🌟';
+
+        $instagram = PublicProfile::resolve($caller->business)['instagram'] ?? null;
+
+        if (! empty($instagram)) {
+            $lineas[] = 'Síguenos y entérate de nuestras promociones 👉 '.$instagram;
+        }
+
+        $enviada = app(EnvioDirecto::class)->texto($caller, implode("\n", $lineas));
+
+        /*
+         * Y, aparte, lo que el negocio tenga escrito para después de la
+         * cita (garantías, recomendaciones, cancelaciones). Si no ha
+         * escrito nada, no se ofrece nada.
+         */
+        if ($enviada) {
+            $phone = ChannelPhone::normalize((string) $caller->phone, $caller->business->country_code ?? 'CO');
+
+            if ($phone !== null) {
+                app(InfoPostCita::class)->ofrecer($caller, $phone);
+            }
+        }
+
+        return $enviada;
     }
 
     private function notaDeTerceros(AiCaller $caller, array $arguments): ?string

@@ -163,11 +163,82 @@ class ToquesTest extends TestCase
          * para depender de que alguien la redacte).
          */
         $this->assertSame('', $respuesta['text']);
-        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'Quedó agendada'));
+        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', '¡Tu cita quedó confirmada!'));
 
         $cita = Appointment::withoutGlobalScopes()->with('items.service')->sole();
         $this->assertSame('Semipermanente', $cita->items->first()->service->name);
         $this->assertSame($horas[0]['hora_24'], $cita->starts_at->timezone('America/Bogota')->format('H:i'));
+    }
+
+    public function test_la_confirmacion_trae_el_detalle_de_la_cita(): void
+    {
+        /*
+         * El formato que Luxury ya usa en ManyChat y sus clientas
+         * reconocen: día, hora, servicio, precio y quién atiende, para que
+         * nadie tenga que volver a preguntar.
+         */
+        $this->business->forceFill(['public_profile' => ['instagram' => '@luxurynails']])->save();
+        $horas = $this->invoke('disponibilidad', ['servicio' => 'Semipermanente', 'fecha' => $this->manana()])
+            ->json('data.ofrecidas');
+        $this->toques()->atender($this->conversacion, $horas[0]['hora']);
+
+        $this->toques()->atender($this->conversacion, Toques::SI);
+
+        Http::assertSent(function ($r) {
+            $texto = $r->data()['text'] ?? '';
+
+            return str_contains($texto, '¡Tu cita quedó confirmada!')
+                && str_contains($texto, '💅 Servicio: *Semipermanente*')
+                && str_contains($texto, '⏰ Hora:')
+                && str_contains($texto, '💵 Precio: *$')
+                && str_contains($texto, '🙋‍♀️ Te atiende:')
+                && str_contains($texto, 'Gracias por agendar en *Spa de prueba*')
+                && str_contains($texto, 'https://instagram.com/luxurynails');
+        });
+    }
+
+    public function test_tras_la_cita_se_ofrece_lo_que_el_negocio_tenga_escrito(): void
+    {
+        // Las respuestas salen de la base de conocimiento (IA Core), no de
+        // un flujo aparte que haya que mantener al día en dos sitios.
+        config()->set('services.ia_core.base_url', 'http://ia-core.test');
+        Http::fake([
+            'comms.test/*' => Http::response(['results' => [['channel' => 'whatsapp', 'status' => 'sent']]]),
+            'ia-core.test/*' => Http::response([
+                ['id' => 'k1', 'topic' => 'Garantías', 'answer' => 'Cubrimos 5 días el semipermanente.', 'is_active' => true, 'updated_at' => '2026-09-22T10:00:00'],
+                ['id' => 'k2', 'topic' => 'Recomendaciones', 'answer' => 'Llega 10 minutos antes.', 'is_active' => true, 'updated_at' => '2026-09-22T10:00:00'],
+                ['id' => 'k3', 'topic' => 'Promo vieja', 'answer' => 'No debe ofrecerse.', 'is_active' => false, 'updated_at' => '2026-09-22T10:00:00'],
+            ]),
+        ]);
+
+        $horas = $this->invoke('disponibilidad', ['servicio' => 'Semipermanente', 'fecha' => $this->manana()])
+            ->json('data.ofrecidas');
+        $this->toques()->atender($this->conversacion, $horas[0]['hora']);
+        $this->toques()->atender($this->conversacion, Toques::SI);
+
+        // Solo los temas escritos y activos; «Cancelaciones» no está.
+        $this->assertSame(['Info de garantías', 'Recomendaciones'], array_column($this->ultimaLista(), 'title'));
+
+        $respuesta = $this->toques()->atender($this->conversacion, 'Info de garantías');
+
+        $this->assertSame('Cubrimos 5 días el semipermanente.', $respuesta['text']);
+    }
+
+    public function test_sin_conocimiento_escrito_no_se_ofrece_nada(): void
+    {
+        config()->set('services.ia_core.base_url', 'http://ia-core.test');
+        Http::fake([
+            'comms.test/*' => Http::response(['results' => [['channel' => 'whatsapp', 'status' => 'sent']]]),
+            'ia-core.test/*' => Http::response([]),
+        ]);
+
+        $horas = $this->invoke('disponibilidad', ['servicio' => 'Semipermanente', 'fecha' => $this->manana()])
+            ->json('data.ofrecidas');
+        $this->toques()->atender($this->conversacion, $horas[0]['hora']);
+        $this->toques()->atender($this->conversacion, Toques::SI);
+
+        // Un botón que contesta "no tengo esa información" es peor que no estar.
+        Http::assertNotSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'información adicional'));
     }
 
     public function test_se_agenda_con_quien_de_verdad_esta_libre_a_esa_hora(): void
@@ -188,7 +259,7 @@ class ToquesTest extends TestCase
         $respuesta = $this->toques()->atender($this->conversacion, Toques::SI);
 
         $this->assertSame('', $respuesta['text']);
-        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'Quedó agendada'));
+        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', '¡Tu cita quedó confirmada!'));
         $cita = Appointment::withoutGlobalScopes()->with('items.resource')->sole();
         $this->assertSame('Lucia', $cita->items->first()->resource->name);
     }
@@ -420,7 +491,7 @@ class ToquesTest extends TestCase
 
         $this->assertSame('', $respuesta['text']);
         $this->assertSame(2, Appointment::withoutGlobalScopes()->count());
-        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'Quedó agendada'));
+        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', '¡Tu cita quedó confirmada!'));
     }
 
     public function test_otro_servicio_el_mismo_dia_tambien_pregunta(): void

@@ -79,12 +79,6 @@ final class Toques
             return null;
         }
 
-        $pedido = UltimoPedido::ver($phone);
-
-        if ($pedido === []) {
-            return null;
-        }
-
         /*
          * El texto puede traer VARIOS mensajes pegados: el debounce junta
          * lo que llego en la ventana, y si el turno anterior quedo sin
@@ -96,6 +90,24 @@ final class Toques
         $candidatos = array_unique(array_filter([$this->plano($texto), $this->plano($ultimaLinea)]));
 
         $caller = AiCaller::customer($business, $phone, $conversacion->client, 'whatsapp');
+
+        /*
+         * Tocó uno de los temas que se ofrecen tras confirmar la cita
+         * (garantías, recomendaciones, cancelaciones). Va antes del pedido
+         * porque ese ya se olvidó al agendar: la cita quedó lista y lo que
+         * sigue es información.
+         */
+        $info = app(InfoPostCita::class)->respuestaA($phone, $this->plano($ultimaLinea));
+
+        if ($info !== null) {
+            return ['text' => $info, 'conversation_id' => null, 'tools_used' => ['info_post_cita']];
+        }
+
+        $pedido = UltimoPedido::ver($phone);
+
+        if ($pedido === []) {
+            return null;
+        }
 
         // 0) Le preguntamos si movía su cita o agendaba otra.
         if (isset($pedido['decidir_mover'])) {
