@@ -115,6 +115,20 @@ final class Perfiles
                 'maximo_turnos' => 10,
             ],
             [
+                'clave' => 'nombre_raro',
+                'nombre_propio' => '🦋 Yess 🦋',
+                'nombre' => 'Perfil de WhatsApp raro, agenda para su mamá',
+                'persona' => 'Eres Yesica, 27 años. Tu perfil de WhatsApp dice «🦋 Yess 🦋», así que '
+                    .'el salón no sabe tu nombre de verdad. Escribes normal, amable. La cita NO es '
+                    .'para ti: es para tu mamá, Rosa, que no maneja WhatsApp. Si te preguntan tu '
+                    .'nombre, dices que eres Yesica; si te preguntan para quién es la cita, dices '
+                    .'que para tu mamá Rosa.',
+                'meta' => 'Una cita de manicure tradicional para tu mamá Rosa, el jueves en la '
+                    .'mañana. Tú solo coordinas: la cita queda a tu número pero quien va es Rosa.',
+                'servicios_esperados' => ['Tradicional'],
+                'maximo_turnos' => 10,
+            ],
+            [
                 'clave' => 'molesta',
                 'nombre_propio' => 'Diana',
                 'nombre' => 'Viene molesta por un trabajo que se dañó',

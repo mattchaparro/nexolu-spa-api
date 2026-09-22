@@ -72,19 +72,30 @@ final class Toques
             return null;
         }
 
-        $plano = $this->plano($texto);
+        /*
+         * El texto puede traer VARIOS mensajes pegados: el debounce junta
+         * lo que llego en la ventana, y si el turno anterior quedo sin
+         * responder tambien se arrastra ("Semi\n9 am"). El toque casi
+         * siempre es lo ULTIMO que escribio, asi que se prueba el texto
+         * completo y, si no, la ultima linea.
+         */
+        $ultimaLinea = trim((string) collect(preg_split('/\r?\n/', $texto))->filter(fn ($l) => trim($l) !== '')->last());
+        $candidatos = array_unique(array_filter([$this->plano($texto), $this->plano($ultimaLinea)]));
+
         $caller = AiCaller::customer($business, $phone, $conversacion->client, 'whatsapp');
 
         // 1) Había una confirmación esperando.
         if (isset($pedido['confirmar'])) {
-            if (in_array($plano, ['si, agendar', 'si agendar', 'si', 'dale', 'confirmo', 'confirmar', 'listo', 'ok', 'de una', 'agendame', 'agendala'], true)) {
-                return $this->agendar($caller, $conversacion, $phone, $pedido);
-            }
+            foreach ($candidatos as $plano) {
+                if (in_array($plano, ['si, agendar', 'si agendar', 'si', 'dale', 'confirmo', 'confirmar', 'listo', 'ok', 'de una', 'agendame', 'agendala'], true)) {
+                    return $this->agendar($caller, $conversacion, $phone, $pedido);
+                }
 
-            if (in_array($plano, ['otra hora', 'cambiar hora', 'otra', 'no', 'no, otra hora'], true)) {
-                unset($pedido['confirmar']);
+                if (in_array($plano, ['otra hora', 'cambiar hora', 'otra', 'no', 'no, otra hora'], true)) {
+                    unset($pedido['confirmar']);
 
-                return $this->otrasHoras($conversacion, $phone, $pedido);
+                    return $this->otrasHoras($conversacion, $phone, $pedido);
+                }
             }
 
             // Escribió otra cosa: eso sí es conversación, y es del modelo.
@@ -92,18 +103,22 @@ final class Toques
         }
 
         // 2) Tocó una hora de las que se le mostraron.
-        if (! empty($pedido['horas']) && isset($pedido['horas'][$plano])) {
-            return $this->confirmar($conversacion, $phone, $pedido, $pedido['horas'][$plano]);
+        foreach ($candidatos as $plano) {
+            if (! empty($pedido['horas']) && isset($pedido['horas'][$plano])) {
+                return $this->confirmar($conversacion, $phone, $pedido, $pedido['horas'][$plano]);
+            }
         }
 
         // 3) Tocó un servicio de una lista de servicios.
         $ofrecidos = array_map(fn ($o) => $this->plano((string) $o), $pedido['opciones'] ?? []);
 
-        if (empty($pedido['servicios']) && in_array($plano, $ofrecidos, true)) {
-            return $this->respuestaDe(
-                $this->disponibilidad->execute($caller, ['servicio' => $texto]),
-                'elegir_servicio',
-            );
+        foreach ($candidatos as $plano) {
+            if (empty($pedido['servicios']) && in_array($plano, $ofrecidos, true)) {
+                return $this->respuestaDe(
+                    $this->disponibilidad->execute($caller, ['servicio' => $plano]),
+                    'elegir_servicio',
+                );
+            }
         }
 
         // 4) Pidió la siguiente tanda de servicios.
@@ -263,15 +278,9 @@ final class Toques
 
         UltimoPedido::olvidar($phone);
 
-        $texto = sprintf(
-            '¡Listo! Quedó agendada: *%s* el *%s* a las *%s*%s. Te esperamos 💅',
-            $this->nombreDe($pedido),
-            $pedido['dia'] ?? $pedido['fecha'],
-            $hora['hora'],
-            empty($hora['con']) ? '' : ' con *'.$hora['con'].'*',
-        );
-
-        return ['text' => $texto, 'conversation_id' => null, 'tools_used' => ['crear_cita']];
+        // La confirmacion ya la mando la propia herramienta de reserva
+        // (EnvioDirecto): repetirla aqui seria el mismo mensaje dos veces.
+        return ['text' => '', 'conversation_id' => null, 'tools_used' => ['crear_cita']];
     }
 
     /**
@@ -314,6 +323,10 @@ final class Toques
             'juntas' => $pedido['juntas'] ?? null,
             'empleado' => $pedido['empleado'] ?? null,
             'sede' => $pedido['sede'] ?? null,
+            // Si la cita es para otra persona, el local necesita saberlo
+            // aunque quien confirme sea un boton y no el modelo.
+            'para_quien' => $pedido['para_quien'] ?? null,
+            'nombres' => $pedido['nombres'] ?? null,
         ], fn ($v) => $v !== null);
     }
 

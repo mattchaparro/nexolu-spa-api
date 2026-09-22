@@ -589,20 +589,33 @@ class AiToolInvokeTest extends TestCase
         $this->assertSame('Valentina', $ficha->name);
     }
 
-    public function test_guardar_contacto_no_pisa_el_nombre_que_ya_tenia_el_negocio(): void
+    public function test_guardar_contacto_corrige_el_nombre_y_deja_rastro_del_anterior(): void
     {
         /*
-         * El nombre del sistema lo escribio el negocio, con la ortografia de
-         * su agenda; el de aca lo dedujo un modelo de una frase suelta. Ante
-         * la duda gana el del negocio.
+         * Antes el nombre existente no se pisaba nunca. Sonaba prudente,
+         * pero el que había casi siempre era el del perfil de WhatsApp
+         * («.», un emoji, otro nombre), y el bot saludaba "¡Hola, Mateo!"
+         * a una Valentina que acababa de decir cómo se llama. Sobre su
+         * nombre, la autoridad es ella; el anterior queda en la respuesta
+         * por si el negocio lo quiere revisar.
          */
         $this->clienta('Carolina', '+573001112233');
 
-        $r = $this->invoke('guardar_contacto', ['nombre' => 'karo'])->assertOk();
+        $r = $this->invoke('guardar_contacto', ['nombre' => 'Karol'])->assertOk();
+
+        $this->assertTrue($r->json('data.guardado'));
+        $this->assertSame('Carolina', $r->json('data.antes_decia'));
+        $this->assertSame('Karol', Client::withoutGlobalScopes()->first()->name);
+    }
+
+    public function test_guardar_el_mismo_nombre_no_escribe_nada(): void
+    {
+        $this->clienta('Carolina', '+573001112233');
+
+        $r = $this->invoke('guardar_contacto', ['nombre' => 'Carolina'])->assertOk();
 
         $this->assertFalse($r->json('data.guardado'));
         $this->assertSame('Carolina', $r->json('data.ya_lo_teniamos'));
-        $this->assertSame('Carolina', Client::withoutGlobalScopes()->first()->name);
     }
 
     public function test_agendar_para_otra_persona_queda_anotado(): void

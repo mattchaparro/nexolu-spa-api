@@ -2,6 +2,7 @@
 
 namespace App\Services\Ia;
 
+use App\Ai\NombreRaro;
 use App\Models\Appointment;
 use App\Models\Business;
 use App\Models\Client;
@@ -23,6 +24,20 @@ class CustomerProfile
         if ($client === null) {
             return 'Es la primera vez que este número escribe. No sabes su nombre: '
                 .'pregúntaselo antes de agendar.';
+        }
+
+        /*
+         * El nombre de la ficha muchas veces es el del perfil de WhatsApp:
+         * «.», «🦋 Princesa 🦋», el negocio, el carro. Saludar con eso
+         * queda ridiculo, y peor: el bot cree que ya sabe el nombre, no lo
+         * pregunta, y la cita queda a nombre de un emoji. Si el nombre no
+         * parece de persona, se trata como desconocido.
+         */
+        if (NombreRaro::es($client->fullName())) {
+            return 'La ficha de este número dice llamarse «'.trim((string) $client->fullName()).'», pero eso '
+                .'parece el nombre del perfil de WhatsApp, no el de una persona. NO la saludes con ese nombre. '
+                .'Pregúntale cómo se llama y si la cita es para ella o para alguien más, y guarda el nombre '
+                .'con `guardar_contacto`.';
         }
 
         $lineas = ['Hablas con '.$client->fullName().'.'];

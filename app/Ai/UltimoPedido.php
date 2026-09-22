@@ -30,7 +30,7 @@ final class UltimoPedido
     private const TTL_SEGUNDOS = 1800;
 
     /** Lo que se puede completar desde lo guardado. */
-    private const CAMPOS = ['fecha', 'franja', 'juntas', 'empleado', 'sede'];
+    private const CAMPOS = ['fecha', 'franja', 'juntas', 'empleado', 'sede', 'para_quien', 'nombres'];
 
     /**
      * @param  array<string, mixed>  $pedido  servicios (nombres reales), fecha (como la dijo),

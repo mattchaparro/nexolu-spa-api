@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Ai\EsUnaPrueba;
+use App\Ai\NombreRaro;
 use App\Ai\Toques;
 use App\Models\Business;
 use App\Models\Resource;
@@ -355,6 +356,14 @@ class SimularClientas extends Command
             $hallazgos[] = 'nombró "la sede Principal" habiendo una sola sede';
         }
 
+        // Saludar con el nombre del perfil de WhatsApp cuando no parece de
+        // persona: "¡Hola, 🦋 Yess 🦋!" delata que nadie preguntó el nombre.
+        foreach ($catalogo['nombres_raros'] ?? [] as $raro) {
+            if ($raro !== '' && str_contains($texto, $raro)) {
+                $hallazgos[] = "saludó con el nombre del perfil («{$raro}») en vez de preguntar el nombre";
+            }
+        }
+
         return $hallazgos;
     }
 
@@ -364,6 +373,10 @@ class SimularClientas extends Command
     private function catalogo(Business $business): array
     {
         return [
+            'nombres_raros' => array_values(array_filter(
+                collect(Perfiles::todos())->pluck('nombre_propio')->all(),
+                fn ($n) => NombreRaro::es($n),
+            )),
             'servicios' => Service::withoutGlobalScope('business')->where('business_id', $business->id)->pluck('name')->all(),
             'otros' => [
                 ...Resource::withoutGlobalScope('business')->where('business_id', $business->id)->pluck('name')->all(),

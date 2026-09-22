@@ -4,6 +4,7 @@ namespace App\Ai\Capabilities;
 
 use App\Ai\AiCaller;
 use App\Ai\Capability;
+use App\Ai\EnvioDirecto;
 use App\Ai\HoraLegible;
 use App\Models\Appointment;
 use App\Services\ClientPortalService;
@@ -69,7 +70,16 @@ class CancelAppointmentCapability implements Capability
 
         $this->booking->cancel($cita, $caller->user?->id, $arguments['motivo'] ?? null);
 
-        return ['cancelada' => true, 'id' => $cita->id];
+        $confirmada = $this->confirmarALaClienta($caller, $cita);
+
+        return [
+            'cancelada' => true,
+            'id' => $cita->id,
+            'confirmacion_enviada' => $confirmada,
+            'instruccion' => $confirmada
+                ? 'La confirmación de la cancelación YA le llegó. Responde con una cadena vacía.'
+                : 'Dile en una frase que la cita quedó cancelada.',
+        ];
     }
 
     /**
@@ -106,7 +116,16 @@ class CancelAppointmentCapability implements Capability
 
             $this->booking->cancel($unica, $caller->user?->id, null);
 
-            return ['cancelada' => true, 'id' => $unica->id];
+            $confirmada = $this->confirmarALaClienta($caller, $unica);
+
+            return [
+                'cancelada' => true,
+                'id' => $unica->id,
+                'confirmacion_enviada' => $confirmada,
+                'instruccion' => $confirmada
+                    ? 'La confirmación de la cancelación YA le llegó. Responde con una cadena vacía.'
+                    : 'Dile en una frase que la cita quedó cancelada.',
+            ];
         }
 
         if ($proximas->isEmpty()) {
@@ -125,5 +144,23 @@ class CancelAppointmentCapability implements Capability
                 'hora' => HoraLegible::de($a->starts_at, $tz),
             ])->all(),
         ];
+    }
+
+    /** "Tu cita quedó cancelada", directo por el canal: es demasiado
+     * importante para depender de que el modelo lo redacte. */
+    private function confirmarALaClienta(AiCaller $caller, Appointment $cita): bool
+    {
+        if (! $caller->isCustomer() || $caller->channel !== 'whatsapp') {
+            return false;
+        }
+
+        $tz = $caller->business->businessTimezone();
+        $servicios = $cita->items->map(fn ($i) => $i->service?->name)->filter()->unique()->implode(' y ');
+
+        return app(EnvioDirecto::class)->texto($caller, sprintf(
+            'Listo, tu cita de *%s* del *%s* quedó cancelada ✅',
+            $servicios !== '' ? $servicios : 'la cita',
+            $cita->starts_at->setTimezone($tz)->locale('es')->isoFormat('dddd D [de] MMMM [a las] h:mm a'),
+        ));
     }
 }

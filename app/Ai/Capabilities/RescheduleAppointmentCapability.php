@@ -5,6 +5,7 @@ namespace App\Ai\Capabilities;
 use App\Ai\AiArgumentException;
 use App\Ai\AiCaller;
 use App\Ai\Capability;
+use App\Ai\EnvioDirecto;
 use App\Ai\FechaDicha;
 use App\Ai\HoraLegible;
 use App\Ai\Resolves;
@@ -133,12 +134,37 @@ class RescheduleAppointmentCapability implements Capability
             return ['movida' => false, 'motivo' => $e->getMessage()];
         }
 
+        $confirmada = $this->confirmarALaClienta($caller, $cita->fresh(['items.resource', 'items.service']));
+
         return [
+            'confirmacion_enviada' => $confirmada,
+            'instruccion' => $confirmada
+                ? 'La confirmación del cambio YA le llegó. Responde con una cadena vacía.'
+                : 'Dile en una frase cómo quedó la cita.',
             'movida' => true,
             'id' => $cita->id,
             'fecha' => $cita->starts_at->setTimezone($business->businessTimezone())->format('Y-m-d'),
             'hora' => HoraLegible::de($cita->starts_at, $business->businessTimezone()),
             'hora_24' => $cita->starts_at->setTimezone($business->businessTimezone())->format('H:i'),
         ];
+    }
+
+    /** "Tu cita quedó para el…", directo por el canal. */
+    private function confirmarALaClienta(AiCaller $caller, Appointment $cita): bool
+    {
+        if (! $caller->isCustomer() || $caller->channel !== 'whatsapp') {
+            return false;
+        }
+
+        $tz = $caller->business->businessTimezone();
+        $servicios = $cita->items->map(fn ($i) => $i->service?->name)->filter()->unique()->implode(' y ');
+        $con = $cita->items->map(fn ($i) => $i->resource?->name)->filter()->unique()->implode(' y ');
+
+        return app(EnvioDirecto::class)->texto($caller, sprintf(
+            'Listo, tu cita de *%s* quedó para el *%s*%s ✅',
+            $servicios !== '' ? $servicios : 'la cita',
+            $cita->starts_at->setTimezone($tz)->locale('es')->isoFormat('dddd D [de] MMMM [a las] h:mm a'),
+            $con !== '' ? ' con *'.$con.'*' : '',
+        ));
     }
 }

@@ -5,9 +5,9 @@ namespace App\Ai\Capabilities;
 use App\Ai\AiArgumentException;
 use App\Ai\AiCaller;
 use App\Ai\Capability;
+use App\Ai\EnvioDirecto;
 use App\Ai\FechaDicha;
 use App\Ai\HoraLegible;
-use App\Ai\OpcionesEnviadas;
 use App\Ai\Resolves;
 use App\Ai\ServiciosPendientes;
 use App\Ai\UltimoPedido;
@@ -107,6 +107,15 @@ class AvailabilityCapability implements Capability
             'juntas' => ['nullable', 'boolean'],
             'empleado' => ['nullable', 'string', 'max:255'],
             'sede' => ['nullable', 'string', 'max:255'],
+            /*
+             * Para quien es la visita, si no es para quien escribe, y los
+             * nombres cuando son varias personas. La agenda no los usa:
+             * viajan aqui para que queden GUARDADOS con el pedido y la
+             * reserva los reciba aunque quien confirme sea un boton.
+             */
+            'para_quien' => ['nullable', 'string', 'max:120'],
+            'nombres' => ['nullable', 'array', 'max:5'],
+            'nombres.*' => ['required', 'string', 'max:120'],
         ];
     }
 
@@ -315,6 +324,8 @@ class AvailabilityCapability implements Capability
                 'juntas' => $arguments['juntas'] ?? null,
                 'empleado' => $arguments['empleado'] ?? null,
                 'sede' => $arguments['sede'] ?? null,
+                'para_quien' => $arguments['para_quien'] ?? null,
+                'nombres' => $arguments['nombres'] ?? null,
                 // Las horas que le llegaron como botones, para que tocar
                 // una no tenga que pasar por el modelo (ver Toques).
                 'horas' => $mostrado ? $tocables : [],
@@ -410,19 +421,10 @@ class AvailabilityCapability implements Capability
             ];
         }
 
-        $enviado = $this->channel->sendOptions(
-            $phone,
-            $titulo,
-            $filas,
-            $caller->business->id,
-            'Ver servicios',
-        );
-
-        if (! $enviado) {
+        if (! app(EnvioDirecto::class)->opciones($caller, $titulo, $filas, 'Ver servicios')) {
             return null;
         }
 
-        OpcionesEnviadas::marcar($phone);
         ServiciosPendientes::guardar($phone, $faltan);
 
         return [
@@ -539,8 +541,12 @@ class AvailabilityCapability implements Capability
             $fecha->locale('es')->isoFormat('dddd D [de] MMMM'),
         );
 
-        $enviado = $this->channel->sendOptions(
-            $phone,
+        // EnvioDirecto y no el canal a secas: sin rastro en el hilo, el
+        // turno siguiente cree que el mensaje anterior sigue sin responder
+        // y el manejador de toques recibe dos mensajes pegados. Asi murio
+        // la conversacion del 21 ("Semi\n9 am").
+        return app(EnvioDirecto::class)->opciones(
+            $caller,
             $texto,
             array_map(fn (array $h, int $i) => array_filter([
                 'id' => 'h'.$i,
@@ -558,15 +564,8 @@ class AvailabilityCapability implements Capability
                     72,
                 ),
             ]), $horas, array_keys($horas)),
-            $caller->business->id,
             'Ver horas',
         );
-
-        if ($enviado) {
-            OpcionesEnviadas::marcar($phone);
-        }
-
-        return $enviado;
     }
 
     /**

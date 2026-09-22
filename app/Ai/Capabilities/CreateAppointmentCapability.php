@@ -5,6 +5,7 @@ namespace App\Ai\Capabilities;
 use App\Ai\AiArgumentException;
 use App\Ai\AiCaller;
 use App\Ai\Capability;
+use App\Ai\EnvioDirecto;
 use App\Ai\EsUnaPrueba;
 use App\Ai\FechaDicha;
 use App\Ai\HoraLegible;
@@ -202,7 +203,21 @@ class CreateAppointmentCapability implements Capability
 
         $cita->load(['items.resource', 'items.service']);
 
+        /*
+         * La confirmacion la manda ESTA herramienta, no el modelo.
+         *
+         * La noche del 21 el modelo agendo bien y respondio con texto
+         * vacio: la clienta quedo con una cita que no sabia que tenia.
+         * "Tu cita quedo agendada" es demasiado importante para depender
+         * de que el modelo decida redactarlo.
+         */
+        $confirmada = $this->confirmarALaClienta($caller, $cita);
+
         return [
+            'confirmacion_enviada' => $confirmada,
+            'instruccion' => $confirmada
+                ? 'La confirmación YA le llegó a la clienta por WhatsApp. NO la repitas: responde con una cadena vacía.'
+                : 'Confírmale en una frase: servicio, día, hora y con quién.',
             'agendada' => true,
             'id' => $cita->id,
             'servicio' => collect($servicios)->pluck('name')->implode(' y '),
@@ -351,6 +366,30 @@ class CreateAppointmentCapability implements Capability
     }
 
     /** Si la visita es para otra persona, el local tiene que saberlo. */
+    /**
+     * "¡Listo! Quedó agendada…", directo por el canal.
+     */
+    private function confirmarALaClienta(AiCaller $caller, Appointment $cita): bool
+    {
+        if (! $caller->isCustomer() || $caller->channel !== 'whatsapp') {
+            return false;
+        }
+
+        $tz = $caller->business->businessTimezone();
+        $servicios = $cita->items->map(fn ($i) => $i->service?->name)->filter()->unique()->values();
+        $con = $cita->items->map(fn ($i) => $i->resource?->name)->filter()->unique()->values();
+
+        $texto = sprintf(
+            '¡Listo! Quedó agendada: *%s* el *%s* a las *%s*%s. Te esperamos 💅',
+            $servicios->implode(' y '),
+            $cita->starts_at->setTimezone($tz)->locale('es')->isoFormat('dddd D [de] MMMM'),
+            HoraLegible::de($cita->starts_at, $tz),
+            $con->isEmpty() ? '' : ' con *'.$con->implode(' y ').'*',
+        );
+
+        return app(EnvioDirecto::class)->texto($caller, $texto);
+    }
+
     private function notaDeTerceros(AiCaller $caller, array $arguments): ?string
     {
         $otra = trim((string) ($arguments['para_quien'] ?? ''));

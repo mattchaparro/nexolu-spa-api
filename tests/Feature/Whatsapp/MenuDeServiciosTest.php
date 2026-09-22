@@ -185,7 +185,10 @@ class MenuDeServiciosTest extends TestCase
         $this->servicio($categoria, 'Semipermanente');
         $this->business->update(['public_profile' => [
             'comunicado' => 'Cerrado por vacaciones',
-            'comunicado_hasta' => now()->subDay()->format('Y-m-d'),
+            // "Ayer" EN LA ZONA DEL NEGOCIO: con now() en UTC, entre las 7 pm
+            // y la medianoche de Bogota "ayer UTC" todavia no ha vencido alla
+            // y la prueba fallaba solo a esas horas.
+            'comunicado_hasta' => now('America/Bogota')->subDay()->format('Y-m-d'),
         ]]);
 
         $this->assertStringNotContainsString(

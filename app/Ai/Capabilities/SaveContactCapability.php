@@ -66,9 +66,29 @@ class SaveContactCapability implements Capability
          * agente.
          */
         if ($caller->client !== null) {
+            $actual = trim((string) $caller->client->fullName());
+
+            /*
+             * El nombre SÍ se corrige: sobre su nombre, la autoridad es
+             * ella. El que había suele ser el del perfil de WhatsApp («.»,
+             * un emoji, un negocio), y también pasa que el bot saluda con
+             * el nombre de otra persona ("soy Valentina, no Mateo"). Lo
+             * que había queda en la respuesta por si hay que revisarlo.
+             */
+            if ($actual !== $nombre) {
+                $caller->client->forceFill(['name' => $nombre])->save();
+
+                return [
+                    'guardado' => true,
+                    'nombre' => $nombre,
+                    'antes_decia' => $actual,
+                    'instruccion' => 'Nombre actualizado. '.self::SIGUE_AHORA,
+                ];
+            }
+
             return [
                 'guardado' => false,
-                'ya_lo_teniamos' => $caller->client->fullName(),
+                'ya_lo_teniamos' => $actual,
                 'instruccion' => 'Ya sabías su nombre. Úsalo y sigue con la cita. '
                     .self::SIGUE_AHORA,
             ];

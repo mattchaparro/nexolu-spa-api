@@ -155,7 +155,13 @@ class ToquesTest extends TestCase
 
         $respuesta = $this->toques()->atender($this->conversacion, Toques::SI);
 
-        $this->assertStringContainsString('Quedó agendada', $respuesta['text']);
+        /*
+         * El texto del manejador va vacio: la confirmacion la manda la
+         * propia herramienta de reserva por el canal (demasiado importante
+         * para depender de que alguien la redacte).
+         */
+        $this->assertSame('', $respuesta['text']);
+        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'Quedó agendada'));
 
         $cita = Appointment::withoutGlobalScopes()->with('items.service')->sole();
         $this->assertSame('Semipermanente', $cita->items->first()->service->name);
@@ -179,7 +185,8 @@ class ToquesTest extends TestCase
         $this->toques()->atender($this->conversacion, $deLaTarde['hora']);
         $respuesta = $this->toques()->atender($this->conversacion, Toques::SI);
 
-        $this->assertStringContainsString('Quedó agendada', $respuesta['text']);
+        $this->assertSame('', $respuesta['text']);
+        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'Quedó agendada'));
         $cita = Appointment::withoutGlobalScopes()->with('items.resource')->sole();
         $this->assertSame('Lucia', $cita->items->first()->resource->name);
     }
