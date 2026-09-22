@@ -171,7 +171,7 @@ class AvailabilityCapability implements Capability
         }
 
         if (! isset($arguments['fecha'])) {
-            return [
+            return $this->queEligaDia($caller, $arguments['servicios'] ?? [$arguments['servicio']]) ?? [
                 'horas' => [],
                 'falta_informacion' => 'No sé para qué día.',
                 'instruccion' => 'Pregúntale qué día quiere (puedes decirle "hoy", "mañana" '
@@ -394,9 +394,10 @@ class AvailabilityCapability implements Capability
             'supuse' => $supuestos === [] ? null : $supuestos,
             'horas' => $horas->take(12)->all(),
             'instruccion' => $mostrado
-                ? 'Las horas YA le llegaron como botones y las está viendo. NO llames a '
-                    .'`ofrecer_opciones` con ellas ni las escribas: responde con una cadena '
-                    .'vacía. Cuando toque una, te llega como su próximo mensaje: confírmale en '
+                ? 'Las horas YA le llegaron como botones y las está viendo. SOLO POR ESTA VEZ '
+                    .'responde con una cadena vacía (no llames a `ofrecer_opciones` ni las '
+                    .'escribas); a lo que escriba después respóndele normal. Cuando toque una, '
+                    .'te llega como su próximo mensaje: confírmale en '
                     .'UNA frase servicio, día, hora y con quién, y con su sí llama a `crear_cita` '
                     .'con `servicios` = ['.implode(', ', $nombreServicios).'], `fecha` = «'
                     .$arguments['fecha'].'» y la `hora_24` de la que tocó. No vuelvas a '
@@ -406,6 +407,57 @@ class AvailabilityCapability implements Capability
                         .'pedidos) y pregúntale si son esos.')
                 : 'Ofrécele dos o tres de `ofrecidas` usando el campo `hora`, nunca `hora_24`.',
         ], fn ($v) => $v !== null);
+    }
+
+    /**
+     * El día también se toca: «Hoy / Mañana / Otro día».
+     *
+     * Era el único paso del agendamiento que obligaba a ESCRIBIR: el
+     * menú, el servicio, la hora y el «Sí, agendar» ya eran botones, pero
+     * la fecha había que teclearla — y ahí el modelo a veces entendía
+     * otra cosa. Quien viene de un flujo tipo ManyChat espera tocar;
+     * ahora puede agendar de punta a punta sin escribir una letra.
+     *
+     * «Otro día» dispara la lista de los días siguientes (ver Toques).
+     * Null = sin canal o quien llama es del negocio: la pregunta vuelve
+     * al modelo, como antes.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function queEligaDia(AiCaller $caller, array $servicios): ?array
+    {
+        $phone = ChannelPhone::normalize((string) $caller->phone, $caller->business->country_code ?? 'CO');
+
+        if ($phone === null || $caller->isStaff()) {
+            return null;
+        }
+
+        $enviado = app(EnvioDirecto::class)->opciones($caller, '¿Para qué día? 📅', [
+            ['id' => 'hoy', 'title' => 'Hoy'],
+            ['id' => 'manana', 'title' => 'Mañana'],
+            ['id' => 'otro_dia', 'title' => 'Otro día'],
+        ]);
+
+        if (! $enviado) {
+            return null;
+        }
+
+        UltimoPedido::guardar($phone, [
+            ...UltimoPedido::ver($phone),
+            // Tal como los dijo: el toque del dia vuelve a la agenda y
+            // alla se resuelven, con lista de por medio si dan para varios.
+            'servicios' => array_values(array_filter(array_map('strval', $servicios))),
+            'eligiendo_fecha' => true,
+        ]);
+
+        return [
+            'horas' => [],
+            'eligiendo_fecha' => true,
+            'instruccion' => 'El día se lo pregunté YO, con botones (Hoy / Mañana / Otro día): '
+                .'ya los está viendo. SOLO POR ESTA VEZ responde con una cadena vacía; sus '
+                .'mensajes siguientes se responden normal. Cuando toque un día, vuelve a '
+                .'llamarme con ese día en `fecha`.',
+        ];
     }
 
     /**
@@ -545,9 +597,10 @@ class AvailabilityCapability implements Capability
             'faltan_por_mostrar' => count($faltan),
             'instruccion' => 'Todavía no se puede mirar la agenda: lo que pidió puede ser '
                 .'varios servicios. Los nombres YA le llegaron como botones y los está '
-                .'viendo. NO los escribas ni preguntes nada: responde con una cadena '
-                .'vacía. Cuando toque uno, te llega como su próximo mensaje y ahí vuelves '
-                .'a llamarme con ese nombre y el mismo día. Si toca «'
+                .'viendo. SOLO POR ESTA VEZ responde con una cadena vacía (no los escribas '
+                .'ni preguntes nada); si después escribe algo que NO es tocar un botón, '
+                .'respóndele normal. Cuando toque uno, te llega como su próximo mensaje y '
+                .'ahí vuelves a llamarme con ese nombre y el mismo día. Si toca «'
                 .ServiciosPendientes::VER_MAS.'», vuelve a llamarme con ESAS mismas '
                 .'palabras en `servicio` y te mando los que faltan.',
         ];

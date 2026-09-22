@@ -229,6 +229,51 @@ class ToquesTest extends TestCase
         $this->assertSame(0, Appointment::withoutGlobalScopes()->count());
     }
 
+    public function test_sin_fecha_el_dia_se_pregunta_con_botones(): void
+    {
+        /*
+         * El único paso del agendamiento que obligaba a escribir era la
+         * fecha -- y ahí el modelo a veces entendía otra cosa. Ahora es
+         * un botón más: quien viene de un flujo tipo ManyChat agenda de
+         * punta a punta sin teclear una letra.
+         */
+        $respuesta = $this->invoke('disponibilidad', ['servicio' => 'Semipermanente']);
+
+        $respuesta->assertOk()->assertJsonPath('data.eligiendo_fecha', true);
+        $this->assertSame(['Hoy', 'Mañana', 'Otro día'], array_column($this->ultimaLista(), 'title'));
+    }
+
+    public function test_tocar_manana_trae_las_horas_de_manana(): void
+    {
+        $this->invoke('disponibilidad', ['servicio' => 'Semipermanente']);
+
+        $respuesta = $this->toques()->atender($this->conversacion, 'Mañana');
+
+        $this->assertSame('', $respuesta['text']);
+        $dia = CarbonImmutable::now('America/Bogota')->addDay()->locale('es')->isoFormat('dddd D [de] MMMM');
+        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'Para *Semipermanente*')
+            && str_contains($r->data()['text'] ?? '', $dia));
+    }
+
+    public function test_otro_dia_lista_los_siguientes_y_el_toque_busca_ese_dia(): void
+    {
+        $this->invoke('disponibilidad', ['servicio' => 'Semipermanente']);
+
+        $respuesta = $this->toques()->atender($this->conversacion, 'Otro día');
+
+        // Siete días desde pasado mañana, tocables.
+        $this->assertSame('', $respuesta['text']);
+        $dias = array_column($this->ultimaLista(), 'title');
+        $this->assertCount(7, $dias);
+
+        $respuesta = $this->toques()->atender($this->conversacion, $dias[0]);
+
+        $this->assertSame('', $respuesta['text']);
+        $pasadoManana = CarbonImmutable::now('America/Bogota')->addDays(2)->locale('es')->isoFormat('dddd D [de] MMMM');
+        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'Para *Semipermanente*')
+            && str_contains($r->data()['text'] ?? '', $pasadoManana));
+    }
+
     public function test_un_toque_recortado_por_whatsapp_sigue_siendo_el_servicio_completo(): void
     {
         /*

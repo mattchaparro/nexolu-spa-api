@@ -9,6 +9,7 @@ use App\Models\Message;
 use App\Models\WhatsappConversation;
 use App\Services\WhatsApp\NexoluCommsChannel;
 use App\Support\ChannelPhone;
+use Carbon\CarbonImmutable;
 
 /**
  * Lo que la clienta TOCÓ no pasa por el modelo.
@@ -128,6 +129,27 @@ final class Toques
             return null;
         }
 
+        // 1.5) Le preguntamos el día con botones (Hoy / Mañana / Otro día).
+        if (! empty($pedido['eligiendo_fecha'])) {
+            foreach ($candidatos as $plano) {
+                if (in_array($plano, ['hoy', 'manana'], true)) {
+                    return $this->conElDia($caller, $phone, $pedido, $plano === 'hoy' ? 'hoy' : 'mañana');
+                }
+
+                if (isset($pedido['fechas'][$plano])) {
+                    return $this->conElDia($caller, $phone, $pedido, $pedido['fechas'][$plano]);
+                }
+
+                if (in_array($plano, ['otro dia', 'otro'], true)) {
+                    return $this->losProximosDias($conversacion, $phone, $pedido);
+                }
+            }
+
+            // Escribió el día con sus palabras ("el viernes"): del modelo,
+            // que DateInText ya dejó mandando lo que dijo.
+            return null;
+        }
+
         // 2) Tocó una hora de las que se le mostraron.
         foreach ($candidatos as $plano) {
             if (! empty($pedido['horas']) && isset($pedido['horas'][$plano])) {
@@ -155,6 +177,66 @@ final class Toques
         }
 
         return null;
+    }
+
+    /**
+     * Tocó un día: se buscan las horas con todo lo que ya se sabía.
+     *
+     * @param  array<string, mixed>  $pedido
+     * @return array{text: string, conversation_id: null, tools_used: list<string>}|null
+     */
+    private function conElDia(AiCaller $caller, string $phone, array $pedido, string $fecha): ?array
+    {
+        unset($pedido['eligiendo_fecha'], $pedido['fechas']);
+        UltimoPedido::guardar($phone, [...$pedido, 'fecha' => $fecha]);
+        // Un boton tocado es palabra suya: manda sobre el modelo.
+        DateInText::pin($phone, ['fecha']);
+
+        return $this->respuestaDe(
+            $this->disponibilidad->execute($caller, ['fecha' => $fecha]),
+            'elegir_dia',
+        );
+    }
+
+    /**
+     * "Otro día": los siete siguientes, tocables.
+     *
+     * Desde pasado mañana — «Hoy» y «Mañana» ya eran botones — y con el
+     * título como lo lee la gente ("Jueves 24 de sep"). La fecha ISO de
+     * cada fila queda guardada: el toque devuelve el TÍTULO, no un id.
+     *
+     * @param  array<string, mixed>  $pedido
+     * @return array{text: string, conversation_id: null, tools_used: list<string>}
+     */
+    private function losProximosDias(WhatsappConversation $conversacion, string $phone, array $pedido): array
+    {
+        $tz = $conversacion->business->businessTimezone();
+        $filas = [];
+        $fechas = [];
+        $i = 0;
+
+        foreach (range(2, 8) as $enDias) {
+            $dia = CarbonImmutable::now($tz)->addDays($enDias);
+            $titulo = ucfirst($dia->locale('es')->isoFormat('dddd D [de] MMM'));
+            $filas[] = ['id' => 'd'.($i++), 'title' => $titulo];
+            $fechas[$this->plano($titulo)] = $dia->format('Y-m-d');
+        }
+
+        $texto = '¿Qué día te sirve? 📅';
+
+        if (! $this->channel->sendOptions($phone, $texto, $filas, $conversacion->business_id, 'Ver días')) {
+            return [
+                'text' => '¿Qué día te sirve? Puede ser hoy, mañana o el día de la semana que prefieras 😊',
+                'conversation_id' => null,
+                'tools_used' => ['elegir_dia'],
+            ];
+        }
+
+        OpcionesEnviadas::marcar($phone);
+        UltimoPedido::guardar($phone, [...$pedido, 'fechas' => $fechas]);
+        $this->anotar($conversacion, $phone, $texto."\n\n".implode("\n", array_map(fn ($f) => '▸ '.$f['title'], $filas)));
+
+        return ['text' => '', 'conversation_id' => null, 'tools_used' => ['elegir_dia']];
     }
 
     /**

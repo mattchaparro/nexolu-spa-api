@@ -22,8 +22,17 @@ namespace App\Ai;
  */
 final class DateInText
 {
-    /** Cuántos segundos manda lo extraído por encima del modelo: un turno. */
-    private const WINDOW_SECONDS = 180;
+    /**
+     * Cuántos segundos manda lo extraído por encima del modelo.
+     *
+     * Era 180 y no alcanzó: Gloria dijo "mañana" en el turno 7 y para el
+     * turno 9 -- una señora mayor no teclea rápido -- la ventana había
+     * vencido, el modelo metió fecha=hoy y el bot buscó "el lunes 21"
+     * siendo lunes 21. Veinte minutos cubren una conversación lenta
+     * completa; si en ese lapso ella cambia de fecha con palabras que
+     * esto entiende, se actualiza sola, y el pedido entero vence a los 30.
+     */
+    private const WINDOW_SECONDS = 1200;
 
     /**
      * @return array{fecha: ?string, franja: ?string}
@@ -79,6 +88,26 @@ final class DateInText
             ...UltimoPedido::ver($phone),
             ...array_filter(['fecha' => $fecha, 'franja' => $franja]),
             'texto_manda' => $manda,
+            'texto_manda_hasta' => now()->getTimestamp() + self::WINDOW_SECONDS,
+        ]);
+    }
+
+    /**
+     * Deja mandando campos que la clienta acaba de fijar SIN escribir.
+     *
+     * Un botón tocado («Mañana», un día de la lista) es palabra suya igual
+     * que el texto: el valor ya debe estar guardado en el pedido; esto
+     * solo le da la autoridad de la ventana.
+     *
+     * @param  list<string>  $campos
+     */
+    public static function pin(string $phone, array $campos): void
+    {
+        $pedido = UltimoPedido::ver($phone);
+
+        UltimoPedido::guardar($phone, [
+            ...$pedido,
+            'texto_manda' => array_values(array_unique([...($pedido['texto_manda'] ?? []), ...$campos])),
             'texto_manda_hasta' => now()->getTimestamp() + self::WINDOW_SECONDS,
         ]);
     }

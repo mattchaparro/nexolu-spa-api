@@ -212,12 +212,14 @@ class ListaDeServiciosTest extends TestCase
         $this->assertSame($this->manana(), $respuesta->json('data.fecha'));
     }
 
-    public function test_sin_lista_previa_el_dia_sigue_haciendo_falta(): void
+    public function test_sin_lista_previa_el_dia_se_pregunta_con_botones(): void
     {
+        // Antes esto devolvia "falta el dia" para que el modelo preguntara;
+        // ahora el dia tambien se toca (Hoy / Mañana / Otro dia).
         $respuesta = $this->invoke('disponibilidad', ['servicio' => 'Servicio 3'])->assertOk();
 
         $this->assertSame([], $respuesta->json('data.horas'));
-        $this->assertNotNull($respuesta->json('data.falta_informacion'));
+        $this->assertTrue((bool) $respuesta->json('data.eligiendo_fecha'));
     }
 
     public function test_al_tocar_un_servicio_lo_guardado_pisa_el_dia_que_invente_el_modelo(): void

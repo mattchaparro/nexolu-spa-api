@@ -60,7 +60,7 @@ class DateInTextTest extends TestCase
         UltimoPedido::olvidar($phone);
 
         DateInText::remember($phone, 'para mañana en la tarde');
-        $this->travel(10)->minutes();
+        $this->travel(25)->minutes();
 
         // Ella cambio de fecha con palabras que el extractor no entiende
         // ("el 25"); el modelo la entendio y su argumento debe pasar.
