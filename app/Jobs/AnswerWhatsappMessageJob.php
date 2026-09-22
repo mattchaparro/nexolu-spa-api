@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Ai\OpcionesEnviadas;
+use App\Ai\Repetido;
 use App\Ai\Toques;
 use App\Models\Message;
 use App\Models\WhatsappConversation;
@@ -132,11 +133,19 @@ class AnswerWhatsappMessageJob implements ShouldQueue
             return;
         }
 
+        /*
+         * Si lo que va a salir es un eco de lo que ya dijo, el modelo
+         * perdio el hilo: en vez de repetirselo a la clienta se le manda
+         * el enlace de la agenda y la conversacion pasa a una persona.
+         */
+        $texto = app(Repetido::class)->atajar($conversacion, $respuesta['text'])
+            ?? $respuesta['text'];
+
         $dispatcher->queue(
             $conversacion->business,
             Message::KIND_AGENT,
             $conversacion->phone,
-            $respuesta['text'],
+            $texto,
             null,
             $conversacion->client,
             null,

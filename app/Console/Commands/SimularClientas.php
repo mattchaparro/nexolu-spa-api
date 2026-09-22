@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Ai\EsUnaPrueba;
 use App\Ai\NombreRaro;
+use App\Ai\Repetido;
 use App\Ai\Toques;
 use App\Models\Business;
 use App\Models\Resource;
@@ -176,6 +177,28 @@ class SimularClientas extends Command
                  * nunca recibe.
                  */
                 $textoBot = $opciones !== [] ? '' : trim((string) ($respuesta['text'] ?? ''));
+
+                /*
+                 * Igual que en produccion: si el modelo iba a repetirse, se
+                 * corta el bucle -- enlace de la agenda y pasa a una persona
+                 * (ver Repetido y AnswerWhatsappMessageJob). El transcript
+                 * hace de hilo porque aca el modelo no persiste mensajes.
+                 */
+                if ($textoBot !== '') {
+                    $previos = collect($transcripcion)
+                        ->where('quien', 'bot')
+                        ->pluck('texto')
+                        ->filter()
+                        ->values()
+                        ->all();
+                    $eco = app(Repetido::class)->atajar($sesion->conversacion, $textoBot, $previos);
+
+                    if ($eco !== null) {
+                        $hallazgos[] = "turno {$turno}: iba a repetirse; se cortó el bucle (enlace + persona)";
+                        $textoBot = $eco;
+                    }
+                }
+
                 $usadas = $respuesta['tools_used'] ?? [];
                 $herramientas[] = $usadas;
 
