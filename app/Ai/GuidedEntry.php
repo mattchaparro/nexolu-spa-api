@@ -144,9 +144,16 @@ final class GuidedEntry
 
         if ($this->wantsBooking($texto)) {
             // "quiero semi mañana" ya dijo qué: el camino normal lo lleva mejor.
+            // Si es el primer mensaje ("Hola, quiero agendar"), se saluda
+            // antes de preguntar: ir al grano sin un hola es descortés.
             return $this->agenda->mentionsService($caller, $texto)
                 ? null
-                : $this->showMenu($caller, $phone, 'agendar');
+                : $this->showMenu(
+                    $caller,
+                    $phone,
+                    'agendar',
+                    welcome: $this->startsWithGreeting($texto) || $this->isNewSession($conversacion),
+                );
         }
 
         // 3) El menú de inicio: con un saludo, o al empezar la conversación.
@@ -220,13 +227,24 @@ final class GuidedEntry
      *
      * @return array{text: string, conversation_id: null, tools_used: list<string>}|null
      */
-    private function showMenu(AiCaller $caller, string $phone, string $menu): ?array
+    private function showMenu(AiCaller $caller, string $phone, string $menu, bool $welcome = false): ?array
     {
+        /*
+         * Al empezar, se saluda como en el mostrador: el nombre si lo
+         * sabemos, el del negocio, y la pregunta. Alejandro escribió
+         * "Buenas" y recibió "¿Cómo prefieres agendar?" a secas: una
+         * máquina de turnos, no un salón.
+         */
         [$texto, $botones] = match ($menu) {
-            'root' => [$this->hello($caller).' ¿En qué te puedo ayudar?', [self::BOOK, self::MY_APPOINTMENTS, self::OTHER]],
-            'agendar' => ['¿Cómo prefieres agendar? 💅', [self::HERE, self::WEB]],
+            'agendar' => [
+                ($welcome ? $this->welcome($caller)."\n\n" : '').'¿Cómo prefieres agendar? 💅',
+                [self::HERE, self::WEB],
+            ],
             'consulta' => ['¡Claro! ¿Qué necesitas?', [self::WARRANTY, self::ADMIN, self::QUESTION]],
-            default => [$this->hello($caller).' ¿En qué te puedo ayudar?', [self::BOOK, self::MY_APPOINTMENTS, self::OTHER]],
+            default => [
+                $this->welcome($caller)."\n\n¿Qué deseas hacer el día de hoy?",
+                [self::BOOK, self::MY_APPOINTMENTS, self::OTHER],
+            ],
         };
 
         return $this->send($caller, $phone, $texto, $botones, ['menu' => $menu], 'menu_'.$menu, fresh: $menu !== 'consulta');
@@ -682,13 +700,25 @@ final class GuidedEntry
         return trim(($servicios !== '' ? $servicios : 'Servicio').($con !== '' ? ' con '.$con : ''));
     }
 
-    private function hello(AiCaller $caller): string
+    /**
+     * "¡Hola, Mateo! 👋 / Te damos la bienvenida a *Luxury Nails* 💅"
+     *
+     * El nombre solo si parece de persona (NombreRaro). "Te damos la
+     * bienvenida" y no "Bienvenido/a": así no hay que adivinar el género
+     * de quien escribe.
+     */
+    private function welcome(AiCaller $caller): string
     {
         $nombre = trim((string) $caller->client?->fullName());
+        $hola = $nombre === '' || NombreRaro::es($nombre)
+            ? '¡Hola! 👋'
+            : '¡Hola, '.explode(' ', $nombre)[0].'! 👋';
 
-        return $nombre === '' || NombreRaro::es($nombre)
-            ? '¡Hola! 💅'
-            : '¡Hola, '.explode(' ', $nombre)[0].'! 💅';
+        $negocio = trim((string) $caller->business->name);
+
+        return $negocio === ''
+            ? $hola
+            : $hola."\nTe damos la bienvenida a *".$negocio.'* 💅';
     }
 
     private function bookingLink(AiCaller $caller): ?string
@@ -731,6 +761,12 @@ final class GuidedEntry
 
         return $ultimaDelBot === null
             || $ultimaDelBot->created_at->lte(now()->subMinutes(self::NEW_SESSION_MINUTES));
+    }
+
+    /** "Hola, quiero agendar": empieza saludando, aunque diga más. */
+    private function startsWithGreeting(string $texto): bool
+    {
+        return (bool) preg_match('/^(hola|holi|buenas|buenos dias|buen dia|buenas tardes|buenas noches|hey)\b/u', $this->plain($texto));
     }
 
     /** "Hola", "buenas tardes", "buen día 🙏" — un saludo y nada más. */

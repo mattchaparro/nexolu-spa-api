@@ -193,6 +193,35 @@ class AnswerJobTest extends TestCase
         Http::assertNotSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'RESPUESTA DEL MODELO'));
     }
 
+    public function test_un_saludo_nuevo_no_arrastra_lo_que_murio_horas_antes(): void
+    {
+        /*
+         * Alejandro escribió "Buenas" y recibió "¿Cómo prefieres agendar?":
+         * el bot juntó su "Quiero agendar una cita" y su "?" de tres horas
+         * antes, que habían quedado sin respuesta en una pausa. Solo se
+         * juntan los pedazos que llegan cerca del último.
+         */
+        foreach (['Quiero agendar una cita', '?'] as $viejo) {
+            $m = Message::create([
+                'business_id' => $this->conversacion->business_id,
+                'conversation_id' => $this->conversacion->id,
+                'client_id' => $this->conversacion->client_id,
+                'kind' => Message::KIND_INBOUND,
+                'direction' => Message::DIRECTION_IN,
+                'to' => $this->conversacion->phone,
+                'body' => $viejo,
+                'status' => Message::STATUS_SENT,
+                'sent_at' => now()->subHours(3),
+            ]);
+            $m->forceFill(['created_at' => now()->subHours(3)])->save();
+        }
+
+        $this->escribe('Buenas');
+
+        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', '¿Qué deseas hacer el día de hoy?'));
+        Http::assertNotSent(fn ($r) => str_contains($r->data()['text'] ?? '', '¿Cómo prefieres agendar?'));
+    }
+
     public function test_saludar_dos_veces_seguidas_no_pausa_al_bot(): void
     {
         /*
@@ -207,7 +236,7 @@ class AnswerJobTest extends TestCase
         $this->assertFalse($this->conversacion->refresh()->agentIsPaused());
         Http::assertNotSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'no te estoy entendiendo'));
         $this->assertSame(2, collect(Http::recorded())
-            ->filter(fn ($par) => str_contains($par[0]->data()['text'] ?? '', '¿En qué te puedo ayudar?'))
+            ->filter(fn ($par) => str_contains($par[0]->data()['text'] ?? '', '¿Qué deseas hacer el día de hoy?'))
             ->count());
     }
 
@@ -219,7 +248,7 @@ class AnswerJobTest extends TestCase
         $this->escribe(GuidedEntry::OTHER);
         $this->escribe(GuidedEntry::QUESTION);
 
-        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', '¿En qué te puedo ayudar?'));
+        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', '¿Qué deseas hacer el día de hoy?'));
         Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', '¿Qué necesitas?'));
         Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', '¿en qué te ayudo?'));
         Http::assertNotSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'RESPUESTA DEL MODELO'));

@@ -56,6 +56,9 @@ class AnswerWhatsappMessageJob implements ShouldQueue
      */
     public int $tries = 2;
 
+    /** Cuánto antes del último mensaje un pedazo sigue siendo "la misma idea". */
+    private const PEDAZOS_MINUTOS = 10;
+
     /** @var list<int> */
     public array $backoff = [10];
 
@@ -244,11 +247,27 @@ class AnswerWhatsappMessageJob implements ShouldQueue
             ->where('direction', Message::DIRECTION_OUT)
             ->max('id');
 
-        $textos = Message::withoutGlobalScope('business')
+        $entrantes = Message::withoutGlobalScope('business')
             ->where('conversation_id', $conversacion->id)
             ->where('direction', Message::DIRECTION_IN)
             ->where('id', '>', $ultimaRespuesta)
             ->orderBy('id')
+            ->get(['body', 'created_at']);
+
+        /*
+         * Solo los pedazos que llegaron CERCA del último -- los de una
+         * misma idea ("quiero cita" / "para mañana" / "con Anyi"). Lo que
+         * quedó sin responder hace horas no decide la respuesta de ahora:
+         * Alejandro escribió "Buenas" y el bot le contestó "¿cómo prefieres
+         * agendar?" porque arrastró su "Quiero agendar una cita" de tres
+         * horas antes, que había muerto en una pausa. Eso sigue en la
+         * bandeja para el equipo; aquí sobra.
+         */
+        $ultimo = $entrantes->last()?->created_at;
+        $textos = $entrantes
+            ->filter(fn (Message $m) => $ultimo === null
+                || $m->created_at === null
+                || $m->created_at->gte($ultimo->copy()->subMinutes(self::PEDAZOS_MINUTOS)))
             ->pluck('body')
             ->filter()
             ->all();

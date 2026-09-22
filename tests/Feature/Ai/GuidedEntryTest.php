@@ -161,7 +161,9 @@ class GuidedEntryTest extends TestCase
 
         $this->assertSame('', $respuesta['text']);
         $this->assertSame([GuidedEntry::BOOK, GuidedEntry::MY_APPOINTMENTS, GuidedEntry::OTHER], $this->ultimosBotones());
-        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', '¡Hola, Carolina! 💅 ¿En qué te puedo ayudar?'));
+        // Como en el mostrador: el nombre, el negocio y la pregunta.
+        Http::assertSent(fn ($r) => ($r->data()['text'] ?? '')
+            === "¡Hola, Carolina! 👋\nTe damos la bienvenida a *Spa de prueba* 💅\n\n¿Qué deseas hacer el día de hoy?");
     }
 
     public function test_el_primer_mensaje_de_la_conversacion_abre_el_menu_aunque_no_sea_saludo(): void
@@ -184,7 +186,7 @@ class GuidedEntryTest extends TestCase
 
         $this->escribe('Hola');
 
-        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', '¡Hola! 💅 ¿En qué te puedo ayudar?'));
+        Http::assertSent(fn ($r) => str_starts_with($r->data()['text'] ?? '', "¡Hola! 👋\nTe damos la bienvenida a *Spa de prueba*"));
     }
 
     public function test_con_una_confirmacion_esperando_no_interrumpe(): void
@@ -219,6 +221,16 @@ class GuidedEntryTest extends TestCase
         $respuesta = $this->escribe(GuidedEntry::WEB);
 
         $this->assertStringContainsString('https://agenda.test/reservar/luxury', $respuesta['text']);
+    }
+
+    public function test_hola_quiero_agendar_saluda_antes_de_preguntar(): void
+    {
+        // Ir al grano sin un hola es descortés: si abre la conversación,
+        // primero la bienvenida.
+        $this->escribe('Hola, quiero agendar');
+
+        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'Te damos la bienvenida a *Spa de prueba*')
+            && str_contains($r->data()['text'] ?? '', '¿Cómo prefieres agendar?'));
     }
 
     public function test_quiero_una_cita_salta_directo_a_como_agendar(): void
