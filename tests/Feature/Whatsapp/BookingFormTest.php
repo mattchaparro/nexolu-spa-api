@@ -156,6 +156,68 @@ class BookingFormTest extends TestCase
         $this->assertSame(1, Appointment::withoutGlobalScopes()->count());
     }
 
+    public function test_otro_dia_abre_el_calendario_con_los_dias_cerrados_bloqueados(): void
+    {
+        /*
+         * Alejandro tocó «Otro día» y recibió una lista de siete días. Con
+         * el Flow del calendario publicado, se abre el selector nativo:
+         * cualquier día del horizonte, y los que nadie trabaja bloqueados.
+         */
+        config()->set('spa.whatsapp_date_flow_id', '777');
+        $phone = (string) ChannelPhone::normalize(self::PHONE);
+        $caller = AiCaller::customer($this->luxury, $phone, $this->conversacion->client, 'whatsapp');
+
+        // Sin fecha: los botones Hoy / Mañana / Otro día.
+        app(AvailabilityCapability::class)->execute($caller, ['servicio' => 'Semipermanente']);
+        app(Toques::class)->atender($this->conversacion->fresh(['business', 'client']), 'Otro día');
+
+        $hoy = CarbonImmutable::now('America/Bogota');
+        Http::assertSent(function ($request) use ($hoy) {
+            $flow = $request->data()['whatsapp_flow'] ?? null;
+
+            return $flow !== null
+                && $flow['flow_id'] === '777'
+                && $flow['screen'] === 'ELEGIR_FECHA'
+                && $flow['data']['min_date'] === $hoy->format('Y-m-d')
+                && $flow['data']['max_date'] === $hoy->addDays(60)->format('Y-m-d')
+                && str_contains($flow['data']['resumen'], 'Semipermanente')
+                // Maria no trabaja domingos: el próximo domingo, bloqueado.
+                && in_array($hoy->next(CarbonImmutable::SUNDAY)->format('Y-m-d'), $flow['data']['unavailable_dates'], true)
+                && ! in_array($hoy->addDay()->format('Y-m-d'), $flow['data']['unavailable_dates'], true);
+        });
+    }
+
+    public function test_la_fecha_del_calendario_trae_las_horas_de_ese_dia(): void
+    {
+        config()->set('spa.whatsapp_date_flow_id', '777');
+        $phone = (string) ChannelPhone::normalize(self::PHONE);
+        $caller = AiCaller::customer($this->luxury, $phone, $this->conversacion->client, 'whatsapp');
+        app(AvailabilityCapability::class)->execute($caller, ['servicio' => 'Semipermanente']);
+        app(Toques::class)->atender($this->conversacion->fresh(['business', 'client']), 'Otro día');
+
+        // Eligió el viernes de la semana siguiente en el calendario.
+        $viernes = CarbonImmutable::now('America/Bogota')->next(CarbonImmutable::FRIDAY)->addWeek();
+        $this->formulario(['pedido' => 'fecha', 'fecha' => $viernes->format('Y-m-d')], 'wamid.fecha')
+            ->assertOk()->assertJsonPath('agent', 'form');
+
+        $dia = $viernes->locale('es')->isoFormat('dddd D [de] MMMM');
+        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'Para *Semipermanente*')
+            && str_contains($r->data()['text'] ?? '', $dia));
+        $this->assertTrue(Message::withoutGlobalScopes()
+            ->where('body', 'like', '%Eligió en el calendario%')->exists());
+    }
+
+    public function test_sin_el_flow_del_calendario_sigue_la_lista_de_siete_dias(): void
+    {
+        $phone = (string) ChannelPhone::normalize(self::PHONE);
+        $caller = AiCaller::customer($this->luxury, $phone, $this->conversacion->client, 'whatsapp');
+        app(AvailabilityCapability::class)->execute($caller, ['servicio' => 'Semipermanente']);
+        app(Toques::class)->atender($this->conversacion->fresh(['business', 'client']), 'Otro día');
+
+        Http::assertNotSent(fn ($r) => isset($r->data()['whatsapp_flow']));
+        Http::assertSent(fn ($r) => count($r->data()['whatsapp_options']['options'] ?? []) === 7);
+    }
+
     public function test_una_mudanza_no_va_por_el_formulario(): void
     {
         // El nfm_reply termina en crear_cita: mover debe seguir por los

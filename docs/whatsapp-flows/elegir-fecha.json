@@ -1,0 +1,64 @@
+{
+  "version": "7.2",
+  "screens": [
+    {
+      "id": "ELEGIR_FECHA",
+      "title": "Elige el día",
+      "terminal": true,
+      "data": {
+        "resumen": {
+          "type": "string",
+          "__example__": "¿Qué día quieres tu Semi + Rubber?"
+        },
+        "min_date": {
+          "type": "string",
+          "__example__": "2026-09-22"
+        },
+        "max_date": {
+          "type": "string",
+          "__example__": "2026-11-21"
+        },
+        "unavailable_dates": {
+          "type": "array",
+          "items": { "type": "string" },
+          "__example__": ["2026-09-27"]
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "Form",
+            "name": "dia",
+            "children": [
+              {
+                "type": "TextBody",
+                "text": "${data.resumen}"
+              },
+              {
+                "type": "DatePicker",
+                "name": "fecha",
+                "label": "Fecha",
+                "required": true,
+                "min-date": "${data.min_date}",
+                "max-date": "${data.max_date}",
+                "unavailable-dates": "${data.unavailable_dates}"
+              },
+              {
+                "type": "Footer",
+                "label": "Ver horas",
+                "on-click-action": {
+                  "name": "complete",
+                  "payload": {
+                    "pedido": "fecha",
+                    "fecha": "${form.fecha}"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

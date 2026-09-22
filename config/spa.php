@@ -30,6 +30,13 @@ return [
     */
     'whatsapp_booking_flow_id' => env('WHATSAPP_BOOKING_FLOW_ID'),
 
+    /*
+    | El Flow con el calendario nativo (docs/whatsapp-flows/elegir-fecha.json)
+    | que se abre al tocar «Otro día». Vacio = la lista de los 7 dias
+    | siguientes, como antes.
+    */
+    'whatsapp_date_flow_id' => env('WHATSAPP_DATE_FLOW_ID'),
+
     'defaults' => [
         // Granularidad de la rejilla de disponibilidad, en minutos.
         'slot_granularity_min' => 15,

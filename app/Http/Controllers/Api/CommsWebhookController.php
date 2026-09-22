@@ -470,9 +470,11 @@ class CommsWebhookController
         }
 
         // El hilo lo cuenta: la clienta ENVIÓ algo, aunque no sea texto.
-        $this->guardarEntrante($conversacion, '📋 Envió el formulario de la cita');
+        $this->guardarEntrante($conversacion, ($respuesta['pedido'] ?? null) === 'fecha'
+            ? '📅 Eligió en el calendario: '.($respuesta['fecha'] ?? '?')
+            : '📋 Envió el formulario de la cita');
 
-        if (! BookingForm::isBookingReply($respuesta)) {
+        if (! BookingForm::isOurs($respuesta)) {
             // Un Flow de otro dueño (una encuesta de Connect, por ejemplo):
             // queda en el hilo y nada más.
             return response()->json(['ok' => true, 'handled' => false, 'form' => 'ajeno']);

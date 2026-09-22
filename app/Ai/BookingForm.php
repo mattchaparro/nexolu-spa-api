@@ -113,6 +113,16 @@ final class BookingForm
     }
 
     /**
+     * ¿Es uno de NUESTROS formularios (confirmar cita o elegir fecha)?
+     *
+     * @param  array<string, mixed>  $respuesta
+     */
+    public static function isOurs(array $respuesta): bool
+    {
+        return in_array($respuesta['pedido'] ?? null, ['cita', 'fecha'], true);
+    }
+
+    /**
      * @param  array<string, mixed>  $respuesta
      */
     public function handle(WhatsappConversation $conversacion, array $respuesta): void
@@ -126,6 +136,13 @@ final class BookingForm
 
         $caller = AiCaller::customer($business, $phone, $conversacion->client, 'whatsapp');
         $envio = app(EnvioDirecto::class);
+
+        // El calendario de «Otro día»: la fecha elegida, a buscar horas.
+        if (($respuesta['pedido'] ?? null) === 'fecha') {
+            $this->dateChosen($conversacion, $caller, $envio, $respuesta);
+
+            return;
+        }
 
         /*
          * El nombre del formulario corrige la ficha ANTES de agendar: es
@@ -186,6 +203,31 @@ final class BookingForm
         // Callarse tras un formulario enviado es dejarla creyendo que quedó.
         $motivo = mb_strtolower(rtrim((string) ($resultado['motivo'] ?? 'esa hora se acabó de ocupar'), '.'));
         $envio->texto($caller, "No pude dejar la cita del formulario 😕 ({$motivo}). Escríbeme por aquí y la cuadramos.");
+    }
+
+    /**
+     * Eligió un día en el calendario: se le mandan las horas de ese día.
+     *
+     * Las horas (o el "ese día no hay") las manda la agenda por el canal;
+     * si lo que vuelve es texto, se envía. Si la fecha no se entiende, se
+     * dice -- callarse tras un formulario enviado es dejarla esperando.
+     *
+     * @param  array<string, mixed>  $respuesta
+     */
+    private function dateChosen(WhatsappConversation $conversacion, AiCaller $caller, EnvioDirecto $envio, array $respuesta): void
+    {
+        $fecha = $this->fecha($respuesta['fecha'] ?? null, $conversacion->business->businessTimezone());
+        $resultado = $fecha === null ? null : app(Toques::class)->pickDate($conversacion, $fecha);
+
+        if ($resultado === null) {
+            $envio->texto($caller, 'No pude leer la fecha que elegiste 😕 ¿Me la escribes? Por ejemplo: "el viernes 3".');
+
+            return;
+        }
+
+        if (trim($resultado['text']) !== '') {
+            $envio->texto($caller, $resultado['text']);
+        }
     }
 
     /**

@@ -1,5 +1,27 @@
 # WhatsApp Flows del agente
 
+Dos formularios:
+
+| Archivo | Para qué | Variable |
+|---|---|---|
+| [confirmar-cita.json](confirmar-cita.json) | Confirmar la cita: hora entre las libres, nombre | `WHATSAPP_BOOKING_FLOW_ID` |
+| [elegir-fecha.json](elegir-fecha.json) | Calendario nativo al tocar «Otro día» | `WHATSAPP_DATE_FLOW_ID` |
+
+## Elegir fecha (el calendario)
+
+Al tocar «Otro día» se abre el selector de fecha nativo de WhatsApp: desde
+hoy hasta `max_booking_horizon_days`, con los días en que nadie del equipo
+trabaja bloqueados (sin horario ese día de la semana). La fecha vuelve como
+`{"pedido": "fecha", "fecha": "YYYY-MM-DD"}` y el bot manda las horas de ese
+día (con mudanza incluida, si venía de «Reagendar»). Sin la variable, «Otro
+día» sigue mandando la lista de los 7 días siguientes.
+
+Publicarlo: WhatsApp Manager → Flows → *Create Flow* → pegar
+`elegir-fecha.json` → *Preview* → **Publish** → copiar el Flow ID →
+`WHATSAPP_DATE_FLOW_ID=<id>` en el `.env` del spa y redeploy.
+
+---
+
 El formulario nativo que confirma la cita: la IA reúne los datos
 conversando y la clienta **revisa y confirma** en una pantalla.
 

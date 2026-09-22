@@ -6,6 +6,7 @@ use App\Ai\Capabilities\AvailabilityCapability;
 use App\Ai\Capabilities\CreateAppointmentCapability;
 use App\Ai\Capabilities\RescheduleAppointmentCapability;
 use App\Models\Message;
+use App\Models\ResourceSchedule;
 use App\Models\WhatsappConversation;
 use App\Services\WhatsApp\NexoluCommsChannel;
 use App\Support\ChannelPhone;
@@ -213,6 +214,15 @@ final class Toques
      */
     private function losProximosDias(WhatsappConversation $conversacion, string $phone, array $pedido): array
     {
+        // Con el Flow del calendario publicado, «Otro día» abre el selector
+        // nativo de fecha -- cualquier día del horizonte, no solo la semana
+        // que cabe en una lista. Si no se puede, la lista de siempre.
+        $calendario = $this->abrirCalendario($conversacion, $phone, $pedido);
+
+        if ($calendario !== null) {
+            return $calendario;
+        }
+
         $tz = $conversacion->business->businessTimezone();
         $filas = [];
         $fechas = [];
@@ -240,6 +250,108 @@ final class Toques
         $this->anotar($conversacion, $phone, $texto."\n\n".implode("\n", array_map(fn ($f) => '▸ '.$f['title'], $filas)));
 
         return ['text' => '', 'conversation_id' => null, 'tools_used' => ['elegir_dia']];
+    }
+
+    /**
+     * El calendario nativo de WhatsApp (docs/whatsapp-flows/elegir-fecha.json).
+     *
+     * Desde hoy hasta donde el negocio deja reservar, con los días en que
+     * nadie trabaja bloqueados: que no se pueda elegir un domingo cerrado
+     * es mejor que elegirlo y leer "ese día no hay horas". La fecha vuelve
+     * como nfm_reply (`pedido: fecha`) y la atiende `pickDate`.
+     *
+     * @param  array<string, mixed>  $pedido
+     * @return array{text: string, conversation_id: null, tools_used: list<string>}|null
+     */
+    private function abrirCalendario(WhatsappConversation $conversacion, string $phone, array $pedido): ?array
+    {
+        $flowId = trim((string) config('spa.whatsapp_date_flow_id'));
+
+        if ($flowId === '') {
+            return null;
+        }
+
+        $business = $conversacion->business;
+        $tz = $business->businessTimezone();
+        $desde = CarbonImmutable::now($tz)->startOfDay();
+        $hasta = $desde->addDays(max(1, (int) $business->schedulingSetting('max_booking_horizon_days')));
+
+        $caller = AiCaller::customer($business, $phone, $conversacion->client, 'whatsapp');
+        $servicio = $this->nombreDe($pedido);
+        $resumen = isset($pedido['mudanza'])
+            ? "¿Para qué día movemos tu cita de {$servicio}?"
+            : ($servicio !== '' ? "¿Qué día quieres tu {$servicio}?" : '¿Qué día te sirve?');
+
+        $enviado = app(EnvioDirecto::class)->formulario(
+            $caller,
+            $flowId,
+            'ELEGIR_FECHA',
+            'Elige el día en el calendario 👇',
+            'Elegir fecha',
+            [
+                'resumen' => $resumen,
+                'min_date' => $desde->format('Y-m-d'),
+                'max_date' => $hasta->format('Y-m-d'),
+                'unavailable_dates' => $this->diasCerrados($business->id, $desde, $hasta),
+            ],
+        );
+
+        if (! $enviado) {
+            return null;
+        }
+
+        return ['text' => '', 'conversation_id' => null, 'tools_used' => ['elegir_dia']];
+    }
+
+    /**
+     * Los días del rango en que NADIE del equipo trabaja (día ISO sin
+     * horario). Si no hay horarios cargados no se bloquea nada: ante la
+     * duda, que la agenda lo diga.
+     *
+     * @return list<string>
+     */
+    private function diasCerrados(int $businessId, CarbonImmutable $desde, CarbonImmutable $hasta): array
+    {
+        $abiertos = ResourceSchedule::withoutGlobalScope('business')
+            ->where('business_id', $businessId)
+            ->distinct()
+            ->pluck('weekday')
+            ->map(fn ($d) => (int) $d)
+            ->all();
+
+        if ($abiertos === []) {
+            return [];
+        }
+
+        $cerrados = [];
+
+        for ($dia = $desde; $dia->lte($hasta); $dia = $dia->addDay()) {
+            if (! in_array($dia->isoWeekday(), $abiertos, true)) {
+                $cerrados[] = $dia->format('Y-m-d');
+            }
+        }
+
+        return $cerrados;
+    }
+
+    /**
+     * La fecha que eligió en el calendario (nfm_reply): se buscan las horas
+     * de ese día con todo lo que ya se sabía del pedido.
+     *
+     * @return array{text: string, conversation_id: null, tools_used: list<string>}|null
+     */
+    public function pickDate(WhatsappConversation $conversacion, string $fecha): ?array
+    {
+        $business = $conversacion->business;
+        $phone = ChannelPhone::normalize((string) $conversacion->phone, $business->country_code ?? 'CO');
+
+        if ($phone === null || ! preg_match('/^\d{4}-\d{2}-\d{2}$/', $fecha)) {
+            return null;
+        }
+
+        $caller = AiCaller::customer($business, $phone, $conversacion->client, 'whatsapp');
+
+        return $this->conElDia($caller, $phone, UltimoPedido::ver($phone), $fecha);
     }
 
     /**
