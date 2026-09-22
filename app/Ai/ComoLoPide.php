@@ -78,6 +78,10 @@ final class ComoLoPide
     private const CATEGORIA_PROBABLE = [
         'una' => 'manicur',
         'unas' => 'manicur',
+        // Los diminutivos también: Alejandro pidió "unas uñitas" en
+        // producción y el bot contestó que no encontraba ese servicio.
+        'unita' => 'manicur',
+        'unitas' => 'manicur',
         'esmalte' => 'manicur',
         'esmaltado' => 'manicur',
     ];

@@ -4,6 +4,7 @@ namespace Tests\Feature\Whatsapp;
 
 use App\Ai\AiCaller;
 use App\Ai\Capabilities\AvailabilityCapability;
+use App\Ai\Toques;
 use App\Ai\UltimoPedido;
 use App\Models\Appointment;
 use App\Models\Business;
@@ -244,6 +245,43 @@ class BookingFormTest extends TestCase
         // Misma clienta + misma cita exacta = "ya la tienes", no dos citas.
         $this->assertSame(1, Appointment::withoutGlobalScopes()->count());
         Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'ya la tienes agendada'));
+    }
+
+    public function test_formulario_con_cita_existente_responde_con_los_botones_de_mover(): void
+    {
+        /*
+         * Lo que no le cuadró a Alejandro el primer día: envió el
+         * formulario teniendo ya una cita y recibió "escríbeme si
+         * quieres moverla" -- texto plano, cuando el camino de botones
+         * responde con «Mover mi cita» / «Agendar otra». El formulario
+         * no puede ser el camino con MENOS flujo.
+         */
+        $this->formulario([
+            'pedido' => 'cita', 'servicio' => 'Semipermanente',
+            'fecha' => $this->manana()->format('Y-m-d'), 'hora' => '09:00',
+        ], 'wamid.primera')->assertOk();
+
+        $this->formulario([
+            'pedido' => 'cita', 'servicio' => 'Semipermanente',
+            'fecha' => $this->manana()->format('Y-m-d'), 'hora' => '15:00',
+        ], 'wamid.segunda')->assertOk();
+
+        // No agendó una segunda: preguntó, con botones.
+        $this->assertSame(1, Appointment::withoutGlobalScopes()->count());
+        Http::assertSent(function ($request) {
+            $opciones = $request->data()['whatsapp_options']['options'] ?? null;
+
+            return $opciones !== null
+                && array_column($opciones, 'title') === [Toques::MOVER, Toques::OTRA_CITA];
+        });
+
+        // Y el toque de «Mover mi cita» la mueve de verdad.
+        $respuesta = app(Toques::class)->atender($this->conversacion, Toques::MOVER);
+
+        $this->assertSame('', $respuesta['text']);
+        $cita = Appointment::withoutGlobalScopes()->sole();
+        $this->assertSame('15:00', $cita->starts_at->timezone('America/Bogota')->format('H:i'));
+        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'quedó para el'));
     }
 
     public function test_un_formulario_ajeno_no_agenda_nada(): void

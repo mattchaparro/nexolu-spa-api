@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Models\Message;
+use App\Models\WhatsappConversation;
 use App\Services\Messaging\MessageDispatcher;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -87,6 +88,51 @@ class SendMessageJob implements ShouldQueue
          * que la bandeja muestra para que una persona decida: reintentar,
          * mandarlo a mano, o corregir el telefono de la ficha.
          */
+        $this->dejarEnLaBandeja($message);
+
         $this->fail($message->error ?? 'El canal rechazó el envío.');
+    }
+
+    /**
+     * La conversación salta como pendiente: alguien tiene que enterarse.
+     *
+     * A María el canal le rechazó TODOS los envíos (su número no estaba
+     * en la lista del número de prueba de Meta) y nadie lo supo: los
+     * mensajes morían fallidos y la conversación se veía tranquila. Si
+     * WhatsApp no puede entregar, una persona tiene que contactarla por
+     * otro medio -- pero primero tiene que verlo.
+     */
+    private function dejarEnLaBandeja(Message $message): void
+    {
+        if ($message->conversation_id === null) {
+            return;
+        }
+
+        $conversacion = WhatsappConversation::withoutGlobalScope('business')
+            ->find($message->conversation_id);
+
+        if ($conversacion === null) {
+            return;
+        }
+
+        Message::create([
+            'business_id' => $conversacion->business_id,
+            'conversation_id' => $conversacion->id,
+            'client_id' => $conversacion->client_id,
+            'kind' => Message::KIND_STAFF,
+            'direction' => Message::DIRECTION_OUT,
+            'to' => $conversacion->phone,
+            'body' => '⚑ WhatsApp rechazó la respuesta ('.($message->error ?? 'sin motivo').'). '
+                .'La clienta sigue esperando: contáctala por otro medio.',
+            // Nota interna: nace enviada para que el outbox no la despache.
+            'status' => Message::STATUS_SENT,
+            'sent_at' => now(),
+        ]);
+
+        $conversacion->update([
+            'last_message_at' => now(),
+            'read_at' => null,
+            'status' => WhatsappConversation::STATUS_OPEN,
+        ]);
     }
 }

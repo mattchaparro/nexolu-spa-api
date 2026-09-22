@@ -438,8 +438,25 @@ final class Toques
 
         UltimoPedido::olvidar($phone);
 
-        // La confirmacion ya la mando la propia herramienta de reserva
-        // (EnvioDirecto): repetirla aqui seria el mismo mensaje dos veces.
+        /*
+         * La confirmacion ya la mando la propia herramienta de reserva
+         * (EnvioDirecto, con su caida al outbox): repetirla aqui seria el
+         * mismo mensaje dos veces. Pero si NI ASI salio, este texto es el
+         * ultimo cinturon: callarse deja una cita que nadie sabe que tiene.
+         */
+        if (! ($resultado['confirmacion_enviada'] ?? true)) {
+            return [
+                'text' => sprintf(
+                    '¡Listo! Quedó agendada: *%s* a las *%s*%s. Te esperamos 💅',
+                    $resultado['servicio'] ?? $this->nombreDe($pedido),
+                    $resultado['hora'] ?? $hora['hora'],
+                    empty($resultado['con']) ? '' : ' con *'.$resultado['con'].'*',
+                ),
+                'conversation_id' => null,
+                'tools_used' => ['crear_cita'],
+            ];
+        }
+
         return ['text' => '', 'conversation_id' => null, 'tools_used' => ['crear_cita']];
     }
 

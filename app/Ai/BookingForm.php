@@ -178,13 +178,7 @@ final class BookingForm
         }
 
         if (! empty($resultado['ya_tiene_cita'])) {
-            $cita = $resultado['ya_tiene_cita'];
-            $envio->texto($caller, sprintf(
-                'Ya tienes una cita de *%s* el *%s* a las *%s* 🤔 Escríbeme si quieres moverla, o si de verdad quieres otra aparte.',
-                $cita['servicio'],
-                $cita['dia'],
-                $cita['hora'],
-            ));
+            $this->preguntarSiMueve($caller, $envio, $phone, $argumentos, $resultado['ya_tiene_cita']);
 
             return;
         }
@@ -192,6 +186,78 @@ final class BookingForm
         // Callarse tras un formulario enviado es dejarla creyendo que quedó.
         $motivo = mb_strtolower(rtrim((string) ($resultado['motivo'] ?? 'esa hora se acabó de ocupar'), '.'));
         $envio->texto($caller, "No pude dejar la cita del formulario 😕 ({$motivo}). Escríbeme por aquí y la cuadramos.");
+    }
+
+    /**
+     * Ya tenía una cita: los MISMOS botones del camino de botones.
+     *
+     * El primer día del formulario, Alejandro envió el suyo teniendo ya
+     * una cita y recibió "escríbeme si quieres moverla" — texto plano,
+     * cuando el flujo de botones responde con «Mover mi cita» / «Agendar
+     * otra». El formulario no puede ser el camino con MENOS flujo. Se
+     * deja el pedido armado igual que lo haría Toques y los toques
+     * siguientes ya saben qué hacer (mover ejecuta reagendar).
+     *
+     * @param  array<string, mixed>  $argumentos
+     * @param  array{id: int, servicio: string, dia: string, hora: string}  $existente
+     */
+    private function preguntarSiMueve(
+        AiCaller $caller,
+        EnvioDirecto $envio,
+        string $phone,
+        array $argumentos,
+        array $existente,
+    ): void {
+        $tz = $caller->business->businessTimezone();
+        $inicio = FechaDicha::resolver((string) $argumentos['fecha'], $tz)
+            ?->setTimeFromTimeString($argumentos['hora'].':00');
+
+        if ($inicio === null) {
+            $envio->texto($caller, sprintf(
+                'Ya tienes una cita de *%s* el *%s* a las *%s* 🤔 Escríbeme si quieres moverla, o si de verdad quieres otra aparte.',
+                $existente['servicio'],
+                $existente['dia'],
+                $existente['hora'],
+            ));
+
+            return;
+        }
+
+        $dia = $inicio->locale('es')->isoFormat('dddd D [de] MMMM');
+        $horaLegible = HoraLegible::de($inicio, $tz);
+
+        UltimoPedido::guardar($phone, [
+            'servicios' => [(string) $argumentos['servicio']],
+            'fecha' => (string) $argumentos['fecha'],
+            'dia' => $dia,
+            'confirmar' => ['hora_24' => (string) $argumentos['hora'], 'hora' => $horaLegible],
+            'decidir_mover' => $existente,
+        ]);
+
+        $enviado = $envio->opciones(
+            $caller,
+            sprintf(
+                'Ya tienes una cita de *%s* el *%s* a las *%s* 🤔 ¿La muevo para el *%s* a las *%s*, o te agendo otra aparte?',
+                $existente['servicio'],
+                $existente['dia'],
+                $existente['hora'],
+                $dia,
+                $horaLegible,
+            ),
+            [
+                ['id' => 'mover', 'title' => Toques::MOVER],
+                ['id' => 'otra_cita', 'title' => Toques::OTRA_CITA],
+            ],
+        );
+
+        if (! $enviado) {
+            $envio->texto($caller, sprintf(
+                'Ya tienes una cita de *%s* el *%s* a las *%s* 🤔 Escríbeme si quieres moverla, o si de verdad quieres otra aparte.',
+                $existente['servicio'],
+                $existente['dia'],
+                $existente['hora'],
+            ));
+        }
     }
 
     /**

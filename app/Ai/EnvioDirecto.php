@@ -4,6 +4,7 @@ namespace App\Ai;
 
 use App\Models\Message;
 use App\Models\WhatsappConversation;
+use App\Services\Messaging\MessageDispatcher;
 use App\Services\WhatsApp\NexoluCommsChannel;
 use App\Support\ChannelPhone;
 
@@ -28,7 +29,10 @@ use App\Support\ChannelPhone;
  */
 final class EnvioDirecto
 {
-    public function __construct(private readonly NexoluCommsChannel $channel) {}
+    public function __construct(
+        private readonly NexoluCommsChannel $channel,
+        private readonly MessageDispatcher $dispatcher,
+    ) {}
 
     /** Un texto de la herramienta, directo a la clienta. */
     public function texto(AiCaller $caller, string $texto): bool
@@ -40,7 +44,14 @@ final class EnvioDirecto
         }
 
         if (! $this->channel->sendText($phone, $texto, $caller->business->id)) {
-            return false;
+            /*
+             * El envio directo fallo: a la COLA, que reintenta y deja
+             * rastro. La confirmacion de las 12:34 de la noche fallo asi
+             * -- un rechazo del canal -- y Alejandro quedo con una cita
+             * agendada que nunca supo que tenia: el envio directo no
+             * puede ser un unico disparo sin red.
+             */
+            return $this->porLaCola($caller, $phone, $texto);
         }
 
         $this->registrar($caller, $phone, $texto);
@@ -109,6 +120,35 @@ final class EnvioDirecto
         return true;
     }
 
+    /**
+     * El mensaje entra al outbox: se reintenta solo y, si al final no
+     * sale, queda FALLIDO a la vista en la bandeja (ver SendMessageJob).
+     */
+    private function porLaCola(AiCaller $caller, string $phone, string $texto): bool
+    {
+        $conversacion = $this->conversacion($caller, $phone);
+
+        if ($conversacion === null) {
+            return false;
+        }
+
+        OpcionesEnviadas::marcar($phone);
+
+        $this->dispatcher->queue(
+            $caller->business,
+            Message::KIND_AGENT,
+            $phone,
+            $texto,
+            null,
+            $conversacion->client,
+            null,
+            null,
+            $conversacion,
+        );
+
+        return true;
+    }
+
     private function phone(AiCaller $caller): ?string
     {
         if ($caller->isStaff()) {
@@ -118,14 +158,19 @@ final class EnvioDirecto
         return ChannelPhone::normalize((string) $caller->phone, $caller->business->country_code ?? 'CO');
     }
 
+    private function conversacion(AiCaller $caller, string $phone): ?WhatsappConversation
+    {
+        return WhatsappConversation::withoutGlobalScope('business')
+            ->where('business_id', $caller->business->id)
+            ->where('phone', $phone)
+            ->first();
+    }
+
     private function registrar(AiCaller $caller, string $phone, string $body): void
     {
         OpcionesEnviadas::marcar($phone);
 
-        $conversacion = WhatsappConversation::withoutGlobalScope('business')
-            ->where('business_id', $caller->business->id)
-            ->where('phone', $phone)
-            ->first();
+        $conversacion = $this->conversacion($caller, $phone);
 
         if ($conversacion === null) {
             return;

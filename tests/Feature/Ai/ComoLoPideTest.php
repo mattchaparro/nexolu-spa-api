@@ -66,6 +66,16 @@ class ComoLoPideTest extends TestCase
         ]);
     }
 
+    public function test_unas_unitas_tambien_son_manicure(): void
+    {
+        // "Buenas para unas uñitas" -- Alejandro, en producción -- recibió
+        // "no encuentro el servicio uñitas": faltaba el diminutivo.
+        $candidatos = ComoLoPide::candidatos($this->luxury(), 'Buenas para unas uñitas');
+
+        $this->assertContains('Semipermanente', $candidatos->pluck('name')->all());
+        $this->assertContains('Tradicional', $candidatos->pluck('name')->all());
+    }
+
     public function test_las_manitos_traen_la_categoria_manicure_entera(): void
     {
         $candidatos = ComoLoPide::candidatos($this->luxury(), 'arreglarse las manitos');
