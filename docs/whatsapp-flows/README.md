@@ -1,8 +1,33 @@
 # WhatsApp Flows del agente
 
 El formulario nativo que confirma la cita: la IA reúne los datos
-conversando y la clienta **revisa y confirma** en una pantalla — servicio,
-fecha (selector nativo), hora y nombre, todo pre-cargado y editable.
+conversando y la clienta **revisa y confirma** en una pantalla.
+
+## Qué puede editar la clienta (y por qué solo eso)
+
+En un Flow estático los datos se cargan AL ENVIARLO y nada se recalcula
+después. Por eso el formulario solo deja editar lo que no afecta la
+agenda:
+
+- **Servicio y fecha: solo lectura** (el encabezado). Cambiarlos exigiría
+  recalcular horas — eso es la v2, abajo.
+- **Hora: editable, pero solo entre las horas LIBRES de ese día**, que
+  viajan como data al momento del envío. Si justo se ocupa, la guarda de
+  `crear_cita` lo ataja y se le avisa.
+- **Nombre y para quién: editables** — el remedio para los perfiles
+  raros de WhatsApp.
+- ¿Otro día u otro servicio? Cierra el formulario y lo escribe: eso es
+  conversación.
+
+## v2 (siguiente iteración): el formulario dinámico
+
+Servicio → manicurista → fecha → horas reales en cada paso, con un Flow
+de `data_exchange`: Meta cifra cada interacción (RSA+AES, llave pública
+registrada en el número) y un endpoint nuestro responde. El endpoint va
+en **Connect** (dueño del plumbing de Meta), que descifra y reenvía a la
+app dueña; el spa ya expone la lectura de disponibilidad para flujos
+(la "Solicitud externa" de la fase 06). Al construirlo, esto se vuelve
+feature de producto Connect para cualquier vertical.
 
 ## Estado
 
