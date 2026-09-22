@@ -137,6 +137,27 @@ class AvailabilityCapability implements Capability
 
         if ($phoneCtx !== null) {
             $arguments = UltimoPedido::completar($phoneCtx, $arguments);
+
+            /*
+             * Lo dicho se guarda ANTES de intentar resolver nada. Yesica
+             * pidio "manicure tradicional para el jueves"; el servicio no
+             * existia con ese nombre, la resolucion lanzo, y "el jueves" se
+             * perdio con ella: la siguiente llamada consulto HOY y el bot
+             * le dijo que ya no habia horas. La fecha, la franja y para
+             * quien es no dependen de que el servicio se haya entendido.
+             */
+            UltimoPedido::guardar($phoneCtx, [
+                ...UltimoPedido::ver($phoneCtx),
+                ...array_filter([
+                    'fecha' => $arguments['fecha'] ?? null,
+                    'franja' => $arguments['franja'] ?? null,
+                    'juntas' => $arguments['juntas'] ?? null,
+                    'empleado' => $arguments['empleado'] ?? null,
+                    'sede' => $arguments['sede'] ?? null,
+                    'para_quien' => $arguments['para_quien'] ?? null,
+                    'nombres' => $arguments['nombres'] ?? null,
+                ], fn ($v) => $v !== null && $v !== ''),
+            ]);
         }
 
         if (empty($arguments['servicio']) && empty($arguments['servicios'])) {
