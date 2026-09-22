@@ -136,8 +136,10 @@ final class Toques
         // 1.4) Le preguntamos con quién quiere (o «Cualquiera»).
         if (! empty($pedido['eligiendo_empleado'])) {
             foreach ($candidatos as $plano) {
-                if (isset($pedido['empleados'][$plano])) {
-                    return $this->conLaPersona($caller, $phone, $pedido, $pedido['empleados'][$plano]);
+                $clave = UltimoPedido::claveDe($pedido['empleados'] ?? [], $plano);
+
+                if ($clave !== null) {
+                    return $this->conLaPersona($caller, $phone, $pedido, $pedido['empleados'][$clave]);
                 }
             }
 
@@ -152,8 +154,11 @@ final class Toques
                     return $this->conElDia($caller, $phone, $pedido, $plano === 'hoy' ? 'hoy' : 'mañana');
                 }
 
-                if (isset($pedido['fechas'][$plano])) {
-                    return $this->conElDia($caller, $phone, $pedido, $pedido['fechas'][$plano]);
+                // El título de la fila vuelve recortado: se busca aguantándolo.
+                $clave = UltimoPedido::claveDe($pedido['fechas'] ?? [], $plano);
+
+                if ($clave !== null) {
+                    return $this->conElDia($caller, $phone, $pedido, $pedido['fechas'][$clave]);
                 }
 
                 if (in_array($plano, ['otro dia', 'otro'], true)) {

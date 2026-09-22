@@ -380,6 +380,27 @@ class GuidedEntryTest extends TestCase
         $this->assertSame(['menu_inicial'], $respuesta['tools_used']);
     }
 
+    public function test_una_cita_tocada_se_encuentra_aunque_el_titulo_vuelva_recortado(): void
+    {
+        /*
+         * Alejandro tocó la fila «Sáb. 26 sep. · 3:30 pm» y WhatsApp
+         * devolvió «Sáb. 26 sep. · 3:30», sin el "pm". El bot buscaba el
+         * título exacto, no encontraba la cita, y la cancelación terminaba
+         * en un "no entendí la fecha".
+         */
+        $this->cita('Semipermanente', $this->manana(9));
+        $this->cita('Tradicional', $this->manana(11));
+
+        $this->escribe(GuidedEntry::MY_APPOINTMENTS);
+        $filas = $this->ultimosBotones();
+
+        // Como vuelve de WhatsApp: cortado.
+        $recortada = mb_substr($filas[0], 0, mb_strlen($filas[0]) - 3);
+        $this->escribe($recortada);
+
+        $this->assertSame([GuidedEntry::RESCHEDULE, GuidedEntry::CANCEL, GuidedEntry::BACK], $this->ultimosBotones());
+    }
+
     public function test_no_dejarla_no_cancela_nada(): void
     {
         $cita = $this->cita('Semipermanente', $this->manana(9));

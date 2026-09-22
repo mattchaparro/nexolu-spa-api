@@ -214,7 +214,11 @@ final class GuidedEntry
                 (bool) preg_match('/\b(web|pagina|link|enlace)\b/u', $t) => $this->bookOnWeb($caller, $phone),
                 default => null,
             },
-            'citas' => isset($pedido['citas'][$t]) ? $this->showAppointment($caller, $phone, (int) $pedido['citas'][$t]) : null,
+            // El título vuelve recortado ("Sáb. 26 sep. · 3:30" por "…3:30
+            // pm"), así que se busca aguantando el recorte.
+            'citas' => ($clave = UltimoPedido::claveDe($pedido['citas'] ?? [], $t)) !== null
+                ? $this->showAppointment($caller, $phone, (int) $pedido['citas'][$clave])
+                : null,
             'cita' => match ($t) {
                 $this->plain(self::RESCHEDULE) => $this->moveChosen($caller, $phone, (int) $pedido['cita_id']),
                 $this->plain(self::CANCEL) => $this->askCancel($caller, $phone, (int) $pedido['cita_id']),

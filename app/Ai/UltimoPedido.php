@@ -150,6 +150,39 @@ final class UltimoPedido
         return null;
     }
 
+    /**
+     * La clave de un mapa "título tocado → valor", aguantando el recorte.
+     *
+     * Mismo problema que `destruncar`, pero para las listas que guardan un
+     * valor por fila (las citas, los días): Alejandro tocó la fila «Sáb. 26
+     * sep. · 3:30 pm» y volvió «Sáb. 26 sep. · 3:30» -- sin el "pm". El bot
+     * buscó exacto, no la encontró, y la cancelación terminó en un "no
+     * entendí la fecha".
+     *
+     * @param  array<string, mixed>  $mapa
+     */
+    public static function claveDe(array $mapa, string $texto): ?string
+    {
+        $t = rtrim(self::plano(preg_replace('/(\.{3}|…)\s*$/u', '', $texto) ?? $texto));
+
+        if ($t === '' || $mapa === []) {
+            return null;
+        }
+
+        if (array_key_exists($t, $mapa)) {
+            return $t;
+        }
+
+        foreach (array_keys($mapa) as $clave) {
+            // El mínimo de 12 evita que un toque corto calce por accidente.
+            if (mb_strlen($t) >= 12 && str_starts_with((string) $clave, $t)) {
+                return (string) $clave;
+            }
+        }
+
+        return null;
+    }
+
     private static function plano(string $texto): string
     {
         return trim(mb_strtolower(strtr($texto, ['á' => 'a', 'é' => 'e', 'í' => 'i', 'ó' => 'o', 'ú' => 'u', 'ñ' => 'n'])));
