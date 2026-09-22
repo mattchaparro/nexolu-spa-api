@@ -112,15 +112,28 @@ class AnswerWhatsappMessageJob implements ShouldQueue
         }
 
         /*
+         * La marca de "ya salieron botones" es de ESTE turno, no del
+         * anterior. Nadie la borraba al empezar: el iniciador mandaba sus
+         * botones, la marca quedaba viva tres minutos, y la respuesta al
+         * toque siguiente -- el link de «Agendar en la web» -- se descartaba
+         * en silencio. Alejandro tocó el botón y no recibió nada.
+         */
+        OpcionesEnviadas::consumir($conversacion->phone);
+
+        /*
          * Un boton tocado -- una hora, un servicio, "Si, agendar" -- es un
          * dato que ya conocemos: no se le pide al modelo que lo interprete.
          * El arranque generico ("hola, quiero una cita") tampoco necesita
-         * modelo: le llega el menu de los mas pedidos (GuidedEntry). Solo
-         * el texto libre de verdad habla con el modelo.
+         * modelo: le llega el iniciador (GuidedEntry). Solo el texto libre
+         * de verdad habla con el modelo.
          */
         $respuesta = app(Toques::class)->atender($conversacion, $pendientes)
-            ?? app(GuidedEntry::class)->attend($conversacion, $pendientes)
-            ?? $ia->ask($conversacion, $pendientes);
+            ?? app(GuidedEntry::class)->attend($conversacion, $pendientes);
+
+        // Lo que redacta el CÓDIGO sale siempre; las guardas de abajo
+        // (botones ya enviados, eco) son para el texto del modelo.
+        $delCodigo = $respuesta !== null;
+        $respuesta ??= $ia->ask($conversacion, $pendientes);
 
         if ($respuesta === null) {
             /*
@@ -149,7 +162,11 @@ class AnswerWhatsappMessageJob implements ShouldQueue
          * vacio funciona a veces, y "a veces" en un chat con clientas es
          * un mensaje duplicado cada tres conversaciones.
          */
-        if (trim($respuesta['text']) === '' || OpcionesEnviadas::consumir($conversacion->phone)) {
+        if (trim($respuesta['text']) === '') {
+            return;
+        }
+
+        if (! $delCodigo && OpcionesEnviadas::consumir($conversacion->phone)) {
             return;
         }
 
@@ -158,8 +175,9 @@ class AnswerWhatsappMessageJob implements ShouldQueue
          * perdio el hilo: en vez de repetirselo a la clienta se le manda
          * el enlace de la agenda y la conversacion pasa a una persona.
          */
-        $texto = app(Repetido::class)->atajar($conversacion, $respuesta['text'])
-            ?? $respuesta['text'];
+        $texto = $delCodigo
+            ? $respuesta['text']
+            : (app(Repetido::class)->atajar($conversacion, $respuesta['text']) ?? $respuesta['text']);
 
         $dispatcher->queue(
             $conversacion->business,
