@@ -152,7 +152,9 @@ class GuidedEntryTest extends TestCase
         $respuesta = $this->entry()->attend($this->conversacion, 'Hola! Necesito cambiar mi cita de mañana');
 
         $this->assertSame(['mover_cita'], $respuesta['tools_used']);
-        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'Para *Semipermanente*'));
+        // El encabezado DICE que es la mudanza: sin eso, Laura creyó que
+        // el bot no la había entendido y soltó los botones.
+        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'movemos tu cita de *Semipermanente*'));
 
         // Toca una hora nueva y confirma.
         $pedido = UltimoPedido::ver($phone);

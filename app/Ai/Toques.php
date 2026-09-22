@@ -44,6 +44,9 @@ final class Toques
     /** Lo que dice el botón de pedir otras horas. */
     public const OTRA_HORA = 'Otra hora';
 
+    /** El "Sí" cuando lo que se confirma es una mudanza. */
+    public const SI_MOVER = 'Sí, muévela';
+
     /** Ya tenía una cita del mismo servicio: moverla… */
     public const MOVER = 'Mover mi cita';
 
@@ -114,7 +117,7 @@ final class Toques
         // 1) Había una confirmación esperando.
         if (isset($pedido['confirmar'])) {
             foreach ($candidatos as $plano) {
-                if (in_array($plano, ['si, agendar', 'si agendar', 'si', 'dale', 'confirmo', 'confirmar', 'listo', 'ok', 'de una', 'agendame', 'agendala'], true)) {
+                if (in_array($plano, ['si, agendar', 'si agendar', 'si, muevela', 'si muevela', 'muevela', 'si', 'dale', 'confirmo', 'confirmar', 'listo', 'ok', 'de una', 'agendame', 'agendala'], true)) {
                     return $this->agendar($caller, $conversacion, $phone, $pedido);
                 }
 
@@ -248,19 +251,29 @@ final class Toques
      */
     private function confirmar(WhatsappConversation $conversacion, string $phone, array $pedido, array $hora): array
     {
-        $texto = sprintf(
-            'Te confirmo: *%s* el *%s* a las *%s*%s. ¿Lo agendo?',
-            $this->nombreDe($pedido),
-            $pedido['dia'] ?? $pedido['fecha'],
-            $hora['hora'],
-            empty($hora['con']) ? '' : ' con *'.$hora['con'].'*',
-        );
+        // Una mudanza se confirma como mudanza: "¿lo agendo?" a quien
+        // pidió MOVER su cita suena a cita nueva y a que no se entendió.
+        $texto = isset($pedido['mudanza'])
+            ? sprintf(
+                'Tu cita de *%s* quedaría para el *%s* a las *%s*%s. ¿La muevo?',
+                $this->nombreDe($pedido),
+                $pedido['dia'] ?? $pedido['fecha'],
+                $hora['hora'],
+                empty($hora['con']) ? '' : ' con *'.$hora['con'].'*',
+            )
+            : sprintf(
+                'Te confirmo: *%s* el *%s* a las *%s*%s. ¿Lo agendo?',
+                $this->nombreDe($pedido),
+                $pedido['dia'] ?? $pedido['fecha'],
+                $hora['hora'],
+                empty($hora['con']) ? '' : ' con *'.$hora['con'].'*',
+            );
 
         $enviado = $this->channel->sendOptions(
             $phone,
             $texto,
             [
-                ['id' => 'si', 'title' => self::SI],
+                ['id' => 'si', 'title' => isset($pedido['mudanza']) ? self::SI_MOVER : self::SI],
                 ['id' => 'otra', 'title' => self::OTRA_HORA],
             ],
             $conversacion->business_id,
@@ -273,7 +286,7 @@ final class Toques
 
         OpcionesEnviadas::marcar($phone);
         UltimoPedido::guardar($phone, [...$pedido, 'confirmar' => $hora]);
-        $this->anotar($conversacion, $phone, $texto."\n\n▸ ".self::SI."\n▸ ".self::OTRA_HORA);
+        $this->anotar($conversacion, $phone, $texto."\n\n▸ ".(isset($pedido['mudanza']) ? self::SI_MOVER : self::SI)."\n▸ ".self::OTRA_HORA);
 
         return ['text' => '', 'conversation_id' => null, 'tools_used' => ['confirmar_hora']];
     }

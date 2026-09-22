@@ -703,12 +703,26 @@ class AvailabilityCapability implements Capability
         }
 
         $queServicio = $this->comoSeNombran($servicios);
+        $dia = $fecha->locale('es')->isoFormat('dddd D [de] MMMM');
 
-        $texto = sprintf(
-            'Para *%s* el *%s* tengo estas horas 👇',
-            $queServicio,
-            $fecha->locale('es')->isoFormat('dddd D [de] MMMM'),
-        );
+        /*
+         * Si el pedido es la MUDANZA de una cita, el encabezado lo dice.
+         * Laura pidió "cambiar mi cita", recibió "Para Arabe/4D tengo
+         * estas horas" y creyó que el bot no la había entendido ("me
+         * parece que no me expliqué bien") -- soltó los botones, se fue
+         * al texto libre y de ahí al pantano. La lista era la correcta;
+         * lo que faltaba era decirle que era para MOVER su cita.
+         */
+        $mudanza = UltimoPedido::ver($phone)['mudanza'] ?? null;
+
+        $texto = $mudanza !== null
+            ? sprintf(
+                'Claro, movemos tu cita de *%s*%s. ¿Para qué hora del *%s* te la paso? 👇',
+                $queServicio,
+                empty($mudanza['desde']) ? '' : ' (quedó '.$mudanza['desde'].')',
+                $dia,
+            )
+            : sprintf('Para *%s* el *%s* tengo estas horas 👇', $queServicio, $dia);
 
         // EnvioDirecto y no el canal a secas: sin rastro en el hilo, el
         // turno siguiente cree que el mensaje anterior sigue sin responder

@@ -111,10 +111,17 @@ final class GuidedEntry
             return null;
         }
 
+        $tz = $caller->business->businessTimezone();
+
         UltimoPedido::guardar($phone, [
             ...$pedido,
             'servicios' => $cita->items->map(fn ($i) => $i->service?->name)->filter()->unique()->values()->all(),
-            'mudanza' => ['id' => $cita->id],
+            'mudanza' => [
+                'id' => $cita->id,
+                // Para que el encabezado de las horas diga QUÉ se mueve.
+                'desde' => 'para el '.$cita->starts_at->setTimezone($tz)->locale('es')->isoFormat('dddd [a las] ')
+                    .HoraLegible::de($cita->starts_at, $tz),
+            ],
         ]);
 
         // Con fecha dicha van directo las horas; sin fecha, los botones
