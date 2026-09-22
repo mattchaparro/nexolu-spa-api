@@ -104,6 +104,24 @@ class AnswerJobTest extends TestCase
         Http::assertNotSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'RESPUESTA DEL MODELO'));
     }
 
+    public function test_saludar_dos_veces_seguidas_no_pausa_al_bot(): void
+    {
+        /*
+         * La conversación de Alejandro a las 10 pm: "Hola, de nuevo" y
+         * luego "Buenas noches". El modelo contestó dos veces lo mismo, el
+         * cortador de bucles lo tomó por bucle y lo dejó en pausa. Un
+         * saludo abre el iniciador y nunca cuenta como bucle.
+         */
+        $this->escribe('Hola, de nuevo');
+        $this->escribe('Buenas noches');
+
+        $this->assertFalse($this->conversacion->refresh()->agentIsPaused());
+        Http::assertNotSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'no te estoy entendiendo'));
+        $this->assertSame(2, collect(Http::recorded())
+            ->filter(fn ($par) => str_contains($par[0]->data()['text'] ?? '', '¿En qué te puedo ayudar?'))
+            ->count());
+    }
+
     public function test_otra_consulta_tambien_contesta(): void
     {
         $this->escribe('Hola, quiero una cita');

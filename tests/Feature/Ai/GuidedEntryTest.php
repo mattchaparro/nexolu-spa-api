@@ -236,10 +236,12 @@ class GuidedEntryTest extends TestCase
 
     public function test_un_hola_a_secas_es_del_modelo(): void
     {
-        // En medio de una charla, un "hola" es charla: del modelo.
+        // Aun en plena charla, un saludo a secas abre el iniciador: el
+        // modelo contestaba dos veces el mismo genérico y eso parecía bucle.
         $this->elAgenteAcabaDeHablar();
 
-        $this->assertNull($this->entry()->attend($this->conversacion, 'Hola, buenos días'));
+        $this->assertNotNull($this->entry()->attend($this->conversacion, 'Hola, buenos días'));
+        $this->assertSame([GuidedEntry::HERE, GuidedEntry::WEB, GuidedEntry::OTHER], $this->ultimosBotones());
     }
 
     private function elAgenteAcabaDeHablar(): void

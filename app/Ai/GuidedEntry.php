@@ -3,7 +3,6 @@
 namespace App\Ai;
 
 use App\Ai\Capabilities\AvailabilityCapability;
-use App\Models\Message;
 use App\Models\WhatsappConversation;
 use App\Services\ClientPortalService;
 use App\Support\ChannelPhone;
@@ -27,9 +26,6 @@ use App\Support\ChannelPhone;
  */
 final class GuidedEntry
 {
-    /** Antes de esto, un saludo a secas es charla y no un arranque. */
-    private const COLD_AFTER_HOURS = 6;
-
     /** Los tres botones del iniciador (tope de Meta: 20 caracteres). */
     public const HERE = 'Agendar por aquí';
 
@@ -96,9 +92,16 @@ final class GuidedEntry
          * Antes solo salía si el bot llevaba seis horas callado, y quien
          * conversa seguido -- Alejandro probando -- nunca la vio.
          */
+        /*
+         * Un saludo a secas SIEMPRE abre el iniciador (salvo gestión a
+         * medias, ya descartada arriba). Antes solo con la conversación
+         * fría: Alejandro saludó dos veces seguidas, el modelo le devolvió
+         * dos veces el mismo "¿qué servicio y qué día?", y el cortador de
+         * bucles lo dejó en pausa.
+         */
         $pideCita = $this->wantsBooking($texto);
 
-        if (! $pideCita && ! ($this->isGreeting($texto) && $this->isColdOpen($conversacion))) {
+        if (! $pideCita && ! $this->isGreeting($texto)) {
             return null;
         }
 
@@ -323,23 +326,6 @@ final class GuidedEntry
             '/\b(cita|citas|agendar|agendarme|agendame|agenda|turno|turnos|reserva|reservar|disponibilidad|cupo|espacio)\b/u',
             $t,
         );
-    }
-
-    /**
-     * ¿La conversación viene fría? Solo importa para los saludos a
-     * secas: un "hola" en medio de una charla es charla, no un arranque.
-     */
-    private function isColdOpen(WhatsappConversation $conversacion): bool
-    {
-        $ultimaDelAgente = Message::withoutGlobalScope('business')
-            ->where('conversation_id', $conversacion->id)
-            ->where('direction', Message::DIRECTION_OUT)
-            ->where('kind', Message::KIND_AGENT)
-            ->latest('id')
-            ->first();
-
-        return $ultimaDelAgente === null
-            || $ultimaDelAgente->created_at->lte(now()->subHours(self::COLD_AFTER_HOURS));
     }
 
     private function plain(string $texto): string

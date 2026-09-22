@@ -177,7 +177,7 @@ class AnswerWhatsappMessageJob implements ShouldQueue
          */
         $texto = $delCodigo
             ? $respuesta['text']
-            : (app(Repetido::class)->atajar($conversacion, $respuesta['text']) ?? $respuesta['text']);
+            : (app(Repetido::class)->atajar($conversacion, $respuesta['text'], null, $pendientes) ?? $respuesta['text']);
 
         $dispatcher->queue(
             $conversacion->business,

@@ -56,9 +56,19 @@ final class Repetido
      *
      * @param  list<string>|null  $recientes
      */
-    public function atajar(WhatsappConversation $conversacion, string $texto, ?array $recientes = null): ?string
+    public function atajar(WhatsappConversation $conversacion, string $texto, ?array $recientes = null, ?string $entrante = null): ?string
     {
         if (mb_strlen(trim($texto)) < self::MINIMO_CHARS) {
+            return null;
+        }
+
+        /*
+         * Si ella escribió algo cortito ("hola", "buenas noches", "ok"),
+         * que el bot conteste lo mismo que antes no es un bucle: es una
+         * respuesta igual a un mensaje igual. Bucle es cuando ella DIJO
+         * algo y el bot no avanza.
+         */
+        if ($entrante !== null && count(preg_split('/\s+/u', trim($entrante)) ?: []) <= 3) {
             return null;
         }
 
