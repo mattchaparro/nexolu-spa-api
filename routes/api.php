@@ -18,6 +18,7 @@ use App\Http\Controllers\Api\V1\AgendaController;
 use App\Http\Controllers\Api\V1\AppointmentController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\AvailabilityController;
+use App\Http\Controllers\Api\V1\BotKnowledgeController;
 use App\Http\Controllers\Api\V1\BroadcastController;
 use App\Http\Controllers\Api\V1\CashController;
 use App\Http\Controllers\Api\V1\ChatEmbebidoController;
@@ -486,6 +487,14 @@ Route::prefix('v1')->group(function () {
         */
         Route::get('whatsapp/chat-embebido/token', [ChatEmbebidoController::class, 'token'])
             ->middleware('permission:clientes.ver');
+
+        // Lo que el bot sabe decir del negocio (vive en el IA Core).
+        Route::prefix('bot/knowledge')->middleware('permission:ia.conocimiento')->group(function () {
+            Route::get('/', [BotKnowledgeController::class, 'index']);
+            Route::post('/', [BotKnowledgeController::class, 'store']);
+            Route::patch('/{entry}', [BotKnowledgeController::class, 'update']);
+            Route::delete('/{entry}', [BotKnowledgeController::class, 'destroy']);
+        });
 
         Route::prefix('whatsapp/inbox')->middleware('permission:clientes.ver')->group(function () {
             Route::get('/', [WhatsappInboxController::class, 'index']);

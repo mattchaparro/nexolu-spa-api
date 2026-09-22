@@ -105,6 +105,7 @@ class PermissionCatalog
 
             // IA
             ['name' => 'ia.usar', 'category' => 'ia', 'label' => 'Usar el asistente', 'description' => 'Conversar con el asistente de IA.'],
+            ['name' => 'ia.conocimiento', 'category' => 'ia', 'label' => 'Enseñarle al bot', 'description' => 'Escribir las preguntas frecuentes que el bot de WhatsApp responde (garantías, parqueadero, políticas).'],
 
             // Administracion
             ['name' => 'permisos.gestionar', 'category' => 'administracion', 'label' => 'Gestionar permisos', 'description' => 'Definir que puede hacer cada miembro del equipo.', 'feature' => 'permissions_management'],
