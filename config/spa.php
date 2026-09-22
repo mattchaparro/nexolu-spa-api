@@ -23,6 +23,13 @@ return [
     */
     'public_booking_url' => env('PUBLIC_BOOKING_URL', 'https://agenda.nexolu.co'),
 
+    /*
+    | El Flow de WhatsApp que confirma la cita como formulario nativo
+    | pre-cargado (docs/whatsapp-flows/). Vacio = se sigue confirmando con
+    | botones; se llena al publicar el Flow en el WhatsApp Manager.
+    */
+    'whatsapp_booking_flow_id' => env('WHATSAPP_BOOKING_FLOW_ID'),
+
     'defaults' => [
         // Granularidad de la rejilla de disponibilidad, en minutos.
         'slot_granularity_min' => 15,

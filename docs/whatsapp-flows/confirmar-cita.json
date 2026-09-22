@@ -1,0 +1,106 @@
+{
+  "version": "7.2",
+  "screens": [
+    {
+      "id": "CONFIRMAR",
+      "title": "Confirma tu cita",
+      "terminal": true,
+      "data": {
+        "servicios": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "title": { "type": "string" }
+            }
+          },
+          "__example__": [{ "id": "Semipermanente", "title": "Semipermanente" }]
+        },
+        "horas": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "title": { "type": "string" }
+            }
+          },
+          "__example__": [{ "id": "15:00", "title": "3:00 pm" }]
+        },
+        "servicio": { "type": "string", "__example__": "Semipermanente" },
+        "fecha": { "type": "string", "__example__": "1758758400000" },
+        "hora": { "type": "string", "__example__": "15:00" },
+        "nombre": { "type": "string", "__example__": "" }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "Form",
+            "name": "cita",
+            "children": [
+              {
+                "type": "TextSubheading",
+                "text": "Revisa los datos y confirma. Puedes cambiar lo que quieras 💅"
+              },
+              {
+                "type": "Dropdown",
+                "name": "servicio",
+                "label": "Servicio",
+                "required": true,
+                "data-source": "${data.servicios}",
+                "init-value": "${data.servicio}"
+              },
+              {
+                "type": "DatePicker",
+                "name": "fecha",
+                "label": "Fecha",
+                "required": true,
+                "init-value": "${data.fecha}"
+              },
+              {
+                "type": "Dropdown",
+                "name": "hora",
+                "label": "Hora",
+                "required": true,
+                "data-source": "${data.horas}",
+                "init-value": "${data.hora}"
+              },
+              {
+                "type": "TextInput",
+                "name": "nombre",
+                "label": "Tu nombre",
+                "input-type": "text",
+                "required": false,
+                "init-value": "${data.nombre}"
+              },
+              {
+                "type": "TextInput",
+                "name": "para_quien",
+                "label": "Si es para otra persona, su nombre",
+                "input-type": "text",
+                "required": false
+              },
+              {
+                "type": "Footer",
+                "label": "Confirmar cita",
+                "on-click-action": {
+                  "name": "complete",
+                  "payload": {
+                    "pedido": "cita",
+                    "servicio": "${form.servicio}",
+                    "fecha": "${form.fecha}",
+                    "hora": "${form.hora}",
+                    "nombre": "${form.nombre}",
+                    "para_quien": "${form.para_quien}"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

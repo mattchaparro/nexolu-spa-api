@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Ai\BookingForm;
 use App\Jobs\AnswerWhatsappMessageJob;
+use App\Jobs\ProcessBookingFormJob;
 use App\Models\Business;
 use App\Models\Message;
 use App\Models\WhatsappConversation;
@@ -61,6 +63,16 @@ class CommsWebhookController
                 'human_reply' => $this->humanReply($payload),
                 default => response()->json(['ok' => true, 'handled' => false]),
             };
+        }
+
+        /*
+         * Un formulario enviado (Flow de WhatsApp) no es texto para el
+         * modelo: es una cita ya armada. Se atiende por su propio camino.
+         */
+        $formulario = $this->firstFormReply($payload);
+
+        if ($formulario !== null) {
+            return $this->formularioRecibido($formulario);
         }
 
         $entrante = $this->firstIncomingMessage($payload);
@@ -385,6 +397,78 @@ class CommsWebhookController
      * @param  array<string, mixed>  $payload
      * @return array{0: ?string, 1: string, 2: string, 3: string}|null [phone_number_id, de, texto, wamid]
      */
+    /**
+     * El primer formulario (Flow) enviado en el sobre, si hay uno.
+     *
+     * Meta lo manda como `interactive.nfm_reply` con la respuesta en un
+     * JSON serializado. Connect lo reenvía intacto; nadie lo atendía y el
+     * envío de un formulario moría en silencio.
+     *
+     * @return array{0: ?string, 1: string, 2: array<string, mixed>, 3: string}|null
+     */
+    private function firstFormReply(array $payload): ?array
+    {
+        foreach ($payload['entry'] ?? [] as $entry) {
+            foreach ($entry['changes'] ?? [] as $change) {
+                $value = $change['value'] ?? [];
+                $phoneNumberId = $value['metadata']['phone_number_id'] ?? null;
+
+                foreach ($value['messages'] ?? [] as $message) {
+                    $crudo = $message['interactive']['nfm_reply']['response_json'] ?? null;
+                    $from = (string) ($message['from'] ?? '');
+
+                    if ($crudo === null || $from === '') {
+                        continue;
+                    }
+
+                    $respuesta = json_decode((string) $crudo, true);
+
+                    if (! is_array($respuesta)) {
+                        continue;
+                    }
+
+                    return [$phoneNumberId, $from, $respuesta, (string) ($message['id'] ?? '')];
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Un formulario de cita: a su cola, no al modelo.
+     *
+     * @param  array{0: ?string, 1: string, 2: array<string, mixed>, 3: string}  $formulario
+     */
+    private function formularioRecibido(array $formulario): JsonResponse
+    {
+        [$phoneNumberId, $from, $respuesta, $wamid] = $formulario;
+
+        if ($wamid !== '' && ! Cache::add('wa_msg:'.$wamid, true, now()->addHours(6))) {
+            return response()->json(['ok' => true, 'handled' => false, 'duplicado' => true]);
+        }
+
+        $normalizado = ChannelPhone::normalize($from);
+        $conversacion = $normalizado === null ? null : $this->router->resolve($phoneNumberId, $normalizado, '');
+
+        if ($conversacion === null) {
+            return response()->json(['ok' => true, 'handled' => false]);
+        }
+
+        // El hilo lo cuenta: la clienta ENVIÓ algo, aunque no sea texto.
+        $this->guardarEntrante($conversacion, '📋 Envió el formulario de la cita');
+
+        if (! BookingForm::isBookingReply($respuesta)) {
+            // Un Flow de otro dueño (una encuesta de Connect, por ejemplo):
+            // queda en el hilo y nada más.
+            return response()->json(['ok' => true, 'handled' => false, 'form' => 'ajeno']);
+        }
+
+        ProcessBookingFormJob::dispatch($conversacion->id, $respuesta);
+
+        return response()->json(['ok' => true, 'handled' => true, 'agent' => 'form']);
+    }
+
     private function firstIncomingMessage(array $payload): ?array
     {
         foreach ($payload['entry'] ?? [] as $entry) {
