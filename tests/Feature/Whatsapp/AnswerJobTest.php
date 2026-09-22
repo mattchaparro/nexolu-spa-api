@@ -244,6 +244,34 @@ class AnswerJobTest extends TestCase
             ->count());
     }
 
+    public function test_un_saludo_con_dedazo_igual_abre_el_menu(): void
+    {
+        // Alejandro escribió "H hola" y, como no empezaba por el saludo,
+        // le contestó el modelo en vez del menú.
+        $this->elBotHablo();
+
+        $this->escribe('H hola');
+
+        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', '¿Qué deseas hacer el día de hoy?'));
+        Http::assertNotSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'RESPUESTA DEL MODELO'));
+    }
+
+    public function test_un_vale_se_despide_en_vez_de_saludar(): void
+    {
+        /*
+         * Después de cancelar su cita, Alejandro escribió "Vale" y el
+         * modelo le contestó "¡Hola! ¿cómo te puedo ayudar hoy?": un
+         * saludo a quien se estaba despidiendo.
+         */
+        $this->elBotHablo();
+
+        $this->escribe('Vale');
+
+        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', '¡Con gusto!')
+            && str_contains($r->data()['text'] ?? '', '*reiniciar*'));
+        Http::assertNotSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'RESPUESTA DEL MODELO'));
+    }
+
     public function test_hola_con_una_gestion_a_medias_recuerda_en_que_iban(): void
     {
         /*

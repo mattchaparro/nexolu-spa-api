@@ -189,6 +189,20 @@ final class GuidedEntry
             return $this->showMenu($caller, $phone, 'root');
         }
 
+        /*
+         * 4) Un cierre ("vale", "gracias", "listo") se responde corto y se
+         * acabó. Al "Vale" de Alejandro, después de cancelar su cita, el
+         * modelo le contestó "¡Hola! ¿cómo te puedo ayudar hoy?" -- un
+         * saludo a quien se estaba despidiendo.
+         */
+        if (! $explicitOnly && $this->isClosing($texto)) {
+            return [
+                'text' => '¡Con gusto! 😊 Si necesitas algo más, escribe *reiniciar* y te muestro el menú.',
+                'conversation_id' => null,
+                'tools_used' => ['despedida'],
+            ];
+        }
+
         return null;
     }
 
@@ -803,22 +817,43 @@ final class GuidedEntry
     }
 
     /**
-     * "Hola", "buenas tardes", "hola de nuevo 🙏" — un saludo y NADA MÁS.
+     * "Hola", "buenas tardes", "H hola" — un saludo y NADA MÁS.
      *
-     * "Hola, quiero agendar" no es un saludo a secas: trae un pedido, y lo
-     * atienden los atajos.
+     * Se mira palabra por palabra y no desde el principio: Alejandro
+     * escribió "H hola" (un dedazo) y, como no empezaba por el saludo, la
+     * respuesta se la quedó el modelo en vez del menú. "Hola, quiero
+     * agendar" tampoco es un saludo a secas: trae un pedido, y lo atienden
+     * los atajos.
      */
     private function isGreeting(string $texto): bool
     {
         $t = trim((string) preg_replace('/[^\p{L}\s]/u', '', $this->plain($texto)));
+        $palabras = array_values(array_filter(preg_split('/\s+/u', $t) ?: []));
 
-        return mb_strlen($t) <= 40
-            && (bool) preg_match('/^(hola|holi|holaa+|buenas|buenos dias|buen dia|buenas tardes|buenas noches|hey|que tal)(\s+\w+){0,3}$/u', $t)
+        return $palabras !== []
+            && count($palabras) <= 4
+            && collect($palabras)->contains(fn ($p) => (bool) preg_match('/^(hola+|holi|buenas|buenos|dias|dia|tardes|noches|hey|saludos)$/u', $p))
             && ! $this->wantsBooking($texto)
             && ! $this->wantsMyAppointments($texto)
             && ! $this->wantsToMove($texto)
             && ! $this->wantsWarranty($texto)
             && ! $this->wantsHuman($texto);
+    }
+
+    /** "Vale", "gracias", "listo", un 👍: cierra, no pregunta. */
+    private function isClosing(string $texto): bool
+    {
+        $t = $this->plain($texto);
+
+        // Solo emojis (plain los quita): un 👍 es un cierre, no una charla.
+        if ($t === '') {
+            return mb_strlen(trim($texto)) > 0 && mb_strlen(trim($texto)) <= 8;
+        }
+
+        return (bool) preg_match(
+            '/^(vale|ok|oki|okey|listo|dale|gracias|muchas gracias|mil gracias|perfecto|excelente|de una|bueno|ya|entendido)( \S+){0,2}$/u',
+            $t,
+        );
     }
 
     /** «reiniciar», «menú», «empezar de nuevo»: volver al inicio. */
