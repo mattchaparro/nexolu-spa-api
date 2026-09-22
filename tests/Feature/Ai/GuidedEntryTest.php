@@ -163,7 +163,8 @@ class GuidedEntryTest extends TestCase
         $this->assertSame([GuidedEntry::BOOK, GuidedEntry::MY_APPOINTMENTS, GuidedEntry::OTHER], $this->ultimosBotones());
         // Como en el mostrador: el nombre, el negocio y la pregunta.
         Http::assertSent(fn ($r) => ($r->data()['text'] ?? '')
-            === "¡Hola, Carolina! 👋\nTe damos la bienvenida a *Spa de prueba* 💅\n\n¿Qué deseas hacer el día de hoy?");
+            === "¡Hola, Carolina! 👋\nTe damos la bienvenida a *Spa de prueba* 💅\n\n¿Qué deseas hacer el día de hoy?"
+                ."\n\n_Escribe *reiniciar* en cualquier momento para volver a este menú._");
     }
 
     public function test_el_primer_mensaje_de_la_conversacion_abre_el_menu_aunque_no_sea_saludo(): void

@@ -222,6 +222,68 @@ class AnswerJobTest extends TestCase
         Http::assertNotSent(fn ($r) => str_contains($r->data()['text'] ?? '', '¿Cómo prefieres agendar?'));
     }
 
+    public function test_hola_con_una_gestion_a_medias_recuerda_en_que_iban(): void
+    {
+        /*
+         * Alejandro dejó un reagendamiento a medias, escribió "Hola" y le
+         * contestó el modelo con texto suelto, sin menú. Pero un "Hola"
+         * también puede ser "¿sigues ahí?": no borra nada, recuerda en qué
+         * iban y cómo empezar de nuevo.
+         */
+        UltimoPedido::guardar($this->telefono(), $this->mudanzaAMedias());
+        $this->elBotHablo();
+
+        $this->escribe('Hola');
+
+        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'Sigo aquí')
+            && str_contains($r->data()['text'] ?? '', 'moviendo tu cita de *Semipermanente*')
+            && str_contains($r->data()['text'] ?? '', '*reiniciar*'));
+        Http::assertNotSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'RESPUESTA DEL MODELO'));
+        $this->assertArrayHasKey('mudanza', UltimoPedido::ver($this->telefono()));
+    }
+
+    public function test_reiniciar_vuelve_al_inicio_aunque_haya_algo_a_medias(): void
+    {
+        UltimoPedido::guardar($this->telefono(), $this->mudanzaAMedias());
+        $this->elBotHablo();
+
+        $this->escribe('Reiniciar');
+
+        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', '¿Qué deseas hacer el día de hoy?'));
+        $pedido = UltimoPedido::ver($this->telefono());
+        $this->assertArrayNotHasKey('mudanza', $pedido);
+        $this->assertSame('root', $pedido['menu']);
+    }
+
+    private function telefono(): string
+    {
+        return (string) ChannelPhone::normalize(self::PHONE);
+    }
+
+    /** @return array<string, mixed> */
+    private function mudanzaAMedias(): array
+    {
+        return [
+            'servicios' => ['Semipermanente'],
+            'mudanza' => ['id' => 99, 'desde' => 'para el sábado a las 3:30 pm'],
+            'eligiendo_fecha' => true,
+        ];
+    }
+
+    private function elBotHablo(): void
+    {
+        Message::create([
+            'business_id' => $this->conversacion->business_id,
+            'conversation_id' => $this->conversacion->id,
+            'kind' => Message::KIND_AGENT,
+            'direction' => Message::DIRECTION_OUT,
+            'to' => $this->conversacion->phone,
+            'body' => '¿Qué día te sirve? 📅',
+            'status' => Message::STATUS_SENT,
+            'sent_at' => now(),
+        ]);
+    }
+
     public function test_saludar_dos_veces_seguidas_no_pausa_al_bot(): void
     {
         /*

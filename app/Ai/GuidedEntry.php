@@ -102,7 +102,35 @@ final class GuidedEntry
         }
 
         $caller = AiCaller::customer($business, $phone, $conversacion->client, 'whatsapp');
+
+        /*
+         * 0) «reiniciar» vuelve al inicio SIEMPRE: se olvida lo que quedara
+         * abierto y sale la bienvenida. Es explícito, así que vale también
+         * en pausa esperando a una persona. La bienvenida lo anuncia.
+         */
+        if ($this->wantsRestart($texto)) {
+            UltimoPedido::olvidar($phone);
+
+            return $this->showMenu($caller, $phone, 'root');
+        }
+
         $pedido = UltimoPedido::ver($phone);
+
+        /*
+         * Un "Hola" NO borra lo que va a medias: muchas veces es "¿sigues
+         * ahí?". Alejandro dejó un reagendamiento a medias, escribió
+         * "Hola" y le contestó el modelo con texto suelto, sin menú. Ahora
+         * con algo abierto se le recuerda en qué iban y cómo reiniciar; sin
+         * nada abierto, la bienvenida de siempre (paso 3).
+         */
+        if (! $explicitOnly && $this->isGreeting($texto) && array_intersect(array_keys($pedido), self::PENDING) !== []) {
+            return $this->reply(
+                $phone,
+                '¡Hola! Sigo aquí 😊 Estábamos '.$this->whatWasPending($pedido)
+                    .'. Puedes seguir con las opciones que te envié, o escribir *reiniciar* para empezar de nuevo.',
+                'saludo_en_gestion',
+            );
+        }
 
         // 1) Tocó una opción del menú en el que está.
         if (isset($pedido['menu'])) {
@@ -242,7 +270,8 @@ final class GuidedEntry
             ],
             'consulta' => ['¡Claro! ¿Qué necesitas?', [self::WARRANTY, self::ADMIN, self::QUESTION]],
             default => [
-                $this->welcome($caller)."\n\n¿Qué deseas hacer el día de hoy?",
+                $this->welcome($caller)."\n\n¿Qué deseas hacer el día de hoy?"
+                    ."\n\n_Escribe *reiniciar* en cualquier momento para volver a este menú._",
                 [self::BOOK, self::MY_APPOINTMENTS, self::OTHER],
             ],
         };
@@ -769,13 +798,49 @@ final class GuidedEntry
         return (bool) preg_match('/^(hola|holi|buenas|buenos dias|buen dia|buenas tardes|buenas noches|hey)\b/u', $this->plain($texto));
     }
 
-    /** "Hola", "buenas tardes", "buen día 🙏" — un saludo y nada más. */
+    /**
+     * "Hola", "buenas tardes", "hola de nuevo 🙏" — un saludo y NADA MÁS.
+     *
+     * "Hola, quiero agendar" no es un saludo a secas: trae un pedido, y lo
+     * atienden los atajos.
+     */
     private function isGreeting(string $texto): bool
     {
         $t = trim((string) preg_replace('/[^\p{L}\s]/u', '', $this->plain($texto)));
 
         return mb_strlen($t) <= 40
-            && (bool) preg_match('/^(hola|holi|holaa+|buenas|buenos dias|buen dia|buenas tardes|buenas noches|hey|que tal)(\s+\w+){0,3}$/u', $t);
+            && (bool) preg_match('/^(hola|holi|holaa+|buenas|buenos dias|buen dia|buenas tardes|buenas noches|hey|que tal)(\s+\w+){0,3}$/u', $t)
+            && ! $this->wantsBooking($texto)
+            && ! $this->wantsMyAppointments($texto)
+            && ! $this->wantsToMove($texto)
+            && ! $this->wantsWarranty($texto)
+            && ! $this->wantsHuman($texto);
+    }
+
+    /** «reiniciar», «menú», «empezar de nuevo»: volver al inicio. */
+    private function wantsRestart(string $texto): bool
+    {
+        return (bool) preg_match(
+            '/^(reiniciar|reinicia|reinicio|menu|menu principal|inicio|volver al inicio|empezar de nuevo|empezar de cero)$/u',
+            $this->plain($texto),
+        );
+    }
+
+    /**
+     * En qué iban, dicho corto: "moviendo tu cita de Semi + Rubber".
+     *
+     * @param  array<string, mixed>  $pedido
+     */
+    private function whatWasPending(array $pedido): string
+    {
+        $servicio = implode(' y ', array_unique($pedido['servicios'] ?? []));
+        $de = $servicio !== '' ? ' de *'.$servicio.'*' : '';
+
+        return match (true) {
+            isset($pedido['mudanza']) => 'moviendo tu cita'.$de,
+            isset($pedido['decidir_mover']) => 'viendo si mueves tu cita o agendas otra',
+            default => 'agendando tu cita'.$de,
+        };
     }
 
     /** ¿Pidió mover una cita que ya tiene? */
