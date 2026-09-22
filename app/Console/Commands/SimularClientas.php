@@ -2,7 +2,9 @@
 
 namespace App\Console\Commands;
 
+use App\Ai\DateInText;
 use App\Ai\EsUnaPrueba;
+use App\Ai\GuidedEntry;
 use App\Ai\NombreRaro;
 use App\Ai\Repetido;
 use App\Ai\Toques;
@@ -12,6 +14,7 @@ use App\Models\Service;
 use App\Services\Ia\Evaluacion\Banco;
 use App\Services\Ia\Evaluacion\Perfiles;
 use App\Services\Ia\IaCoreClient;
+use App\Support\ChannelPhone;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\File;
 
@@ -162,8 +165,14 @@ class SimularClientas extends Command
                     continue;
                 }
 
-                // Como el job: los toques los atiende el codigo, el resto el modelo.
+                // Como el job: la fecha escrita manda, los toques y el
+                // arranque generico los atiende el codigo, el resto el modelo.
+                DateInText::remember(
+                    ChannelPhone::normalize($telefono, $business->country_code ?? 'CO') ?? $telefono,
+                    $mensaje,
+                );
                 $respuesta = app(Toques::class)->atender($sesion->conversacion, $mensaje)
+                    ?? app(GuidedEntry::class)->attend($sesion->conversacion, $mensaje)
                     ?? $ia->ask($sesion->conversacion, $mensaje);
                 $enviados = EsUnaPrueba::enviados($telefono);
 

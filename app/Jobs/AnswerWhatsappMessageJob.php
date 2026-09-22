@@ -2,6 +2,8 @@
 
 namespace App\Jobs;
 
+use App\Ai\DateInText;
+use App\Ai\GuidedEntry;
 use App\Ai\OpcionesEnviadas;
 use App\Ai\Repetido;
 use App\Ai\Toques;
@@ -9,6 +11,7 @@ use App\Models\Message;
 use App\Models\WhatsappConversation;
 use App\Services\Ia\IaCoreClient;
 use App\Services\Messaging\MessageDispatcher;
+use App\Support\ChannelPhone;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Log;
@@ -95,11 +98,28 @@ class AnswerWhatsappMessageJob implements ShouldQueue
         }
 
         /*
+         * La fecha y la franja que la clienta ESCRIBIO se capturan en
+         * codigo antes de que nadie las interprete: mandan sobre lo que
+         * el modelo ponga en sus argumentos (ver DateInText).
+         */
+        $phoneCtx = ChannelPhone::normalize(
+            (string) $conversacion->phone,
+            $conversacion->business->country_code ?? 'CO',
+        );
+
+        if ($phoneCtx !== null) {
+            DateInText::remember($phoneCtx, $pendientes);
+        }
+
+        /*
          * Un boton tocado -- una hora, un servicio, "Si, agendar" -- es un
          * dato que ya conocemos: no se le pide al modelo que lo interprete.
-         * Solo si el mensaje no es un toque, habla el modelo.
+         * El arranque generico ("hola, quiero una cita") tampoco necesita
+         * modelo: le llega el menu de los mas pedidos (GuidedEntry). Solo
+         * el texto libre de verdad habla con el modelo.
          */
         $respuesta = app(Toques::class)->atender($conversacion, $pendientes)
+            ?? app(GuidedEntry::class)->attend($conversacion, $pendientes)
             ?? $ia->ask($conversacion, $pendientes);
 
         if ($respuesta === null) {

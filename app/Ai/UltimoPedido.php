@@ -88,10 +88,21 @@ final class UltimoPedido
             $arguments['servicio'] = $eleccion;
         }
 
+        /*
+         * Lo que la clienta ESCRIBIO en su ultimo mensaje ("mañana", "en
+         * la tarde") manda sobre lo que el modelo haya puesto, mientras
+         * dure la ventana (ver DateInText::remember). Valentina dijo
+         * "para mañana despues de las 5" y el modelo llamo con fecha=hoy:
+         * su palabra vale mas que la interpretacion.
+         */
+        $textoManda = ($pedido['texto_manda_hasta'] ?? 0) >= now()->getTimestamp()
+            ? ($pedido['texto_manda'] ?? [])
+            : [];
+
         foreach (self::CAMPOS as $campo) {
             $traeAlgo = isset($arguments[$campo]) && $arguments[$campo] !== '';
 
-            if (isset($pedido[$campo]) && ($tocado || ! $traeAlgo)) {
+            if (isset($pedido[$campo]) && ($tocado || in_array($campo, $textoManda, true) || ! $traeAlgo)) {
                 $arguments[$campo] = $pedido[$campo];
             }
         }

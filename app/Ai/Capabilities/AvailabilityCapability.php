@@ -5,6 +5,7 @@ namespace App\Ai\Capabilities;
 use App\Ai\AiArgumentException;
 use App\Ai\AiCaller;
 use App\Ai\Capability;
+use App\Ai\ComoLoPide;
 use App\Ai\EnvioDirecto;
 use App\Ai\FechaDicha;
 use App\Ai\HoraLegible;
@@ -405,6 +406,81 @@ class AvailabilityCapability implements Capability
                         .'pedidos) y pregúntale si son esos.')
                 : 'Ofrécele dos o tres de `ofrecidas` usando el campo `hora`, nunca `hora_24`.',
         ], fn ($v) => $v !== null);
+    }
+
+    /**
+     * El menú de bienvenida: los más pedidos, tocables, sin modelo.
+     *
+     * Para el mensaje que abre casi todas las conversaciones ("hola,
+     * quiero una cita"): en vez de que el modelo pregunte "¿qué servicio
+     * te gustaría?" — y la clienta tenga que deletrear un nombre de
+     * catálogo — le llegan de una los servicios que más pide la gente,
+     * con precio y duración, y la fila de «ver más». Es el pedazo de
+     * flujo clásico que faltaba en la puerta de entrada.
+     *
+     * Devuelve null cuando este menú NO es la respuesta correcta: ya
+     * nombró un servicio o una categoría (el flujo normal la atiende
+     * mejor), el catálogo está vacío, o el canal no pudo mandar botones.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function welcomeMenu(AiCaller $caller, string $texto): ?array
+    {
+        if ($caller->isStaff()) {
+            return null;
+        }
+
+        $catalogo = $this->catalogoEnLinea($caller->business->id);
+
+        if ($catalogo->isEmpty()) {
+            return null;
+        }
+
+        /*
+         * "quiero una cita de manicure" ya dice qué: esa lista sale
+         * filtrada por el camino normal, no el menú completo. Pero OJO:
+         * las palabras de agendar se quitan ANTES de preguntar, porque
+         * en "quiero UNA cita" ese "una" parece la uña ("uña" sin tilde)
+         * y el traductor creía que ya había nombrado un servicio.
+         */
+        $plano = mb_strtolower(strtr(trim($texto), ['á' => 'a', 'é' => 'e', 'í' => 'i', 'ó' => 'o', 'ú' => 'u', 'ñ' => 'n']));
+        $sinAgenda = preg_replace(
+            [
+                '/\b(una?|el|la|mi|otra|esa)\s+(cita|citas|turno|turnos|reserva|espacio|cupo)\b/u',
+                '/\b(cita|citas|turno|turnos|reserva|reservar|agendar|agendarme|agendame|agenda|disponibilidad|cupo|espacio)\b/u',
+            ],
+            ' ',
+            $plano,
+        ) ?? $plano;
+
+        if (ComoLoPide::candidatos($catalogo, $sinAgenda)->isNotEmpty()) {
+            return null;
+        }
+
+        $nombres = $catalogo->pluck('name')->all();
+
+        $menu = $this->queEligaServicio(
+            $caller,
+            $nombres,
+            '¡Hola! 💅 Estos son los servicios que más nos piden. Toca uno, o escríbeme qué necesitas 👇',
+        );
+
+        if ($menu === null) {
+            return null;
+        }
+
+        $phone = ChannelPhone::normalize((string) $caller->phone, $caller->business->country_code ?? 'CO');
+
+        if ($phone !== null) {
+            // Para que el toque siguiente calce (y conserve la fecha que
+            // haya dicho en el mismo mensaje, ya guardada por DateInText).
+            UltimoPedido::guardar($phone, [
+                ...UltimoPedido::ver($phone),
+                'opciones' => $nombres,
+            ]);
+        }
+
+        return $menu;
     }
 
     /**
