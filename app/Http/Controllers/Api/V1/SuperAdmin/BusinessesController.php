@@ -168,6 +168,7 @@ class BusinessesController
             'scheduling_settings.min_cancellation_notice_min' => ['nullable', 'integer', 'min:0'],
             'scheduling_settings.max_booking_horizon_days' => ['nullable', 'integer', 'min:1', 'max:365'],
             'scheduling_settings.no_show_penalty_amount' => ['nullable', 'numeric', 'min:0'],
+            'scheduling_settings.late_cancellation_penalty_amount' => ['nullable', 'numeric', 'min:0'],
 
             /*
              * El flujo de etapas del negocio.

@@ -57,6 +57,13 @@ return [
         'no_show_penalty_amount' => 0,
 
         /*
+         * Multa por cancelar dentro de `min_cancellation_notice_min`. null =
+         * la misma de inasistencia. Cancelar tarde se permite -- libera la
+         * silla -- pero queda registrado en la ficha con este valor.
+         */
+        'late_cancellation_penalty_amount' => null,
+
+        /*
          * Abono para separar la cita. Solo aplica con la bandera
          * `booking_deposit` encendida.
          *

@@ -138,6 +138,35 @@ class ClientPortalService
             ->isFuture();
     }
 
+    /**
+     * ¿Es una cancelación TARDÍA: activa, todavía no empieza, pero ya
+     * dentro de la anticipación mínima del negocio?
+     *
+     * Antes eso era un "no se puede" y la clienta quedaba atrapada: igual
+     * no iba a llegar, y el cupo tampoco se liberaba. Alejandro: debe poder
+     * cancelar, pero con la multa. Liberar la silla a tiempo para otra
+     * clienta vale más que obligarla a faltar.
+     */
+    public function isLateCancellation(Appointment $appointment, Business $business): bool
+    {
+        return $appointment->checked_out_at === null
+            && in_array($appointment->status, [Appointment::STATUS_PENDING, Appointment::STATUS_CONFIRMED], true)
+            && CarbonImmutable::parse($appointment->starts_at)->isFuture()
+            && ! $this->canBeChanged($appointment, $business);
+    }
+
+    /**
+     * Cuánto cuesta cancelar tarde. Si el negocio no configuró una multa
+     * propia para esto, vale la de inasistencia: cancelar a última hora le
+     * cuesta al local casi lo mismo que no llegar.
+     */
+    public function lateCancellationPenalty(Business $business): float
+    {
+        $propia = $business->schedulingSetting('late_cancellation_penalty_amount');
+
+        return (float) ($propia ?? $business->schedulingSetting('no_show_penalty_amount') ?? 0);
+    }
+
     /** Como se le explica a la persona por que no puede moverla. */
     public function reasonToRefuse(Appointment $appointment, Business $business): ?string
     {

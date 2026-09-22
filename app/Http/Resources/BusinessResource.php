@@ -2,11 +2,12 @@
 
 namespace App\Http\Resources;
 
+use App\Models\Business;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 /**
- * @mixin \App\Models\Business
+ * @mixin Business
  */
 class BusinessResource extends JsonResource
 {
@@ -37,6 +38,9 @@ class BusinessResource extends JsonResource
                 'min_booking_notice_min' => (int) $this->schedulingSetting('min_booking_notice_min'),
                 'min_cancellation_notice_min' => (int) $this->schedulingSetting('min_cancellation_notice_min'),
                 'max_booking_horizon_days' => (int) $this->schedulingSetting('max_booking_horizon_days'),
+                'no_show_penalty_amount' => (float) $this->schedulingSetting('no_show_penalty_amount'),
+                // null = la misma de inasistencia (ver ClientPortalService).
+                'late_cancellation_penalty_amount' => data_get($this->scheduling_settings, 'late_cancellation_penalty_amount'),
             ],
         ];
     }

@@ -72,7 +72,7 @@ final class GuidedEntry
     private const PENDING = ['confirmar', 'decidir_mover', 'mudanza', 'eligiendo_fecha'];
 
     /** Lo que deja una gestión anterior y un comienzo nuevo borra. */
-    private const LEFTOVERS = ['servicios', 'opciones', 'horas', 'todas', 'fechas', 'mostrado_at', 'fecha_iso', 'dia', 'menu', 'citas', 'cita_id'];
+    private const LEFTOVERS = ['servicios', 'opciones', 'horas', 'todas', 'fechas', 'mostrado_at', 'fecha_iso', 'dia', 'menu', 'citas', 'cita_id', 'acepta_multa'];
 
     public function __construct(
         private readonly AvailabilityCapability $agenda,
@@ -106,7 +106,7 @@ final class GuidedEntry
             }
 
             // Escribió otra cosa: la marca se va para no atrapar lo que siga.
-            unset($pedido['menu'], $pedido['citas'], $pedido['cita_id']);
+            unset($pedido['menu'], $pedido['citas'], $pedido['cita_id'], $pedido['acepta_multa']);
             UltimoPedido::guardar($phone, $pedido);
         }
 
@@ -161,9 +161,11 @@ final class GuidedEntry
                 $this->plain(self::OTHER) => $this->showMenu($caller, $phone, 'consulta'),
                 default => null,
             },
-            'agendar' => match ($t) {
-                $this->plain(self::HERE), 'aqui', 'por aqui', 'agendar por aqui' => $this->bookHere($caller, $phone),
-                $this->plain(self::WEB), 'web', 'en la web', 'pagina', 'link' => $this->bookOnWeb($caller, $phone),
+            // También escrito: "dale, mejor por aquí" cayó al modelo porque
+            // solo se aceptaba el botón exacto.
+            'agendar' => match (true) {
+                (bool) preg_match('/\b(aqui|chat|whatsapp)\b/u', $t) => $this->bookHere($caller, $phone),
+                (bool) preg_match('/\b(web|pagina|link|enlace)\b/u', $t) => $this->bookOnWeb($caller, $phone),
                 default => null,
             },
             'citas' => isset($pedido['citas'][$t]) ? $this->showAppointment($caller, $phone, (int) $pedido['citas'][$t]) : null,
@@ -174,7 +176,7 @@ final class GuidedEntry
                 default => null,
             },
             'cancelar' => match ($t) {
-                $this->plain(self::CONFIRM_CANCEL), 'si', 'si cancelar' => $this->cancel($caller, $phone, (int) $pedido['cita_id']),
+                $this->plain(self::CONFIRM_CANCEL), 'si', 'si cancelar' => $this->cancel($caller, $phone, (int) $pedido['cita_id'], (bool) ($pedido['acepta_multa'] ?? false)),
                 $this->plain(self::KEEP), 'no' => $this->reply($phone, 'Perfecto, tu cita sigue en pie 😊', 'cancelar_cita'),
                 default => null,
             },
@@ -358,8 +360,26 @@ final class GuidedEntry
             return $this->listAppointments($caller, $phone);
         }
 
-        // La política del local (con cuánta anticipación) se dice ANTES de
-        // pedir confirmación, no después de que ella ya dijo que sí.
+        /*
+         * Tarde (dentro de la anticipación del local) SE PUEDE cancelar, con
+         * multa: igual no iba a llegar, y así al menos se libera la silla.
+         * La multa se dice ANTES de pedir la confirmación.
+         */
+        if ($this->portal->isLateCancellation($cita, $caller->business)) {
+            $aviso = $this->cancellation->execute($caller, ['cita_id' => $cita->id]);
+
+            return $this->send(
+                $caller,
+                $phone,
+                ($aviso['motivo'] ?? 'Esta cancelación es tardía.').' ¿Cancelas de todas formas tu cita de '.$this->describe($caller, $cita).'?',
+                [self::CONFIRM_CANCEL, self::KEEP],
+                ['menu' => 'cancelar', 'cita_id' => $cita->id, 'acepta_multa' => true],
+                'cancelar_cita',
+            );
+        }
+
+        // Lo demás que impide cancelar (ya atendida, ya no activa) se dice
+        // ANTES de pedir confirmación, no después de que ella dijo que sí.
         if (! $this->portal->canBeChanged($cita, $caller->business)) {
             $this->forgetMenu($phone);
 
@@ -382,11 +402,17 @@ final class GuidedEntry
     }
 
     /** @return array{text: string, conversation_id: null, tools_used: list<string>} */
-    private function cancel(AiCaller $caller, string $phone, int $id): array
+    private function cancel(AiCaller $caller, string $phone, int $id, bool $aceptaMulta): array
     {
         $this->forgetMenu($phone);
 
-        $resultado = $this->cancellation->execute($caller, ['cita_id' => $id, 'motivo' => 'Cancelada por la clienta desde WhatsApp']);
+        $resultado = $this->cancellation->execute($caller, [
+            'cita_id' => $id,
+            'motivo' => 'Cancelada por la clienta desde WhatsApp',
+            // Solo si se le mostró la multa en la pregunta que acaba de
+            // responder: sin eso, cancelar tarde vuelve a pedir el aviso.
+            'acepta_multa' => $aceptaMulta,
+        ]);
 
         if (! ($resultado['cancelada'] ?? false)) {
             return $this->reply($phone, 'No pude cancelarla 😕 '.rtrim((string) ($resultado['motivo'] ?? ''), '.').'.', 'cancelar_cita');
@@ -578,12 +604,23 @@ final class GuidedEntry
 
     // -- Datos -------------------------------------------------------------
 
-    /** @return Collection<int, Appointment> */
+    /**
+     * Las que todavía se pueden gestionar: las que NO han empezado.
+     *
+     * El portal muestra también las de hoy que ya pasaron (sirve para
+     * verlas), pero aquí se gestionan: Alejandro abrió "Mis citas" al
+     * mediodía, tocó la de las 9 am de ese mismo día y le dijeron que ya
+     * no se podía cancelar -- una cita que ya había pasado.
+     *
+     * @return Collection<int, Appointment>
+     */
     private function upcoming(AiCaller $caller): Collection
     {
         return $caller->client === null
             ? collect()
-            : $this->portal->upcoming($caller->client, $caller->business);
+            : $this->portal->upcoming($caller->client, $caller->business)
+                ->filter(fn (Appointment $c) => $c->starts_at->isFuture())
+                ->values();
     }
 
     /** Una cita SUYA, o nada: el id viene de un toque, pero se verifica igual. */
@@ -662,7 +699,7 @@ final class GuidedEntry
     private function forgetMenu(string $phone): void
     {
         $pedido = UltimoPedido::ver($phone);
-        unset($pedido['menu'], $pedido['citas'], $pedido['cita_id']);
+        unset($pedido['menu'], $pedido['citas'], $pedido['cita_id'], $pedido['acepta_multa']);
         UltimoPedido::guardar($phone, $pedido);
     }
 

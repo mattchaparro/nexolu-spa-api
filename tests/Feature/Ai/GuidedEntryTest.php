@@ -9,6 +9,7 @@ use App\Ai\UltimoPedido;
 use App\Models\Appointment;
 use App\Models\Business;
 use App\Models\Client;
+use App\Models\ClientPenalty;
 use App\Models\Message;
 use App\Models\Resource;
 use App\Models\Service;
@@ -285,6 +286,85 @@ class GuidedEntryTest extends TestCase
 
         $this->assertSame(Appointment::STATUS_CANCELLED, $segunda->fresh()->status);
         $this->assertSame(1, Appointment::withoutGlobalScopes()->where('status', '!=', Appointment::STATUS_CANCELLED)->count());
+    }
+
+    public function test_cancelar_tarde_se_puede_con_la_multa_avisada_antes(): void
+    {
+        /*
+         * Alejandro: dentro de las 3 horas antes era un "no se puede", pero
+         * la clienta igual no iba a llegar y el cupo tampoco se liberaba.
+         * Se puede cancelar, con la multa -- dicha ANTES de confirmar.
+         */
+        $this->business->forceFill(['scheduling_settings' => [
+            ...($this->business->scheduling_settings ?? []),
+            'min_booking_notice_min' => 0,
+            'late_cancellation_penalty_amount' => 10000,
+        ]])->save();
+        $cita = $this->cita('Semipermanente', CarbonImmutable::now('America/Bogota')->addHour()->startOfHour()->addHour());
+
+        $this->escribe(GuidedEntry::MY_APPOINTMENTS);
+        $this->escribe(GuidedEntry::CANCEL);
+
+        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'multa por cancelación tardía de *$10.000*'));
+        $this->assertSame([GuidedEntry::CONFIRM_CANCEL, GuidedEntry::KEEP], $this->ultimosBotones());
+        $this->assertNotSame(Appointment::STATUS_CANCELLED, $cita->fresh()->status);
+
+        $this->escribe(GuidedEntry::CONFIRM_CANCEL);
+
+        // Cancelada, el cupo libre, la multa en la ficha y el equipo avisado.
+        $this->assertSame(Appointment::STATUS_CANCELLED, $cita->fresh()->status);
+        $multa = ClientPenalty::withoutGlobalScope('business')->sole();
+        $this->assertSame(ClientPenalty::KIND_LATE_CANCELLATION, $multa->kind);
+        $this->assertEquals(10000, $multa->amount);
+        $this->assertSame($cita->id, $multa->appointment_id);
+        $this->assertTrue(Message::withoutGlobalScope('business')
+            ->where('kind', Message::KIND_STAFF)->where('body', 'like', '%Cancelación TARDÍA%')->exists());
+        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'Quedó registrada la multa'));
+    }
+
+    public function test_sin_multa_propia_vale_la_de_inasistencia(): void
+    {
+        $this->business->forceFill(['scheduling_settings' => [
+            ...($this->business->scheduling_settings ?? []),
+            'no_show_penalty_amount' => 15000,
+        ]])->save();
+        $this->cita('Semipermanente', CarbonImmutable::now('America/Bogota')->addHour()->startOfHour()->addHour());
+
+        $this->escribe(GuidedEntry::MY_APPOINTMENTS);
+        $this->escribe(GuidedEntry::CANCEL);
+
+        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', '*$15.000*'));
+    }
+
+    public function test_mis_citas_no_muestra_las_de_hoy_que_ya_pasaron(): void
+    {
+        // Abrió "Mis citas" al mediodía y le salió la de las 9 am de ese
+        // mismo día, que ya había pasado.
+        $this->travelTo(CarbonImmutable::now('America/Bogota')->setTime(9, 0));
+        $this->cita('Semipermanente', CarbonImmutable::now('America/Bogota')->setTime(10, 0));
+        $this->travelTo(CarbonImmutable::now('America/Bogota')->setTime(12, 0));
+
+        $this->escribe(GuidedEntry::MY_APPOINTMENTS);
+
+        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'No tienes citas próximas'));
+    }
+
+    public function test_quiero_ver_mis_citas_escrito_va_a_la_lista(): void
+    {
+        $this->cita('Semipermanente', $this->manana(9));
+        $this->elBotAcabaDeHablar();
+
+        $this->escribe('Quiero ver mis citas');
+
+        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'Tu cita: *Semipermanente*'));
+    }
+
+    public function test_por_aqui_escrito_tambien_elige_agendar_aqui(): void
+    {
+        $this->escribe('quiero agendar');
+        $respuesta = $this->escribe('Dale, mejor por aquí');
+
+        $this->assertSame(['menu_inicial'], $respuesta['tools_used']);
     }
 
     public function test_no_dejarla_no_cancela_nada(): void
