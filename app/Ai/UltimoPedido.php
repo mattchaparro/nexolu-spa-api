@@ -78,12 +78,15 @@ final class UltimoPedido
             return $arguments;
         }
 
-        $tocado = isset($arguments['servicio'])
-            && in_array(
-                self::plano((string) $arguments['servicio']),
-                array_map(fn ($o) => self::plano((string) $o), $pedido['opciones'] ?? []),
-                true,
-            );
+        $eleccion = isset($arguments['servicio'])
+            ? self::destruncar((string) $arguments['servicio'], $pedido['opciones'] ?? [])
+            : null;
+        $tocado = $eleccion !== null;
+
+        if ($tocado) {
+            // El nombre COMPLETO del catalogo, no el recorte del boton.
+            $arguments['servicio'] = $eleccion;
+        }
 
         foreach (self::CAMPOS as $campo) {
             $traeAlgo = isset($arguments[$campo]) && $arguments[$campo] !== '';
@@ -101,6 +104,39 @@ final class UltimoPedido
         }
 
         return $arguments;
+    }
+
+    /**
+     * ¿Este texto es una de las opciones ofrecidas? Devuelve cuál, completa.
+     *
+     * No basta comparar igual por igual: WhatsApp corta los títulos de las
+     * listas a 24 caracteres, así que lo que vuelve al tocar «Recubrimiento
+     * Rubber sin esmaltado» es «Recubrimiento Rubber si». Con el catálogo
+     * real (nombres largos) el toque no calzaba con nada, caía al modelo y
+     * el modelo volvía a preguntar lo que la clienta acababa de tocar.
+     *
+     * @param  list<string>  $opciones
+     */
+    public static function destruncar(string $texto, array $opciones): ?string
+    {
+        // Fuera puntos suspensivos (los pone quien recorta) y espacios.
+        $t = rtrim(self::plano(preg_replace('/(\.{3}|…)\s*$/u', '', $texto) ?? $texto));
+
+        if ($t === '') {
+            return null;
+        }
+
+        foreach ($opciones as $opcion) {
+            $o = self::plano((string) $opcion);
+
+            // Igual, o el recorte de 24 del título completo. El mínimo de
+            // 15 evita que un toque corto "elija" por accidente.
+            if ($o === $t || (mb_strlen($t) >= 15 && str_starts_with($o, $t))) {
+                return (string) $opcion;
+            }
+        }
+
+        return null;
     }
 
     private static function plano(string $texto): string

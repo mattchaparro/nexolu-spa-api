@@ -145,6 +145,20 @@ final class ComoLoPide
      */
     public static function candidatos(Collection $catalogo, string $dicho): Collection
     {
+        /*
+         * Si lo nombró con todas las letras, es ese. Andrea preguntó
+         * precios, comparó, y cerró con "quiero el semipermanente normal":
+         * existe un servicio que se llama exactamente Semipermanente, y aun
+         * así recibió la lista de los nueve que llevan "semi" en el nombre
+         * -- un formulario para elegir lo que acababa de decir. El artículo
+         * y el "normal" no cambian que lo nombró.
+         */
+        $exacto = self::elNombrado($catalogo, $dicho);
+
+        if ($exacto !== null) {
+            return $catalogo->take(0)->push($exacto);
+        }
+
         $palabras = self::palabras($dicho);
 
         $categoria = self::queCategoria($palabras);
@@ -238,6 +252,36 @@ final class ComoLoPide
         }
 
         return $candidatos->first();
+    }
+
+    /**
+     * El servicio que nombró con todas sus letras, si lo hizo.
+     *
+     * Se ignoran artículos y coletillas ("el", "normal", "sencillo") que
+     * no cambian el nombre. Solo devuelve algo con UN calce exacto: ante
+     * la duda, que decida el flujo normal.
+     *
+     * @param  Collection<int, Service>  $catalogo
+     */
+    private static function elNombrado(Collection $catalogo, string $dicho): ?Service
+    {
+        // El mismo cepillo para lo dicho y para el nombre: "Cambio de
+        // esmalte" también lleva "de" y tiene que seguir calzando.
+        $limpiar = fn (string $t): string => trim((string) preg_replace(
+            ['/\b(el|la|los|las|un|una|quiero|de|normal|normalito|sencillo|sencilla|basico|basica)\b/u', '/\s+/'],
+            [' ', ' '],
+            self::normalizar($t),
+        ));
+
+        $frase = $limpiar($dicho);
+
+        if ($frase === '') {
+            return null;
+        }
+
+        $calces = $catalogo->filter(fn (Service $s) => $limpiar($s->name) === $frase);
+
+        return $calces->count() === 1 ? $calces->first() : null;
     }
 
     /**

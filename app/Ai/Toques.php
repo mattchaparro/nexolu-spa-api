@@ -135,13 +135,15 @@ final class Toques
             }
         }
 
-        // 3) Tocó un servicio de una lista de servicios.
-        $ofrecidos = array_map(fn ($o) => $this->plano((string) $o), $pedido['opciones'] ?? []);
-
+        // 3) Tocó un servicio de una lista de servicios. El toque llega
+        // RECORTADO (WhatsApp corta los títulos a 24): se busca la opción
+        // completa y es esa la que se consulta, no el pedazo.
         foreach ($candidatos as $plano) {
-            if (empty($pedido['servicios']) && in_array($plano, $ofrecidos, true)) {
+            $eleccion = UltimoPedido::destruncar($plano, $pedido['opciones'] ?? []);
+
+            if (empty($pedido['servicios']) && $eleccion !== null) {
                 return $this->respuestaDe(
-                    $this->disponibilidad->execute($caller, ['servicio' => $plano]),
+                    $this->disponibilidad->execute($caller, ['servicio' => $eleccion]),
                     'elegir_servicio',
                 );
             }

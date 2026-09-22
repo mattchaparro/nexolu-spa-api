@@ -229,6 +229,31 @@ class ToquesTest extends TestCase
         $this->assertSame(0, Appointment::withoutGlobalScopes()->count());
     }
 
+    public function test_un_toque_recortado_por_whatsapp_sigue_siendo_el_servicio_completo(): void
+    {
+        /*
+         * WhatsApp corta los títulos de lista a 24 caracteres: la fila de
+         * «Recubrimiento Rubber sin esmaltado» se ve (y VUELVE, al tocarla)
+         * como «Recubrimiento Rubber si…». Con el catálogo real de nombres
+         * largos, el toque no calzaba con nada, caía al modelo y el modelo
+         * volvía a preguntar lo que la clienta acababa de tocar.
+         */
+        $manicure = ServiceCategory::withoutGlobalScope('business')
+            ->where('business_id', $this->business->id)->where('name', 'Manicure')->sole();
+        $maria = \App\Models\Resource::withoutGlobalScope('business')
+            ->where('business_id', $this->business->id)->where('name', 'Maria')->sole();
+        $this->makeService($this->business, 60, [$maria], name: 'Recubrimiento Rubber sin esmaltado')
+            ->update(['service_category_id' => $manicure->id]);
+
+        $this->invoke('disponibilidad', ['servicio' => 'las manitos', 'fecha' => $this->manana()])->assertOk();
+
+        $respuesta = $this->toques()->atender($this->conversacion, 'Recubrimiento Rubber si…');
+
+        $this->assertNotNull($respuesta, 'el toque recortado tiene que atenderse en código');
+        $this->assertSame('', $respuesta['text']);
+        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'Para *Recubrimiento Rubber sin esmaltado*'));
+    }
+
     public function test_tocar_un_servicio_de_la_lista_trae_las_horas_del_dia_que_dijo(): void
     {
         // "las manitos" da para tres: se le manda la lista de servicios.

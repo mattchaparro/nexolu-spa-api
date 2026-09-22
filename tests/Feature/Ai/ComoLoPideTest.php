@@ -171,4 +171,43 @@ class ComoLoPideTest extends TestCase
         $this->assertContains('Retoque Capping', $candidatos->pluck('name')->all());
         $this->assertContains('Semi + Rubber', $candidatos->pluck('name')->all());
     }
+
+    public function test_nombrarlo_con_todas_las_letras_no_devuelve_una_lista(): void
+    {
+        /*
+         * Andrea preguntó precios, comparó semi vs semi con rubber, y cerró
+         * con "quiero el semipermanente normal". Existe un servicio llamado
+         * exactamente Semipermanente y aun así recibió los nueve con "semi"
+         * en el nombre: un formulario para elegir lo que acababa de decir.
+         */
+        foreach (['semipermanente', 'el semipermanente normal', 'Semi + Rubber', 'quiero el capping'] as $dicho) {
+            $candidatos = ComoLoPide::candidatos($this->luxury(), $dicho);
+
+            $this->assertCount(1, $candidatos, "«{$dicho}» nombra UN servicio");
+        }
+
+        $this->assertSame(
+            ['Semipermanente'],
+            ComoLoPide::candidatos($this->luxury(), 'el semipermanente normal')->pluck('name')->all(),
+        );
+    }
+
+    public function test_el_nombre_exacto_gana_aunque_lleve_de_adentro(): void
+    {
+        $catalogo = $this->catalogo(['Manicure' => ['Cambio de esmalte Tradicional', 'Tradicional']]);
+
+        $this->assertSame(
+            ['Cambio de esmalte Tradicional'],
+            ComoLoPide::candidatos($catalogo, 'cambio de esmalte tradicional')->pluck('name')->all(),
+        );
+    }
+
+    public function test_lo_vago_sigue_siendo_de_ella(): void
+    {
+        // "semi" a secas NO nombra: elegir entre Semipermanente y
+        // Semi + Rubber es de la clienta, no nuestro.
+        $candidatos = ComoLoPide::candidatos($this->luxury(), 'manos en semi');
+
+        $this->assertGreaterThan(1, $candidatos->count());
+    }
 }
