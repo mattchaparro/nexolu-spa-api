@@ -27,8 +27,21 @@ use App\Support\ChannelPhone;
  */
 final class GuidedEntry
 {
-    /** Antes de esto, la conversación sigue caliente y el menú estorba. */
+    /** Antes de esto, un saludo a secas es charla y no un arranque. */
     private const COLD_AFTER_HOURS = 6;
+
+    /** Los tres botones del iniciador (tope de Meta: 20 caracteres). */
+    public const HERE = 'Agendar por aquí';
+
+    public const WEB = 'Agendar en la web';
+
+    public const OTHER = 'Otra consulta';
+
+    /** Lo que marca una gestión a MEDIAS: ahí un menú interrumpe. */
+    private const PENDING = ['confirmar', 'decidir_mover', 'mudanza', 'eligiendo_fecha'];
+
+    /** Lo que deja una gestión anterior y un "quiero una cita" nuevo borra. */
+    private const LEFTOVERS = ['servicios', 'opciones', 'horas', 'todas', 'fechas', 'mostrado_at', 'fecha_iso', 'dia'];
 
     public function __construct(
         private readonly AvailabilityCapability $agenda,
@@ -51,6 +64,13 @@ final class GuidedEntry
 
         $caller = AiCaller::customer($business, $phone, $conversacion->client, 'whatsapp');
 
+        // Tocó uno de los botones del iniciador.
+        $eleccion = $this->chosen($caller, $phone, $texto);
+
+        if ($eleccion !== null) {
+            return $eleccion;
+        }
+
         // "Quiero cambiar mi cita" tiene su propio riel: directo a horas.
         if ($this->wantsToMove($texto)) {
             $mudanza = $this->startMove($caller, $phone);
@@ -60,16 +80,146 @@ final class GuidedEntry
             }
         }
 
-        if (! $this->wantsBooking($texto) || ! $this->isColdOpen($conversacion, $phone)) {
+        $pedido = UltimoPedido::ver($phone);
+
+        if (array_intersect(array_keys($pedido), self::PENDING) !== []) {
             return null;
         }
 
-        if ($this->agenda->welcomeMenu($caller, $texto) === null) {
-            // Ya nombró el servicio, o el canal no pudo: que hable el modelo.
+        /*
+         * El iniciador: "¿Cómo prefieres agendar?" con Agendar por aquí /
+         * Agendar en la web / Otra consulta — la puerta que las clientas
+         * conocen de ManyChat. Sale con un "quiero una cita" (a cualquier
+         * hora: pedir cita de nuevo ES empezar de nuevo) o con un saludo a
+         * secas cuando la conversación viene fría.
+         *
+         * Antes solo salía si el bot llevaba seis horas callado, y quien
+         * conversa seguido -- Alejandro probando -- nunca la vio.
+         */
+        $pideCita = $this->wantsBooking($texto);
+
+        if (! $pideCita && ! ($this->isGreeting($texto) && $this->isColdOpen($conversacion))) {
             return null;
         }
 
-        return ['text' => '', 'conversation_id' => null, 'tools_used' => ['menu_inicial']];
+        // "quiero semi mañana" ya dijo qué: el camino normal lo lleva mejor.
+        if ($pideCita && $this->agenda->mentionsService($caller, $texto)) {
+            return null;
+        }
+
+        return $this->offerChoice($caller, $phone, $pedido, $pideCita);
+    }
+
+    /**
+     * Manda los tres botones del iniciador.
+     *
+     * @param  array<string, mixed>  $pedido
+     * @return array{text: string, conversation_id: null, tools_used: list<string>}|null
+     */
+    private function offerChoice(AiCaller $caller, string $phone, array $pedido, bool $pideCita): ?array
+    {
+        $nombre = trim((string) $caller->client?->fullName());
+        $saludo = $nombre === '' || NombreRaro::es($nombre)
+            ? '¡Hola! 💅'
+            : '¡Hola, '.explode(' ', $nombre)[0].'! 💅';
+
+        $enviado = app(EnvioDirecto::class)->opciones(
+            $caller,
+            $saludo.($pideCita ? ' ¿Cómo prefieres agendar?' : ' ¿En qué te puedo ayudar?'),
+            [
+                ['id' => 'aqui', 'title' => self::HERE],
+                ['id' => 'web', 'title' => self::WEB],
+                ['id' => 'otra', 'title' => self::OTHER],
+            ],
+        );
+
+        if (! $enviado) {
+            return null;
+        }
+
+        // Un "quiero una cita" nuevo empieza de cero: lo de la gestión
+        // anterior no puede colarse en la nueva. La fecha que haya dicho
+        // en ESTE mensaje (DateInText) sí se queda.
+        UltimoPedido::guardar($phone, [
+            ...array_diff_key($pedido, array_flip(self::LEFTOVERS)),
+            'eligiendo_canal' => true,
+        ]);
+
+        return ['text' => '', 'conversation_id' => null, 'tools_used' => ['iniciador']];
+    }
+
+    /**
+     * Lo que pasa al tocar un botón del iniciador.
+     *
+     * @return array{text: string, conversation_id: null, tools_used: list<string>}|null
+     */
+    private function chosen(AiCaller $caller, string $phone, string $texto): ?array
+    {
+        $pedido = UltimoPedido::ver($phone);
+
+        if (empty($pedido['eligiendo_canal'])) {
+            return null;
+        }
+
+        $t = $this->plain(trim((string) collect(preg_split('/\r?\n/', $texto))->filter(fn ($l) => trim($l) !== '')->last()));
+        unset($pedido['eligiendo_canal']);
+
+        if (in_array($t, ['agendar por aqui', 'por aqui', 'aqui'], true)) {
+            UltimoPedido::guardar($phone, $pedido);
+
+            if ($this->agenda->welcomeMenu($caller, '') !== null) {
+                return ['text' => '', 'conversation_id' => null, 'tools_used' => ['menu_inicial']];
+            }
+
+            return ['text' => '¡Claro! ¿Qué servicio te quieres hacer y para qué día? 💅', 'conversation_id' => null, 'tools_used' => ['iniciador']];
+        }
+
+        if (in_array($t, ['agendar en la web', 'en la web', 'web', 'pagina', 'link'], true)) {
+            UltimoPedido::guardar($phone, $pedido);
+            $link = $this->bookingLink($caller);
+
+            if ($link === null) {
+                // Sin página configurada, se agenda por aquí.
+                return $this->agenda->welcomeMenu($caller, '') !== null
+                    ? ['text' => '', 'conversation_id' => null, 'tools_used' => ['menu_inicial']]
+                    : null;
+            }
+
+            return [
+                'text' => "Aquí puedes ver la agenda completa y reservar tú misma 👇\n{$link}\n\nSi prefieres, también te agendo por aquí 😊",
+                'conversation_id' => null,
+                'tools_used' => ['agenda_web'],
+            ];
+        }
+
+        if (in_array($t, ['otra consulta', 'otra', 'consulta'], true)) {
+            UltimoPedido::guardar($phone, $pedido);
+
+            return ['text' => '¡Claro! Cuéntame, ¿en qué te ayudo? 😊', 'conversation_id' => null, 'tools_used' => ['iniciador']];
+        }
+
+        // Escribió otra cosa en vez de tocar: es conversación, y la marca
+        // se va para no atrapar el mensaje siguiente.
+        UltimoPedido::guardar($phone, $pedido);
+
+        return null;
+    }
+
+    private function bookingLink(AiCaller $caller): ?string
+    {
+        $base = rtrim((string) config('spa.public_booking_url'), '/');
+        $slug = (string) ($caller->business->slug ?? '');
+
+        return ($base === '' || $slug === '') ? null : "{$base}/reservar/{$slug}";
+    }
+
+    /** "Hola", "buenas tardes", "buen día 🙏" — un saludo y nada más. */
+    private function isGreeting(string $texto): bool
+    {
+        $t = trim((string) preg_replace('/[^\p{L}\s]/u', '', $this->plain($texto)));
+
+        return mb_strlen($t) <= 40
+            && (bool) preg_match('/^(hola|holi|holaa+|buenas|buenos dias|buen dia|buenas tardes|buenas noches|hey|que tal)(\s+\w+){0,3}$/u', $t);
     }
 
     /**
@@ -176,21 +326,11 @@ final class GuidedEntry
     }
 
     /**
-     * ¿Es el arranque de una gestión, o el medio de una?
-     *
-     * En el medio de una gestión (ya hay servicios, opciones o una
-     * confirmación esperando) o de una conversación reciente con el
-     * agente, meter un menú es interrumpir. La fecha/franja que DateInText
-     * haya guardado del MISMO mensaje no cuenta como gestión en curso.
+     * ¿La conversación viene fría? Solo importa para los saludos a
+     * secas: un "hola" en medio de una charla es charla, no un arranque.
      */
-    private function isColdOpen(WhatsappConversation $conversacion, string $phone): bool
+    private function isColdOpen(WhatsappConversation $conversacion): bool
     {
-        $pedido = UltimoPedido::ver($phone);
-
-        if (array_intersect(array_keys($pedido), ['servicios', 'opciones', 'horas', 'confirmar', 'decidir_mover']) !== []) {
-            return false;
-        }
-
         $ultimaDelAgente = Message::withoutGlobalScope('business')
             ->where('conversation_id', $conversacion->id)
             ->where('direction', Message::DIRECTION_OUT)

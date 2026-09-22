@@ -90,28 +90,91 @@ class GuidedEntryTest extends TestCase
         return app(GuidedEntry::class);
     }
 
-    public function test_quiero_una_cita_recibe_el_menu_sin_modelo(): void
+    /** @return list<string> */
+    private function ultimosBotones(): array
+    {
+        $titulos = [];
+        Http::assertSent(function ($request) use (&$titulos) {
+            $opciones = $request->data()['whatsapp_options']['options'] ?? null;
+            if ($opciones !== null) {
+                $titulos = array_column($opciones, 'title');
+            }
+
+            return true;
+        });
+
+        return $titulos;
+    }
+
+    public function test_quiero_una_cita_recibe_el_iniciador_y_por_aqui_el_menu(): void
     {
         $respuesta = $this->entry()->attend($this->conversacion, 'Hola! Quiero una cita');
 
+        // La puerta que conocen de ManyChat: tres botones.
         $this->assertSame('', $respuesta['text']);
+        $this->assertSame([GuidedEntry::HERE, GuidedEntry::WEB, GuidedEntry::OTHER], $this->ultimosBotones());
+        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', '¡Hola, Carolina! 💅 ¿Cómo prefieres agendar?'));
+
+        // «Agendar por aquí» → los más pedidos, tocables.
+        $respuesta = $this->entry()->attend($this->conversacion, GuidedEntry::HERE);
+
         $this->assertSame(['menu_inicial'], $respuesta['tools_used']);
         Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'los servicios que más nos piden'));
-
-        // El toque siguiente calza contra lo ofrecido.
         $pedido = UltimoPedido::ver((string) ChannelPhone::normalize(self::PHONE));
         $this->assertContains('Semipermanente', $pedido['opciones']);
+    }
+
+    public function test_agendar_en_la_web_manda_el_link(): void
+    {
+        config()->set('spa.public_booking_url', 'https://agenda.test');
+        $this->business->forceFill(['slug' => 'luxury'])->save();
+        $this->conversacion->refresh();
+
+        $this->entry()->attend($this->conversacion, 'quiero agendar');
+        $respuesta = $this->entry()->attend($this->conversacion, GuidedEntry::WEB);
+
+        $this->assertStringContainsString('https://agenda.test/reservar/luxury', $respuesta['text']);
+    }
+
+    public function test_otra_consulta_le_abre_la_puerta_a_la_conversacion(): void
+    {
+        $this->entry()->attend($this->conversacion, 'Hola, quiero una cita');
+        $respuesta = $this->entry()->attend($this->conversacion, GuidedEntry::OTHER);
+
+        $this->assertStringContainsString('¿en qué te ayudo?', $respuesta['text']);
+
+        // Lo siguiente que escriba es del modelo.
+        $this->assertNull($this->entry()->attend($this->conversacion, '¿tienen parqueadero?'));
+    }
+
+    public function test_un_saludo_frio_tambien_recibe_el_iniciador(): void
+    {
+        $this->entry()->attend($this->conversacion, 'Buenas tardes');
+
+        $this->assertSame([GuidedEntry::HERE, GuidedEntry::WEB, GuidedEntry::OTHER], $this->ultimosBotones());
+        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', '¿En qué te puedo ayudar?'));
+    }
+
+    public function test_el_nombre_raro_no_se_usa_en_el_saludo(): void
+    {
+        $this->conversacion->client->forceFill(['name' => '🦋 Yess 🦋'])->save();
+        $this->conversacion->refresh();
+
+        $this->entry()->attend($this->conversacion, 'quiero una cita');
+
+        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', '¡Hola! 💅 ¿Cómo prefieres agendar?'));
     }
 
     public function test_el_menu_mas_la_fecha_dicha_llevan_directo_a_las_horas(): void
     {
         // El flujo completo del arranque: "cita para mañana en la tarde"
-        // → menú → toca un servicio → horas de MAÑANA en la TARDE, sin
-        // que el modelo participe ni nadie repita nada.
+        // → iniciador → por aquí → menú → toca un servicio → horas de
+        // MAÑANA en la TARDE, sin modelo ni nadie repitiendo nada.
         $phone = (string) ChannelPhone::normalize(self::PHONE);
 
         DateInText::remember($phone, 'Hola, quiero una cita para mañana en la tarde');
         $this->entry()->attend($this->conversacion, 'Hola, quiero una cita para mañana en la tarde');
+        $this->entry()->attend($this->conversacion, GuidedEntry::HERE);
 
         $respuesta = app(Toques::class)->atender($this->conversacion, 'Semipermanente');
 
@@ -173,7 +236,24 @@ class GuidedEntryTest extends TestCase
 
     public function test_un_hola_a_secas_es_del_modelo(): void
     {
+        // En medio de una charla, un "hola" es charla: del modelo.
+        $this->elAgenteAcabaDeHablar();
+
         $this->assertNull($this->entry()->attend($this->conversacion, 'Hola, buenos días'));
+    }
+
+    private function elAgenteAcabaDeHablar(): void
+    {
+        Message::create([
+            'business_id' => $this->business->id,
+            'conversation_id' => $this->conversacion->id,
+            'kind' => Message::KIND_AGENT,
+            'direction' => Message::DIRECTION_OUT,
+            'to' => $this->conversacion->phone,
+            'body' => '¡Hola Carolina! ¿En qué te ayudo?',
+            'status' => Message::STATUS_SENT,
+            'sent_at' => now(),
+        ]);
     }
 
     public function test_si_ya_dijo_el_servicio_va_por_el_camino_normal(): void
@@ -187,17 +267,29 @@ class GuidedEntryTest extends TestCase
         $this->assertNull($this->entry()->attend($this->conversacion, 'Quiero agendar una cita, ¿me mandas el link de la página?'));
     }
 
-    public function test_a_mitad_de_conversacion_no_interrumpe(): void
+    public function test_pedir_cita_en_plena_charla_si_muestra_el_iniciador(): void
     {
-        Message::create([
-            'business_id' => $this->business->id,
-            'conversation_id' => $this->conversacion->id,
-            'kind' => Message::KIND_AGENT,
-            'direction' => Message::DIRECTION_OUT,
-            'to' => $this->conversacion->phone,
-            'body' => '¡Hola Carolina! ¿En qué te ayudo?',
-            'status' => Message::STATUS_SENT,
-            'sent_at' => now(),
+        /*
+         * Antes solo salía con seis horas de silencio del bot, y Alejandro,
+         * que conversaba seguido, nunca lo vio. Pedir cita de nuevo ES
+         * empezar de nuevo: lo que quedaba de la gestión anterior se borra.
+         */
+        $this->elAgenteAcabaDeHablar();
+        $phone = (string) ChannelPhone::normalize(self::PHONE);
+        UltimoPedido::guardar($phone, ['servicios' => ['Tradicional'], 'opciones' => ['Tradicional']]);
+
+        $this->assertNotNull($this->entry()->attend($this->conversacion, 'quiero agendar una cita'));
+
+        $pedido = UltimoPedido::ver($phone);
+        $this->assertArrayNotHasKey('servicios', $pedido);
+        $this->assertTrue($pedido['eligiendo_canal']);
+    }
+
+    public function test_con_una_confirmacion_esperando_no_interrumpe(): void
+    {
+        UltimoPedido::guardar((string) ChannelPhone::normalize(self::PHONE), [
+            'servicios' => ['Semipermanente'],
+            'confirmar' => ['hora_24' => '10:00', 'hora' => '10 am'],
         ]);
 
         $this->assertNull($this->entry()->attend($this->conversacion, 'quiero una cita'));

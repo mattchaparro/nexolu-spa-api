@@ -466,6 +466,28 @@ class AvailabilityCapability implements Capability
     }
 
     /**
+     * ¿El mensaje ya nombra un servicio o una categoría del catálogo?
+     *
+     * OJO: las palabras de agendar se quitan ANTES de preguntar, porque
+     * en "quiero UNA cita" ese "una" parece la uña ("uña" sin tilde) y
+     * el traductor creía que ya había nombrado un servicio.
+     */
+    public function mentionsService(AiCaller $caller, string $texto): bool
+    {
+        $plano = mb_strtolower(strtr(trim($texto), ['á' => 'a', 'é' => 'e', 'í' => 'i', 'ó' => 'o', 'ú' => 'u', 'ñ' => 'n']));
+        $sinAgenda = preg_replace(
+            [
+                '/\b(una?|el|la|mi|otra|esa)\s+(cita|citas|turno|turnos|reserva|espacio|cupo)\b/u',
+                '/\b(cita|citas|turno|turnos|reserva|reservar|agendar|agendarme|agendame|agenda|disponibilidad|cupo|espacio)\b/u',
+            ],
+            ' ',
+            $plano,
+        ) ?? $plano;
+
+        return ComoLoPide::candidatos($this->catalogoEnLinea($caller->business->id), $sinAgenda)->isNotEmpty();
+    }
+
+    /**
      * El menú de bienvenida: los más pedidos, tocables, sin modelo.
      *
      * Para el mensaje que abre casi todas las conversaciones ("hola,
@@ -489,28 +511,9 @@ class AvailabilityCapability implements Capability
 
         $catalogo = $this->catalogoEnLinea($caller->business->id);
 
-        if ($catalogo->isEmpty()) {
-            return null;
-        }
-
-        /*
-         * "quiero una cita de manicure" ya dice qué: esa lista sale
-         * filtrada por el camino normal, no el menú completo. Pero OJO:
-         * las palabras de agendar se quitan ANTES de preguntar, porque
-         * en "quiero UNA cita" ese "una" parece la uña ("uña" sin tilde)
-         * y el traductor creía que ya había nombrado un servicio.
-         */
-        $plano = mb_strtolower(strtr(trim($texto), ['á' => 'a', 'é' => 'e', 'í' => 'i', 'ó' => 'o', 'ú' => 'u', 'ñ' => 'n']));
-        $sinAgenda = preg_replace(
-            [
-                '/\b(una?|el|la|mi|otra|esa)\s+(cita|citas|turno|turnos|reserva|espacio|cupo)\b/u',
-                '/\b(cita|citas|turno|turnos|reserva|reservar|agendar|agendarme|agendame|agenda|disponibilidad|cupo|espacio)\b/u',
-            ],
-            ' ',
-            $plano,
-        ) ?? $plano;
-
-        if (ComoLoPide::candidatos($catalogo, $sinAgenda)->isNotEmpty()) {
+        // "quiero una cita de manicure" ya dice qué: esa lista sale
+        // filtrada por el camino normal, no el menú completo.
+        if ($catalogo->isEmpty() || $this->mentionsService($caller, $texto)) {
             return null;
         }
 
