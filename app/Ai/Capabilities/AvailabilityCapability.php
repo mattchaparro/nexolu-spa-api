@@ -353,6 +353,10 @@ class AvailabilityCapability implements Capability
             }
 
             UltimoPedido::guardar($phoneCtx, [
+                // Si este pedido es la MUDANZA de una cita, la marca tiene
+                // que sobrevivir a la lista de horas: el «Sí» de este
+                // pedido reagenda, no crea (ver GuidedEntry y Toques).
+                'mudanza' => UltimoPedido::ver($phoneCtx)['mudanza'] ?? null,
                 'servicios' => $nombreServicios,
                 'fecha' => $arguments['fecha'],
                 'fecha_iso' => $fecha->format('Y-m-d'),

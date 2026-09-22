@@ -341,6 +341,18 @@ final class Toques
      */
     private function agendar(AiCaller $caller, WhatsappConversation $conversacion, string $phone, array $pedido, bool $otraMas = false): array
     {
+        /*
+         * Un pedido marcado como MUDANZA no crea: mueve. Laura pidio
+         * "cambiar mi cita", vio horas, toco una y confirmo -- ese Si es
+         * de reagendar_cita, en una transaccion, no de una cita nueva.
+         */
+        if (isset($pedido['mudanza']['id'])) {
+            $pedido['decidir_mover'] = $pedido['mudanza'];
+
+            return $this->mover($caller, $conversacion, $phone, $pedido)
+                ?? ['text' => '', 'conversation_id' => null, 'tools_used' => ['reagendar_cita']];
+        }
+
         $hora = $pedido['confirmar'];
 
         /*

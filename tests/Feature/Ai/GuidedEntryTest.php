@@ -6,11 +6,14 @@ use App\Ai\DateInText;
 use App\Ai\GuidedEntry;
 use App\Ai\Toques;
 use App\Ai\UltimoPedido;
+use App\Models\Appointment;
 use App\Models\Business;
 use App\Models\Client;
 use App\Models\Message;
+use App\Models\Service;
 use App\Models\ServiceCategory;
 use App\Models\WhatsappConversation;
+use App\Services\Scheduling\BookingService;
 use App\Support\ChannelPhone;
 use App\Support\PermissionCatalog;
 use Carbon\CarbonImmutable;
@@ -116,6 +119,54 @@ class GuidedEntryTest extends TestCase
         $manana = CarbonImmutable::now('America/Bogota')->addDay()->locale('es')->isoFormat('dddd D [de] MMMM');
         Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'Para *Semipermanente*')
             && str_contains($r->data()['text'] ?? '', $manana));
+    }
+
+    public function test_cambiar_mi_cita_va_directo_a_horas_y_el_si_la_mueve(): void
+    {
+        /*
+         * Laura, tres corridas seguidas: "quiero cambiar mi cita" y el
+         * modelo respondía "¿a qué hora te gustaría?" en vez de mirar la
+         * agenda. El riel: pedir mover + UNA cita próxima → horas del día
+         * que dijo → toque → Sí → reagendar_cita (no crear_cita).
+         */
+        $phone = (string) ChannelPhone::normalize(self::PHONE);
+
+        // Su cita en pie, mañana a la primera hora del día.
+        $cita = app(BookingService::class)->book(
+            $this->business,
+            [[
+                'service_id' => Service::withoutGlobalScope('business')->where('name', 'Semipermanente')->sole()->id,
+                'resource_id' => \App\Models\Resource::withoutGlobalScope('business')->where('name', 'Maria')->sole()->id,
+                'starts_at' => CarbonImmutable::now('America/Bogota')->addDay()->setTime(9, 0),
+            ]],
+            $this->conversacion->client,
+            'Carolina',
+            self::PHONE,
+            Appointment::SOURCE_WHATSAPP_AGENT,
+            null,
+        );
+        UltimoPedido::olvidar($phone);
+
+        // Como el job: primero la fecha escrita, después el riel.
+        DateInText::remember($phone, 'Hola! Necesito cambiar mi cita de mañana');
+        $respuesta = $this->entry()->attend($this->conversacion, 'Hola! Necesito cambiar mi cita de mañana');
+
+        $this->assertSame(['mover_cita'], $respuesta['tools_used']);
+        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'Para *Semipermanente*'));
+
+        // Toca una hora nueva y confirma.
+        $pedido = UltimoPedido::ver($phone);
+        $nueva = array_values($pedido['horas'])[0];
+        app(Toques::class)->atender($this->conversacion, $nueva['hora']);
+        $respuesta = app(Toques::class)->atender($this->conversacion, Toques::SI);
+
+        // UNA sola cita, movida; el aviso del cambio salió por el canal.
+        $this->assertSame('', $respuesta['text']);
+        $this->assertSame(['reagendar_cita'], $respuesta['tools_used']);
+        $quedo = Appointment::withoutGlobalScopes()->sole();
+        $this->assertSame($cita->id, $quedo->id);
+        $this->assertSame($nueva['hora_24'], $quedo->starts_at->timezone('America/Bogota')->format('H:i'));
+        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'quedó para el'));
     }
 
     public function test_un_hola_a_secas_es_del_modelo(): void
