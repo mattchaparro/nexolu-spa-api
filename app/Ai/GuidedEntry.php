@@ -85,19 +85,12 @@ final class GuidedEntry
         /*
          * El iniciador: "¿Cómo prefieres agendar?" con Agendar por aquí /
          * Agendar en la web / Otra consulta — la puerta que las clientas
-         * conocen de ManyChat. Sale con un "quiero una cita" (a cualquier
-         * hora: pedir cita de nuevo ES empezar de nuevo) o con un saludo a
-         * secas cuando la conversación viene fría.
-         *
-         * Antes solo salía si el bot llevaba seis horas callado, y quien
-         * conversa seguido -- Alejandro probando -- nunca la vio.
-         */
-        /*
-         * Un saludo a secas SIEMPRE abre el iniciador (salvo gestión a
-         * medias, ya descartada arriba). Antes solo con la conversación
-         * fría: Alejandro saludó dos veces seguidas, el modelo le devolvió
-         * dos veces el mismo "¿qué servicio y qué día?", y el cortador de
-         * bucles lo dejó en pausa.
+         * conocen de ManyChat. Sale con un "quiero una cita" o con un
+         * saludo a secas, a cualquier hora (salvo gestión a medias, ya
+         * descartada arriba). Antes solo con la conversación fría, y quien
+         * conversa seguido -- Alejandro probando -- nunca la vio: sus
+         * saludos iban al modelo, que contestaba dos veces lo mismo, y el
+         * cortador de bucles lo dejaba en pausa.
          */
         $pideCita = $this->wantsBooking($texto);
 
