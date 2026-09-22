@@ -672,7 +672,16 @@ final class Toques
      */
     private function respuestaDe(array $resultado, string $herramienta): ?array
     {
-        if (! empty($resultado['eligiendo_servicio']) || ! empty($resultado['ofrecidas'])) {
+        /*
+         * `eligiendo_fecha` también es una respuesta ya enviada.
+         *
+         * Faltaba, y costó una conversación: al tocar un servicio sin día,
+         * la agenda mandó los botones Hoy/Mañana/Otro día, esto devolvió
+         * null -- "esto no lo atendí" -- y el turno siguió hasta el modelo,
+         * que supuso HOY y le mandó el formulario de confirmación. Dos
+         * mensajes seguidos, el segundo con un día que nadie eligió.
+         */
+        if (! empty($resultado['eligiendo_servicio']) || ! empty($resultado['ofrecidas']) || ! empty($resultado['eligiendo_fecha'])) {
             return ['text' => '', 'conversation_id' => null, 'tools_used' => [$herramienta]];
         }
 

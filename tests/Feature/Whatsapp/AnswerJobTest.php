@@ -222,6 +222,28 @@ class AnswerJobTest extends TestCase
         Http::assertNotSent(fn ($r) => str_contains($r->data()['text'] ?? '', '¿Cómo prefieres agendar?'));
     }
 
+    public function test_tocar_un_servicio_sin_dia_solo_pregunta_el_dia(): void
+    {
+        /*
+         * El error de la conversación de Alejandro: tocó «Semipermanente
+         * Hombre», le llegaron los botones Hoy/Mañana/Otro día y, tres
+         * segundos después, el formulario de confirmación para HOY. La
+         * agenda ya había respondido con los botones, pero Toques devolvía
+         * null y el turno seguía hasta el modelo, que supuso hoy.
+         */
+        UltimoPedido::guardar($this->telefono(), ['opciones' => ['Semipermanente']]);
+
+        $this->escribe('Semipermanente');
+
+        Http::assertSent(fn ($r) => ($r->data()['text'] ?? '') === '¿Para qué día? 📅');
+        // Ni el modelo ni un formulario con un día que nadie eligió.
+        Http::assertNotSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'RESPUESTA DEL MODELO'));
+        Http::assertNotSent(fn ($r) => isset($r->data()['whatsapp_flow']));
+        $this->assertSame(1, collect(Http::recorded())
+            ->filter(fn ($par) => isset($par[0]->data()['whatsapp_options']))
+            ->count());
+    }
+
     public function test_hola_con_una_gestion_a_medias_recuerda_en_que_iban(): void
     {
         /*

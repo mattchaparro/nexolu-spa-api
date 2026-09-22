@@ -522,7 +522,9 @@ class AvailabilityCapability implements Capability
         $menu = $this->queEligaServicio(
             $caller,
             $nombres,
-            '¡Hola! 💅 Estos son los servicios que más nos piden. Toca uno, o escríbeme qué necesitas 👇',
+            // Sin "¡Hola!": a esta altura ya se saludó, y saludar dos veces
+            // en la misma conversación suena a máquina.
+            'Estos son los servicios que más nos piden 💅 Toca uno, o escríbeme qué necesitas 👇',
         );
 
         if ($menu === null) {
