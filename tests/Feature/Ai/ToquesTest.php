@@ -2,7 +2,9 @@
 
 namespace Tests\Feature\Ai;
 
+use App\Ai\Capabilities\AvailabilityCapability;
 use App\Ai\Toques;
+use App\Ai\UltimoPedido;
 use App\Models\Appointment;
 use App\Models\Business;
 use App\Models\Client;
@@ -229,6 +231,55 @@ class ToquesTest extends TestCase
         $this->assertSame(0, Appointment::withoutGlobalScopes()->count());
     }
 
+    public function test_antes_del_dia_se_pregunta_con_quien_con_su_horario(): void
+    {
+        /*
+         * Quien viene por su manicurista de siempre no quiere elegir un día
+         * y descubrir después que ella no trabaja. Se pregunta antes, con
+         * «Cualquiera» de primera para quien no tiene preferencia, y cada
+         * fila con el horario para que elegir no sea adivinar.
+         */
+        $respuesta = $this->invoke('disponibilidad', ['servicio' => 'Semipermanente'])->assertOk();
+
+        $this->assertTrue((bool) $respuesta->json('data.eligiendo_empleado'));
+        $filas = $this->ultimaLista();
+        // En el orden del catálogo, con «Cualquiera» de primera.
+        $this->assertSame([AvailabilityCapability::CUALQUIERA, 'Lucia', 'Maria'], array_column($filas, 'title'));
+        // Lucia trabaja de lunes a sábado, de 2 pm a 6 pm.
+        $this->assertSame('Lun a Sáb · 2 pm a 6 pm', $filas[1]['description']);
+    }
+
+    public function test_tocar_una_profesional_sigue_con_el_dia_y_filtra_sus_horas(): void
+    {
+        $this->invoke('disponibilidad', ['servicio' => 'Semipermanente']);
+
+        // Toca a Lucia, que solo trabaja en la tarde.
+        $respuesta = $this->toques()->atender($this->conversacion, 'Lucia');
+
+        $this->assertSame('', $respuesta['text']);
+        $this->assertSame(['Hoy', 'Mañana', 'Otro día'], array_column($this->ultimaLista(), 'title'));
+
+        $this->toques()->atender($this->conversacion, 'Mañana');
+        $horas = array_column($this->ultimaLista(), 'description');
+
+        $this->assertNotEmpty($horas);
+        foreach ($horas as $con) {
+            $this->assertStringContainsString('Lucia', (string) $con);
+        }
+    }
+
+    public function test_cualquiera_no_fija_profesional_y_no_se_vuelve_a_preguntar(): void
+    {
+        $this->invoke('disponibilidad', ['servicio' => 'Semipermanente']);
+
+        $this->toques()->atender($this->conversacion, AvailabilityCapability::CUALQUIERA);
+
+        $this->assertSame(['Hoy', 'Mañana', 'Otro día'], array_column($this->ultimaLista(), 'title'));
+        $pedido = UltimoPedido::ver((string) ChannelPhone::normalize(self::PHONE));
+        $this->assertArrayNotHasKey('empleado', $pedido);
+        $this->assertTrue($pedido['empleado_preguntado']);
+    }
+
     public function test_sin_fecha_el_dia_se_pregunta_con_botones(): void
     {
         /*
@@ -237,15 +288,16 @@ class ToquesTest extends TestCase
          * un botón más: quien viene de un flujo tipo ManyChat agenda de
          * punta a punta sin teclear una letra.
          */
-        $respuesta = $this->invoke('disponibilidad', ['servicio' => 'Semipermanente']);
+        $this->invoke('disponibilidad', ['servicio' => 'Semipermanente']);
+        $this->toques()->atender($this->conversacion, AvailabilityCapability::CUALQUIERA);
 
-        $respuesta->assertOk()->assertJsonPath('data.eligiendo_fecha', true);
         $this->assertSame(['Hoy', 'Mañana', 'Otro día'], array_column($this->ultimaLista(), 'title'));
     }
 
     public function test_tocar_manana_trae_las_horas_de_manana(): void
     {
         $this->invoke('disponibilidad', ['servicio' => 'Semipermanente']);
+        $this->toques()->atender($this->conversacion, AvailabilityCapability::CUALQUIERA);
 
         $respuesta = $this->toques()->atender($this->conversacion, 'Mañana');
 
@@ -258,6 +310,7 @@ class ToquesTest extends TestCase
     public function test_otro_dia_lista_los_siguientes_y_el_toque_busca_ese_dia(): void
     {
         $this->invoke('disponibilidad', ['servicio' => 'Semipermanente']);
+        $this->toques()->atender($this->conversacion, AvailabilityCapability::CUALQUIERA);
 
         $respuesta = $this->toques()->atender($this->conversacion, 'Otro día');
 

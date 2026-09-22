@@ -14,6 +14,7 @@ use App\Ai\Resolves;
 use App\Ai\ServiciosPendientes;
 use App\Ai\UltimoPedido;
 use App\Models\Location;
+use App\Models\ResourceSchedule;
 use App\Models\Service;
 use App\Services\Scheduling\AvailabilityService;
 use App\Services\Scheduling\CitasSimultaneas;
@@ -55,6 +56,9 @@ class AvailabilityCapability implements Capability
     // Tope de Meta para las filas de una lista. Cuando sobran servicios,
     // la ultima se gasta en "No veo el mio".
     private const MAX_FILAS = 10;
+
+    /** Quien no tiene preferencia de profesional. */
+    public const CUALQUIERA = 'Cualquiera';
 
     public function __construct(
         private readonly AvailabilityService $availability,
@@ -172,6 +176,19 @@ class AvailabilityCapability implements Capability
         }
 
         if (! isset($arguments['fecha'])) {
+            /*
+             * ¿Con alguien en particular? Antes del día: quien viene por su
+             * manicurista de siempre no quiere elegir un día y descubrir
+             * después que ella no trabaja. Solo en este camino -- quien ya
+             * dijo servicio Y día ("semi mañana") no quiere un paso más --
+             * una sola vez por pedido, y solo si hay entre quiénes elegir.
+             */
+            $preferencia = $this->queEligaPersona($caller, $arguments);
+
+            if ($preferencia !== null) {
+                return $preferencia;
+            }
+
             return $this->queEligaDia($caller, $arguments['servicios'] ?? [$arguments['servicio']]) ?? [
                 'horas' => [],
                 'falta_informacion' => 'No sé para qué día.',
@@ -412,6 +429,129 @@ class AvailabilityCapability implements Capability
                         .'pedidos) y pregúntale si son esos.')
                 : 'Ofrécele dos o tres de `ofrecidas` usando el campo `hora`, nunca `hora_24`.',
         ], fn ($v) => $v !== null);
+    }
+
+    /**
+     * "¿Con alguien en particular?": las profesionales y su horario.
+     *
+     * Con «Cualquiera» de primera, que es lo que la mayoría quiere y no
+     * debería costar más de un toque. Cada fila lleva los días y la hora
+     * en que trabaja, para que elegir no sea adivinar.
+     *
+     * Null = no hay nada que preguntar (ya eligió, ya se le preguntó, el
+     * servicio no está claro todavía, o una sola persona lo presta).
+     *
+     * @param  array<string, mixed>  $arguments
+     * @return array<string, mixed>|null
+     */
+    private function queEligaPersona(AiCaller $caller, array $arguments): ?array
+    {
+        $phone = ChannelPhone::normalize((string) $caller->phone, $caller->business->country_code ?? 'CO');
+
+        if ($phone === null || $caller->isStaff() || ! empty($arguments['empleado']) || ! empty($arguments['juntas'])) {
+            return null;
+        }
+
+        $pedido = UltimoPedido::ver($phone);
+
+        if (! empty($pedido['empleado_preguntado'])) {
+            return null;
+        }
+
+        try {
+            [$servicios] = $this->resolveServices($caller->business->id, $arguments['servicios'] ?? [$arguments['servicio']]);
+        } catch (AiArgumentException) {
+            // Todavía no está claro QUÉ quiere: primero eso.
+            return null;
+        }
+
+        if (count($servicios) !== 1) {
+            return null;
+        }
+
+        $gente = $this->quienesPrestan($caller->business->id, $servicios[0]->id, $arguments['sede'] ?? null);
+
+        if (count($gente) < 2) {
+            return null;
+        }
+
+        $filas = [['id' => 'cualquiera', 'title' => self::CUALQUIERA, 'description' => 'La primera que esté libre']];
+
+        foreach (array_slice($gente, 0, self::MAX_FILAS - 1) as $persona) {
+            $filas[] = array_filter([
+                'id' => 'r'.$persona->id,
+                'title' => TituloCorto::de($persona->name, 24),
+                'description' => $this->horarioDe($persona->id),
+            ]);
+        }
+
+        if (! app(EnvioDirecto::class)->opciones($caller, '¿Con alguien en particular? 💅', $filas, 'Ver el equipo')) {
+            return null;
+        }
+
+        UltimoPedido::guardar($phone, [
+            ...$pedido,
+            'servicios' => [$servicios[0]->name],
+            'empleados' => collect($filas)->mapWithKeys(fn ($f) => [mb_strtolower($f['title']) => $f['title']])->all(),
+            'eligiendo_empleado' => true,
+        ]);
+
+        return [
+            'horas' => [],
+            'eligiendo_empleado' => true,
+            'instruccion' => 'Le pregunté YO con quién quiere, con botones (incluye «'.self::CUALQUIERA
+                .'»): ya los está viendo. SOLO POR ESTA VEZ responde con una cadena vacía. Cuando '
+                .'toque a alguien, vuelve a llamarme con ese nombre en `empleado`.',
+        ];
+    }
+
+    /**
+     * Quiénes prestan ese servicio, en el orden del catálogo.
+     *
+     * @return list<\App\Models\Resource>
+     */
+    private function quienesPrestan(int $businessId, int $serviceId, ?string $sede): array
+    {
+        $sedeId = $this->resolveLocation($businessId, $sede)?->id;
+
+        return \App\Models\Resource::withoutGlobalScope('business')
+            ->where('business_id', $businessId)
+            ->where('type', \App\Models\Resource::TYPE_STAFF)
+            ->where('is_active', true)
+            ->where('is_bookable_online', true)
+            ->when($sedeId !== null, fn ($q) => $q->where('location_id', $sedeId))
+            ->whereHas('services', fn ($q) => $q->where('services.id', $serviceId))
+            ->orderBy('sort_order')
+            ->orderBy('name')
+            ->get()
+            ->all();
+    }
+
+    /** "Lun a Sáb · 9 am a 6 pm", para que elegir no sea adivinar. */
+    private function horarioDe(int $resourceId): ?string
+    {
+        $horarios = ResourceSchedule::withoutGlobalScope('business')
+            ->where('resource_id', $resourceId)
+            ->orderBy('weekday')
+            ->get();
+
+        if ($horarios->isEmpty()) {
+            return null;
+        }
+
+        $dias = ['', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+        $nombres = $horarios->pluck('weekday')->unique()->sort()->map(fn ($d) => $dias[(int) $d] ?? '')->filter()->values();
+
+        // "Lun a Sáb" cuando son seguidos; si no, la lista.
+        $seguidos = $horarios->pluck('weekday')->unique()->sort()->values();
+        $rango = $seguidos->count() > 2 && ($seguidos->last() - $seguidos->first() + 1) === $seguidos->count()
+            ? $nombres->first().' a '.$nombres->last()
+            : $nombres->implode(', ');
+
+        $desde = HoraLegible::de(Carbon::parse($horarios->min('start_time'), 'UTC'), 'UTC');
+        $hasta = HoraLegible::de(Carbon::parse($horarios->max('end_time'), 'UTC'), 'UTC');
+
+        return TituloCorto::de($rango.' · '.$desde.' a '.$hasta, 72);
     }
 
     /**

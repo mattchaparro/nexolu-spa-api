@@ -69,10 +69,10 @@ final class GuidedEntry
     private const NEW_SESSION_MINUTES = 30;
 
     /** Lo que marca una gestión a MEDIAS: ahí un menú interrumpe. */
-    private const PENDING = ['confirmar', 'decidir_mover', 'mudanza', 'eligiendo_fecha'];
+    private const PENDING = ['confirmar', 'decidir_mover', 'mudanza', 'eligiendo_fecha', 'eligiendo_empleado'];
 
     /** Lo que deja una gestión anterior y un comienzo nuevo borra. */
-    private const LEFTOVERS = ['servicios', 'opciones', 'horas', 'todas', 'fechas', 'mostrado_at', 'fecha_iso', 'dia', 'menu', 'citas', 'cita_id', 'acepta_multa'];
+    private const LEFTOVERS = ['servicios', 'opciones', 'horas', 'todas', 'fechas', 'mostrado_at', 'fecha_iso', 'dia', 'menu', 'citas', 'cita_id', 'acepta_multa', 'empleado', 'empleados', 'eligiendo_empleado', 'empleado_preguntado'];
 
     public function __construct(
         private readonly AvailabilityCapability $agenda,

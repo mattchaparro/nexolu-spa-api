@@ -2,10 +2,17 @@
 
 Dos formularios:
 
-| Archivo | Para qué | Variable |
-|---|---|---|
-| [confirmar-cita.json](confirmar-cita.json) | Confirmar la cita: hora entre las libres, nombre | `WHATSAPP_BOOKING_FLOW_ID` |
-| [elegir-fecha.json](elegir-fecha.json) | Calendario nativo al tocar «Otro día» | `WHATSAPP_DATE_FLOW_ID` |
+| Archivo | Para qué | Variable | Estado |
+|---|---|---|---|
+| [confirmar-cita.json](confirmar-cita.json) | Confirmar la cita: hora entre las libres, nombre | `WHATSAPP_BOOKING_FLOW_ID` | **apagado** |
+| [elegir-fecha.json](elegir-fecha.json) | Calendario nativo al tocar «Otro día» | `WHATSAPP_DATE_FLOW_ID` | activo |
+
+> **Por qué el de confirmar está apagado** (decisión de Alejandro tras
+> probarlo): el desplegable de horas llega con una hora YA seleccionada, y
+> quien toque «Confirmar» sin mirar queda agendada a una hora que no
+> eligió. Las horas vuelven a ser una lista tocable, donde hay que elegir
+> de verdad. El código sigue: basta poner la variable para volver a usarlo
+> (por ejemplo, si el formulario pasa a pedir solo el nombre).
 
 ## Elegir fecha (el calendario)
 

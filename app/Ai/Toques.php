@@ -133,6 +133,18 @@ final class Toques
             return null;
         }
 
+        // 1.4) Le preguntamos con quién quiere (o «Cualquiera»).
+        if (! empty($pedido['eligiendo_empleado'])) {
+            foreach ($candidatos as $plano) {
+                if (isset($pedido['empleados'][$plano])) {
+                    return $this->conLaPersona($caller, $phone, $pedido, $pedido['empleados'][$plano]);
+                }
+            }
+
+            // Escribió otra cosa: eso es conversación, y es del modelo.
+            return null;
+        }
+
         // 1.5) Le preguntamos el día con botones (Hoy / Mañana / Otro día).
         if (! empty($pedido['eligiendo_fecha'])) {
             foreach ($candidatos as $plano) {
@@ -181,6 +193,29 @@ final class Toques
         }
 
         return null;
+    }
+
+    /**
+     * Tocó a una profesional (o «Cualquiera»): se sigue con el día.
+     *
+     * `empleado_preguntado` queda marcado para no volver a preguntarlo en
+     * el mismo pedido: nadie quiere elegir manicurista dos veces.
+     *
+     * @param  array<string, mixed>  $pedido
+     * @return array{text: string, conversation_id: null, tools_used: list<string>}|null
+     */
+    private function conLaPersona(AiCaller $caller, string $phone, array $pedido, string $quien): ?array
+    {
+        unset($pedido['eligiendo_empleado'], $pedido['empleados']);
+        $cualquiera = $this->plano($quien) === $this->plano(AvailabilityCapability::CUALQUIERA);
+
+        UltimoPedido::guardar($phone, [
+            ...$pedido,
+            'empleado_preguntado' => true,
+            ...($cualquiera ? [] : ['empleado' => $quien]),
+        ]);
+
+        return $this->respuestaDe($this->disponibilidad->execute($caller, []), 'elegir_empleado');
     }
 
     /**
@@ -681,7 +716,8 @@ final class Toques
          * que supuso HOY y le mandó el formulario de confirmación. Dos
          * mensajes seguidos, el segundo con un día que nadie eligió.
          */
-        if (! empty($resultado['eligiendo_servicio']) || ! empty($resultado['ofrecidas']) || ! empty($resultado['eligiendo_fecha'])) {
+        if (! empty($resultado['eligiendo_servicio']) || ! empty($resultado['ofrecidas'])
+            || ! empty($resultado['eligiendo_fecha']) || ! empty($resultado['eligiendo_empleado'])) {
             return ['text' => '', 'conversation_id' => null, 'tools_used' => [$herramienta]];
         }
 
