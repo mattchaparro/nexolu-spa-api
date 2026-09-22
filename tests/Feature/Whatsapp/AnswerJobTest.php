@@ -122,12 +122,18 @@ class AnswerJobTest extends TestCase
             ->count());
     }
 
-    public function test_otra_consulta_tambien_contesta(): void
+    public function test_la_conversacion_inicial_completa_pasa_por_el_job(): void
     {
-        $this->escribe('Hola, quiero una cita');
+        // Hola → [Agendar] [Mis citas] [Otra consulta] → Otra consulta →
+        // Otra pregunta: cada respuesta del código sale, turno tras turno.
+        $this->escribe('Hola');
         $this->escribe(GuidedEntry::OTHER);
+        $this->escribe(GuidedEntry::QUESTION);
 
+        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', '¿En qué te puedo ayudar?'));
+        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', '¿Qué necesitas?'));
         Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', '¿en qué te ayudo?'));
+        Http::assertNotSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'RESPUESTA DEL MODELO'));
     }
 
     public function test_si_una_herramienta_manda_botones_el_texto_del_modelo_no_se_duplica(): void
