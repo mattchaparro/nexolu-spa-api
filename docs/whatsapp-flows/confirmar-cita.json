@@ -39,6 +39,12 @@
           {
             "type": "Form",
             "name": "cita",
+            "init-values": {
+              "servicio": "${data.servicio}",
+              "fecha": "${data.fecha}",
+              "hora": "${data.hora}",
+              "nombre": "${data.nombre}"
+            },
             "children": [
               {
                 "type": "TextSubheading",
@@ -49,31 +55,27 @@
                 "name": "servicio",
                 "label": "Servicio",
                 "required": true,
-                "data-source": "${data.servicios}",
-                "init-value": "${data.servicio}"
+                "data-source": "${data.servicios}"
               },
               {
                 "type": "DatePicker",
                 "name": "fecha",
                 "label": "Fecha",
-                "required": true,
-                "init-value": "${data.fecha}"
+                "required": true
               },
               {
                 "type": "Dropdown",
                 "name": "hora",
                 "label": "Hora",
                 "required": true,
-                "data-source": "${data.horas}",
-                "init-value": "${data.hora}"
+                "data-source": "${data.horas}"
               },
               {
                 "type": "TextInput",
                 "name": "nombre",
                 "label": "Tu nombre",
                 "input-type": "text",
-                "required": false,
-                "init-value": "${data.nombre}"
+                "required": false
               },
               {
                 "type": "TextInput",
