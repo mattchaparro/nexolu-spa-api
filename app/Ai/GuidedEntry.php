@@ -85,8 +85,15 @@ final class GuidedEntry
      *
      * @return array{text: string, conversation_id: null, tools_used: list<string>}|null
      */
-    public function attend(WhatsappConversation $conversacion, string $texto): ?array
+    public function attend(WhatsappConversation $conversacion, string $texto, bool $explicitOnly = false): ?array
     {
+        /*
+         * `$explicitOnly`: la conversación está en pausa esperando a una
+         * persona. Solo se atiende lo que la clienta PIDIÓ con todas las
+         * letras (agendar, mis citas, mover, un toque sobre un menú abierto);
+         * nunca se le abre el menú de inicio por iniciativa propia, que le
+         * quitaría la conversación a quien viene.
+         */
         $business = $conversacion->business;
         $phone = ChannelPhone::normalize((string) $conversacion->phone, $business->country_code ?? 'CO');
 
@@ -128,7 +135,11 @@ final class GuidedEntry
         }
 
         if ($this->wantsHuman($texto)) {
-            return $this->toStaff($caller, $conversacion, $phone, 'Pidió hablar con una persona del equipo.', 'hablar_con_persona');
+            // En pausa ya se pidió una persona: repetir el aviso solo
+            // llenaría la bandeja de notas iguales.
+            return $explicitOnly
+                ? null
+                : $this->toStaff($caller, $conversacion, $phone, 'Pidió hablar con una persona del equipo.', 'hablar_con_persona');
         }
 
         if ($this->wantsBooking($texto)) {
@@ -139,7 +150,7 @@ final class GuidedEntry
         }
 
         // 3) El menú de inicio: con un saludo, o al empezar la conversación.
-        if ($this->isGreeting($texto) || $this->isNewSession($conversacion)) {
+        if (! $explicitOnly && ($this->isGreeting($texto) || $this->isNewSession($conversacion))) {
             return $this->showMenu($caller, $phone, 'root');
         }
 

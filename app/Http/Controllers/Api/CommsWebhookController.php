@@ -158,7 +158,21 @@ class CommsWebhookController
          * olvidada vuelve al agente en vez de quedarse muda.
          */
         if ($conversacion->agentIsPaused()) {
-            return response()->json(['ok' => true, 'handled' => true, 'agent' => 'paused']);
+            if ($this->alguienAtiende($conversacion)) {
+                return response()->json(['ok' => true, 'handled' => true, 'agent' => 'paused']);
+            }
+
+            /*
+             * Pausa, pero NADIE del equipo ha contestado. Alejandro pidió
+             * una persona, nadie llegó, escribió "quiero agendar una cita" y
+             * se quedó dos horas sin respuesta. Mientras no conteste una
+             * persona, lo que se resuelve con botones (agendar, mis citas,
+             * el menú) lo sigue atendiendo el bot; la charla libre no.
+             */
+            AnswerWhatsappMessageJob::dispatch($conversacion->id, $entrante->id, soloRieles: true)
+                ->delay(now()->addSeconds((int) config('spa.defaults.whatsapp_agent_debounce_seconds', 8)));
+
+            return response()->json(['ok' => true, 'handled' => true, 'agent' => 'paused_rails']);
         }
 
         /*
@@ -517,6 +531,24 @@ class CommsWebhookController
         $texto = trim((string) $crudo);
 
         return $texto === '' ? null : $texto;
+    }
+
+    /**
+     * ¿Una persona del equipo ya le contestó durante esta pausa?
+     *
+     * La pausa dura `whatsapp_agent_pause_min`; si en ese lapso hubo una
+     * respuesta humana (desde la bandeja del spa o la de Connect), la
+     * conversación es de esa persona y el bot no se mete.
+     */
+    private function alguienAtiende(WhatsappConversation $conversacion): bool
+    {
+        $minutos = (int) config('spa.defaults.whatsapp_agent_pause_min', 120);
+
+        return Message::withoutGlobalScope('business')
+            ->where('conversation_id', $conversacion->id)
+            ->where('kind', Message::KIND_HUMAN)
+            ->where('created_at', '>=', now()->subMinutes(max(1, $minutos)))
+            ->exists();
     }
 
     private function hasValidSignature(Request $request): bool

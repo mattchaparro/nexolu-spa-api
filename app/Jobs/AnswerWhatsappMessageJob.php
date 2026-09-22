@@ -59,6 +59,22 @@ class AnswerWhatsappMessageJob implements ShouldQueue
     /** @var list<int> */
     public array $backoff = [10];
 
+    /**
+     * Solo los rieles (menú, botones), nunca el modelo.
+     *
+     * Para cuando el bot está en pausa porque se pidió una persona, pero
+     * ninguna ha contestado todavía: la clienta escribió "quiero agendar
+     * una cita" y nadie le respondió en dos horas. Lo que se resuelve con
+     * botones se sigue atendiendo; la conversación abierta, no -- esa es
+     * de la persona que viene.
+     *
+     * Propiedad aparte y con valor por defecto (no promovida en el
+     * constructor): un trabajo encolado antes de este cambio se
+     * deserializa sin ella, y una propiedad readonly sin inicializar
+     * revienta al leerla.
+     */
+    public bool $soloRieles = false;
+
     public function __construct(
         private readonly int $conversationId,
         /**
@@ -71,7 +87,10 @@ class AnswerWhatsappMessageJob implements ShouldQueue
          * creerian el ultimo y contestarian los dos.
          */
         private readonly int $mensajeId,
-    ) {}
+        bool $soloRieles = false,
+    ) {
+        $this->soloRieles = $soloRieles;
+    }
 
     public function handle(
         IaCoreClient $ia,
@@ -128,11 +147,24 @@ class AnswerWhatsappMessageJob implements ShouldQueue
          * de verdad habla con el modelo.
          */
         $respuesta = app(Toques::class)->atender($conversacion, $pendientes)
-            ?? app(GuidedEntry::class)->attend($conversacion, $pendientes);
+            ?? app(GuidedEntry::class)->attend($conversacion, $pendientes, explicitOnly: $this->soloRieles);
 
         // Lo que redacta el CÓDIGO sale siempre; las guardas de abajo
         // (botones ya enviados, eco) son para el texto del modelo.
         $delCodigo = $respuesta !== null;
+
+        if ($this->soloRieles) {
+            // En pausa esperando a una persona: sin riel que lo resuelva,
+            // silencio -- la conversación abierta es de quien viene.
+            if (! $delCodigo) {
+                return;
+            }
+
+            // Un riel la atendió: el bot vuelve, y la persona que venga
+            // igual ve todo el hilo en la bandeja.
+            $conversacion->resumeAgent();
+        }
+
         $respuesta ??= $ia->ask($conversacion, $pendientes);
 
         if ($respuesta === null) {

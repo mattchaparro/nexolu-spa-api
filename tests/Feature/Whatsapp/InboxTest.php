@@ -181,7 +181,10 @@ class InboxTest extends TestCase
 
         $r = $this->entra('¿A qué hora?')->assertOk();
 
-        $this->assertSame('paused', $r->json('agent'));
+        // Sin respuesta humana todavía, solo los rieles podrían contestar,
+        // y una pregunta libre no es de ellos: el agente sigue callado.
+        $this->assertSame('paused_rails', $r->json('agent'));
+        $this->assertTrue($conv->fresh()->agentIsPaused());
 
         // Y el mensaje igual quedó escrito: el relevo silencia al agente, no
         // a la clienta.

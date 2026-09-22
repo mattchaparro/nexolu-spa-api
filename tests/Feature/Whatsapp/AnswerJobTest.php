@@ -13,6 +13,7 @@ use App\Support\ChannelPhone;
 use App\Support\PermissionCatalog;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Testing\TestResponse;
 use Tests\Feature\Scheduling\SchedulingScenario;
 use Tests\TestCase;
 
@@ -72,6 +73,94 @@ class AnswerJobTest extends TestCase
         ]);
 
         UltimoPedido::olvidar((string) ChannelPhone::normalize(self::PHONE));
+    }
+
+    /**
+     * Como llega por el webhook firmado: guarda el mensaje y el controlador
+     * decide (pausa, rieles, modelo). Con la cola `sync` el job corre ya.
+     */
+    private function llegaPorElWebhook(string $texto): TestResponse
+    {
+        config()->set('services.comms_core.webhook_secret', 'secreto');
+        config()->set('queue.default', 'sync');
+        config()->set('spa.defaults.whatsapp_agent_debounce_seconds', 0);
+
+        $body = json_encode(['entry' => [['changes' => [['value' => [
+            'metadata' => ['phone_number_id' => '111222333'],
+            'messages' => [[
+                'id' => 'wamid.'.uniqid(),
+                'from' => self::PHONE,
+                'type' => 'text',
+                'text' => ['body' => $texto],
+            ]],
+        ]]]]]]);
+        $timestamp = (string) now()->timestamp;
+
+        return $this->call('POST', '/api/webhooks/nexolu-comms/whatsapp', [], [], [], [
+            'CONTENT_TYPE' => 'application/json',
+            'HTTP_ACCEPT' => 'application/json',
+            'HTTP_X_NEXOLU_TIMESTAMP' => $timestamp,
+            'HTTP_X_NEXOLU_SIGNATURE' => hash_hmac('sha256', $timestamp.'.'.$body, 'secreto'),
+        ], $body);
+    }
+
+    public function test_en_pausa_sin_nadie_que_atienda_agendar_si_se_responde(): void
+    {
+        /*
+         * Alejandro pidió una persona (la política de garantías), el bot
+         * quedó en pausa dos horas, nadie del equipo llegó, y su "Quiero
+         * agendar una cita" murió sin respuesta. Mientras no conteste una
+         * persona, lo que se resuelve con botones lo sigue atendiendo el bot.
+         */
+        $this->conversacion->pauseAgent();
+
+        $this->llegaPorElWebhook('Quiero agendar una cita')
+            ->assertOk()->assertJsonPath('agent', 'paused_rails');
+
+        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', '¿Cómo prefieres agendar?'));
+        $this->assertFalse($this->conversacion->refresh()->agentIsPaused());
+    }
+
+    public function test_en_pausa_la_charla_libre_espera_a_la_persona(): void
+    {
+        // Como en el caso real: el bot acababa de decir "ya le avisé".
+        Message::create([
+            'business_id' => $this->conversacion->business_id,
+            'conversation_id' => $this->conversacion->id,
+            'kind' => Message::KIND_AGENT,
+            'direction' => Message::DIRECTION_OUT,
+            'to' => $this->conversacion->phone,
+            'body' => 'Ya le avisé a alguien del local. Te escriben enseguida.',
+            'status' => Message::STATUS_SENT,
+            'sent_at' => now(),
+        ]);
+        $this->conversacion->pauseAgent();
+
+        $this->llegaPorElWebhook('?')->assertOk();
+
+        // Ni riel ni modelo: la conversación abierta es de quien viene.
+        Http::assertNotSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'RESPUESTA DEL MODELO'));
+        $this->assertTrue($this->conversacion->refresh()->agentIsPaused());
+    }
+
+    public function test_si_una_persona_ya_contesto_el_bot_no_se_mete(): void
+    {
+        $this->conversacion->pauseAgent();
+        Message::create([
+            'business_id' => $this->conversacion->business_id,
+            'conversation_id' => $this->conversacion->id,
+            'kind' => Message::KIND_HUMAN,
+            'direction' => Message::DIRECTION_OUT,
+            'to' => $this->conversacion->phone,
+            'body' => 'Hola Mateo, soy Ana del salón. Te cuento sobre las garantías…',
+            'status' => Message::STATUS_SENT,
+            'sent_at' => now(),
+        ]);
+
+        $this->llegaPorElWebhook('Quiero agendar una cita')
+            ->assertOk()->assertJsonPath('agent', 'paused');
+
+        Http::assertNotSent(fn ($r) => str_contains($r->data()['text'] ?? '', '¿Cómo prefieres agendar?'));
     }
 
     /** Un mensaje de la clienta, contestado por el job como en producción. */

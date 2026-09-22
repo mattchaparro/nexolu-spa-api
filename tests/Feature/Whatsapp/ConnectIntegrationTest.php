@@ -188,8 +188,11 @@ class ConnectIntegrationTest extends TestCase
         ])]);
 
         $this->firmado($this->notifyPayload((string) $this->luxury->id))->assertOk();
+        // Nadie del equipo ha contestado: el bot atiende solo pedidos con
+        // todas las letras (agendar, mis citas). Una pregunta libre espera
+        // a la persona que el flujo pidió.
         $this->firmado($this->sobreDeMeta('¿me pueden atender?'))
-            ->assertOk()->assertJsonPath('agent', 'paused');
+            ->assertOk()->assertJsonPath('agent', 'paused_rails');
 
         $this->assertSame(0, Message::withoutGlobalScopes()
             ->where('kind', Message::KIND_AGENT)->count());
