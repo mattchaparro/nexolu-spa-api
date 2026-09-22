@@ -107,6 +107,36 @@ class RepetidoTest extends TestCase
         $this->assertFalse($this->conversacion->refresh()->agentIsPaused());
     }
 
+    public function test_repetir_un_saludo_viejo_no_es_bucle(): void
+    {
+        /*
+         * Lo de Alejandro: saludó, conversó, y 20 minutos después volvió a
+         * saludar. El bot le devolvió el mismo saludo de la primera vez,
+         * esto lo tomó por bucle y lo dejó en pausa dos horas -- y nadie
+         * le contestó más. Un bucle es repetir la ÚLTIMA respuesta.
+         */
+        $saludo = '¡Hola! Para agendar tu cita, ¿qué servicio te gustaría y para qué día? 💅';
+        $this->elBotYaDijo($saludo, haceMinutos: 5);
+        $this->elBotYaDijo('Ya tienes una cita de Semipermanente el martes a las 9 am.', haceMinutos: 2);
+
+        $this->assertNull(app(Repetido::class)->atajar($this->conversacion, $saludo));
+        $this->assertFalse($this->conversacion->refresh()->agentIsPaused());
+    }
+
+    public function test_la_pausa_del_bucle_es_corta(): void
+    {
+        // La decide la máquina, no la clienta: si nadie la atiende, el bot
+        // tiene que volver pronto en vez de dejarla sin respuesta.
+        $pregunta = '¿Para qué sede te gustaría la cita? Tenemos Principal y Cedritos.';
+        $this->elBotYaDijo($pregunta);
+
+        app(Repetido::class)->atajar($this->conversacion, $pregunta);
+
+        $hasta = $this->conversacion->refresh()->agent_paused_until;
+        $this->assertTrue($hasta->lte(now()->addMinutes(15)));
+        $this->assertTrue($hasta->gt(now()->addMinutes(10)));
+    }
+
     public function test_lo_corto_no_cuenta_como_bucle(): void
     {
         // "¿Para qué día?" repetido puede ser legítimo (cambió de servicio).

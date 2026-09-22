@@ -23,11 +23,23 @@ use App\Models\WhatsappConversation;
  */
 final class Repetido
 {
-    /** Un eco de hace media hora ya no es un bucle, es un saludo de cajón. */
-    private const VENTANA_MINUTOS = 30;
+    /**
+     * Un bucle es repetir lo que se ACABA de decir. Era media hora y
+     * mirando tres respuestas: Alejandro volvió a saludar 20 minutos
+     * después, el bot le devolvió el mismo saludo de antes, esto lo tomó
+     * por bucle y lo dejó en pausa dos horas -- y nadie le contestó más.
+     */
+    private const VENTANA_MINUTOS = 10;
 
-    /** Cuántas respuestas recientes del agente se comparan. */
-    private const CUANTAS_MIRAR = 3;
+    /** Solo contra la ÚLTIMA respuesta: la inmediatamente anterior. */
+    private const CUANTAS_MIRAR = 1;
+
+    /**
+     * Pausa corta: esta pausa la decide la máquina, no la clienta. Si
+     * nadie la atiende, al rato el bot vuelve a estar para ella en vez
+     * de dejarla dos horas sin respuesta.
+     */
+    private const PAUSA_MINUTOS = 15;
 
     /**
      * Por debajo de esto no se corta nada: "¿Para qué día?" repetido
@@ -91,7 +103,7 @@ final class Repetido
      */
     private function dejarlaEnLaBandeja(WhatsappConversation $conversacion): void
     {
-        $conversacion->pauseAgent();
+        $conversacion->pauseAgent(self::PAUSA_MINUTOS);
 
         Message::create([
             'business_id' => $conversacion->business_id,
@@ -101,7 +113,8 @@ final class Repetido
             'direction' => Message::DIRECTION_OUT,
             'to' => $conversacion->phone,
             'body' => '⚑ El bot entró en bucle (iba a repetir su última respuesta). '
-                .'Le mandé el enlace de la agenda y quedó en pausa: responde tú.',
+                .'Le mandé el enlace de la agenda y quedó en pausa '.self::PAUSA_MINUTOS
+                .' minutos: si puedes, respóndele tú.',
             // Nota interna: nace enviada para que el outbox no la despache.
             'status' => Message::STATUS_SENT,
             'sent_at' => now(),
