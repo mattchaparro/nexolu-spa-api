@@ -31,6 +31,15 @@ class Message extends Model
 
     public const KIND_SURVEY = 'encuesta';
 
+    /**
+     * "Ya casi te toca retoque".
+     *
+     * Uno por cita gracias al indice unico (appointment_id, kind): la cita
+     * que lo dispara es la ULTIMA visita, asi que la restriccion garantiza
+     * que nadie reciba dos veces el mismo recordatorio.
+     */
+    public const KIND_RETOUCH = 'retoque';
+
     public const KIND_STAGE = 'etapa';
 
     public const KIND_STAFF = 'equipo';

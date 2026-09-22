@@ -65,6 +65,30 @@ final class GuidedEntry
 
     public const OTHER_SERVICE = 'Otro servicio';
 
+    /** Los botones del recordatorio de retoque (ver MessageTemplate::retoque). */
+    public const RETOUCH = 'Agendar retoque';
+
+    /**
+     * El otro botón del recordatorio.
+     *
+     * No reusa OTHER_SERVICE ('Otro servicio') a propósito: ese texto ya
+     * significa otra cosa en el flujo de garantías, y dos botones distintos
+     * con el mismo título llegan iguales por el webhook.
+     */
+    public const FROM_SCRATCH = 'Empezar de cero';
+
+    /**
+     * Darse de baja. Va en TODO mensaje que el spa manda por su cuenta.
+     *
+     * No es cortesía: es lo que separa un recordatorio de un spam. Quien no
+     * puede salirse bloquea el número, y un bloqueo se lleva por delante
+     * también los recordatorios de su propia cita -- y la calidad del número
+     * para todas las demás.
+     */
+    public const UNSUBSCRIBE = 'Darme de baja';
+
+    public const RESUBSCRIBE = 'Volver a recibir';
+
     /** Sin mensajes del bot en este lapso, lo siguiente es una conversación nueva. */
     private const NEW_SESSION_MINUTES = 30;
 
@@ -72,7 +96,7 @@ final class GuidedEntry
     private const PENDING = ['confirmar', 'decidir_mover', 'mudanza', 'eligiendo_fecha', 'eligiendo_empleado'];
 
     /** Lo que deja una gestión anterior y un comienzo nuevo borra. */
-    private const LEFTOVERS = ['servicios', 'opciones', 'horas', 'todas', 'fechas', 'mostrado_at', 'fecha_iso', 'dia', 'menu', 'citas', 'cita_id', 'acepta_multa', 'empleado', 'empleados', 'eligiendo_empleado', 'empleado_preguntado'];
+    private const LEFTOVERS = ['servicios', 'opciones', 'horas', 'todas', 'fechas', 'mostrado_at', 'fecha_iso', 'dia', 'menu', 'citas', 'cita_id', 'acepta_multa', 'empleado', 'empleados', 'eligiendo_empleado', 'empleado_preguntado', 'preludio'];
 
     public function __construct(
         private readonly AvailabilityCapability $agenda,
@@ -104,7 +128,20 @@ final class GuidedEntry
         $caller = AiCaller::customer($business, $phone, $conversacion->client, 'whatsapp');
 
         /*
-         * 0) «reiniciar» vuelve al inicio SIEMPRE: se olvida lo que quedara
+         * 0) Los botones del recordatorio de retoque.
+         *
+         * Van ANTES que «reiniciar» porque «Empezar de cero» cae dentro de
+         * esa palabra, y llevarla al menú de inicio le cobra un toque de más
+         * a quien ya dijo que quiere agendar otra cosa.
+         */
+        $retoque = $this->fromRetouchReminder($caller, $phone, $texto);
+
+        if ($retoque !== null) {
+            return $retoque;
+        }
+
+        /*
+         * 1) «reiniciar» vuelve al inicio SIEMPRE: se olvida lo que quedara
          * abierto y sale la bienvenida. Es explícito, así que vale también
          * en pausa esperando a una persona. La bienvenida lo anuncia.
          */
@@ -585,6 +622,138 @@ final class GuidedEntry
         UltimoPedido::guardar($phone, $pedido);
 
         return null;
+    }
+
+    // -- Retoque -----------------------------------------------------------
+
+    /**
+     * Los dos botones del recordatorio de retoque.
+     *
+     * Null = no tocó ninguno, o el atajo no pudo encaminarla: sigue el
+     * camino de siempre.
+     *
+     * @return array{text: string, conversation_id: null, tools_used: list<string>}|null
+     */
+    private function fromRetouchReminder(AiCaller $caller, string $phone, string $texto): ?array
+    {
+        $tocado = $this->plain($texto);
+
+        if ($tocado === $this->plain(self::RETOUCH)) {
+            return $this->startRetouch($caller, $phone);
+        }
+
+        if ($tocado === $this->plain(self::UNSUBSCRIBE)) {
+            return $this->unsubscribe($caller, $phone);
+        }
+
+        if ($tocado === $this->plain(self::RESUBSCRIBE)) {
+            return $this->resubscribe($caller, $phone);
+        }
+
+        if ($tocado === $this->plain(self::FROM_SCRATCH)) {
+            // Nada del retoque queda pegado: el catálogo como quien llega
+            // nueva, que es lo que ese botón promete.
+            UltimoPedido::olvidar($phone);
+
+            return $this->bookHere($caller, $phone);
+        }
+
+        return null;
+    }
+
+    /**
+     * «Darme de baja»: no más mensajes que el spa mande por su cuenta.
+     *
+     * Se apaga `accepts_marketing`, que es la misma llave que ya frena las
+     * difusiones -- una sola, y no una por tipo de mensaje: quien pidió que
+     * no le escriban no tiene por qué volver a pedirlo cada vez que
+     * inventemos una campaña.
+     *
+     * Lo que SIGUE llegando es lo de sus propias citas (confirmación y
+     * recordatorio). No es publicidad: es el servicio que ella pidió, y
+     * callarlo la deja sin saber a qué hora es su cita.
+     *
+     * @return array{text: string, conversation_id: null, tools_used: list<string>}
+     */
+    private function unsubscribe(AiCaller $caller, string $phone): array
+    {
+        $caller->client?->forceFill(['accepts_marketing' => false])->save();
+
+        $texto = 'Listo, no te enviaremos más promociones ni recordatorios de retoque ❤️'
+            ."\n\nLo de tus propias citas (confirmación y recordatorio) te sigue llegando, "
+            .'y aquí estoy si quieres agendar.';
+
+        $enviado = app(EnvioDirecto::class)->opciones($caller, $texto, [
+            ['id' => 'volver_a_recibir', 'title' => self::RESUBSCRIBE],
+        ]);
+
+        return $enviado
+            ? ['text' => '', 'conversation_id' => null, 'tools_used' => ['darse_de_baja']]
+            : $this->reply($phone, $texto, 'darse_de_baja');
+    }
+
+    /** Se arrepintió: volver a recibir tiene que ser tan fácil como salirse. */
+    private function resubscribe(AiCaller $caller, string $phone): array
+    {
+        $caller->client?->forceFill(['accepts_marketing' => true])->save();
+
+        return $this->reply(
+            $phone,
+            '¡Qué bueno tenerte de vuelta! 🌟 Te avisaremos cuando se acerque tu retoque. '
+                .'Puedes darte de baja otra vez cuando quieras.',
+            'volver_a_recibir',
+        );
+    }
+
+    /**
+     * «Agendar retoque»: mismo servicio, misma persona, solo falta el día.
+     *
+     * El botón de ManyChat mandaba al inicio y había que repetir todo el
+     * procedimiento; esa es justo la molestia que esto quita. El servicio
+     * y la profesional salen de su última visita -- que es lo que el
+     * recordatorio le acaba de nombrar --, así que preguntar de nuevo
+     * sería hacerle repetir lo que el salón ya sabe.
+     *
+     * Null = no hay última visita que copiar: sigue el camino normal.
+     *
+     * @return array{text: string, conversation_id: null, tools_used: list<string>}|null
+     */
+    private function startRetouch(AiCaller $caller, string $phone): ?array
+    {
+        $ultimo = $this->lastService($caller);
+        $servicio = $ultimo?->items->first(fn ($i) => $i->service !== null)?->service;
+
+        if ($servicio === null) {
+            return null;
+        }
+
+        // La profesional, solo si sigue activa y se puede reservar con ella:
+        // prometerle la de siempre y que no esté es peor que no ofrecerla.
+        $persona = $ultimo->items->first(fn ($i) => $i->resource !== null)?->resource;
+        $conElla = $persona !== null && $persona->is_active && $persona->is_bookable_online;
+
+        UltimoPedido::guardar($phone, [
+            'servicios' => [$servicio->name],
+            // Ya se preguntó -- en su última visita: no se vuelve a preguntar.
+            'empleado_preguntado' => true,
+            ...($conElla ? ['empleado' => $persona->name] : []),
+            'preludio' => sprintf(
+                '¡Listo! Te repito tu *%s*%s 💅',
+                $servicio->name,
+                $conElla ? ' con *'.$persona->name.'*' : '',
+            ),
+        ]);
+
+        // Sin fecha, la agenda pregunta el día (botones o calendario).
+        $resultado = $this->agenda->execute($caller, []);
+
+        if (empty($resultado['eligiendo_fecha']) && empty($resultado['ofrecidas'])) {
+            UltimoPedido::olvidar($phone);
+
+            return null;
+        }
+
+        return ['text' => '', 'conversation_id' => null, 'tools_used' => ['retoque']];
     }
 
     // -- Garantías ---------------------------------------------------------

@@ -60,6 +60,20 @@ return [
         // Cuanto hacia adelante se puede reservar.
         'max_booking_horizon_days' => 60,
 
+        /*
+         * Cada cuantos dias se retoca un servicio que no diga lo suyo.
+         * Veinte dias es lo que dura un semipermanente antes de verse
+         * crecido; cada servicio lo ajusta (0 = no se retoca).
+         */
+        'retouch_days' => 20,
+
+        /*
+         * A que hora local sale el recordatorio de retoque. Las 10 de la
+         * manana: ya desayuno y todavia puede cuadrar el dia; de noche se
+         * lee y se olvida.
+         */
+        'retouch_reminder_hour' => 10,
+
         // Penalizacion por inasistencia. 0 = deshabilitada.
         'no_show_penalty_amount' => 0,
 

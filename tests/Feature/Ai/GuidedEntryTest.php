@@ -532,4 +532,127 @@ class GuidedEntryTest extends TestCase
         $this->assertNull($this->escribe('una pregunta, ¿aceptan tarjeta?'));
         $this->assertArrayNotHasKey('menu', UltimoPedido::ver($this->phone()));
     }
+
+    // -- El retoque ---------------------------------------------------------
+
+    /** Su última visita, hace `$haceDias`. */
+    private function visitaPasada(int $haceDias, string $servicio = 'Semipermanente'): Appointment
+    {
+        $this->travel(-$haceDias)->days();
+        $cita = $this->cita($servicio, CarbonImmutable::now('America/Bogota')->setTime(10, 0));
+        $this->travel($haceDias)->days();
+
+        return $cita;
+    }
+
+    public function test_agendar_retoque_solo_pregunta_el_dia(): void
+    {
+        /*
+         * LA mejora sobre ManyChat. Allá el botón devolvía al inicio y había
+         * que repetir todo -- servicio, manicurista, día, hora -- para
+         * llegar a lo mismo de siempre. Acá el único dato que falta es el
+         * día, porque es el único que el salón no puede saber.
+         */
+        $this->visitaPasada(21);
+
+        $respuesta = $this->escribe(GuidedEntry::RETOUCH);
+
+        $this->assertSame('', $respuesta['text']);
+        $this->assertSame(['retoque'], $respuesta['tools_used']);
+        $this->assertSame(['Hoy', 'Mañana', 'Otro día'], $this->ultimosBotones());
+
+        // Y se lo dice, para que vea que no tiene que repetir nada.
+        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'Te repito tu *Semipermanente* con *Maria*'));
+
+        $pedido = UltimoPedido::ver($this->phone());
+        $this->assertSame(['Semipermanente'], $pedido['servicios']);
+        $this->assertSame('Maria', $pedido['empleado']);
+    }
+
+    public function test_el_retoque_no_vuelve_a_preguntar_por_la_manicurista(): void
+    {
+        // `empleado_preguntado` es lo que apaga ese paso: ya se preguntó, en
+        // su última visita.
+        $this->visitaPasada(21);
+        $this->escribe(GuidedEntry::RETOUCH);
+
+        $this->assertTrue(UltimoPedido::ver($this->phone())['empleado_preguntado']);
+        $this->assertNotContains('¡Cualquiera!', $this->ultimosBotones());
+    }
+
+    public function test_si_la_manicurista_ya_no_esta_el_retoque_sigue_con_el_servicio(): void
+    {
+        /*
+         * Prometerle la de siempre y que no esté es peor que no ofrecerla:
+         * la clienta elige día y hora contando con alguien que renunció.
+         */
+        $this->visitaPasada(21);
+        Resource::withoutGlobalScope('business')->where('name', 'Maria')->sole()->update(['is_active' => false]);
+
+        $this->escribe(GuidedEntry::RETOUCH);
+
+        $pedido = UltimoPedido::ver($this->phone());
+        $this->assertSame(['Semipermanente'], $pedido['servicios']);
+        $this->assertArrayNotHasKey('empleado', $pedido);
+    }
+
+    public function test_sin_visita_anterior_el_retoque_sigue_el_camino_normal(): void
+    {
+        /*
+         * No debería pasar -- el recordatorio sale de una visita -- pero si
+         * pasa, el atajo se aparta en vez de inventarse un servicio: "Agendar
+         * retoque" es un agendamiento como cualquier otro y lo lleva el
+         * camino de siempre, sin dejar nada a medias en el pedido.
+         */
+        $respuesta = $this->escribe(GuidedEntry::RETOUCH);
+
+        $this->assertNotSame(['retoque'], $respuesta['tools_used'] ?? []);
+        $this->assertArrayNotHasKey('servicios', UltimoPedido::ver($this->phone()));
+    }
+
+    public function test_darse_de_baja_apaga_los_mensajes_del_spa(): void
+    {
+        /*
+         * El botón que Alejandro señaló en el mensaje de ManyChat, y con
+         * razón: quien no puede salirse bloquea el número -- y un bloqueo se
+         * lleva por delante también los recordatorios de su propia cita.
+         *
+         * Se apaga `accepts_marketing`, la MISMA llave que ya frena las
+         * difusiones: darse de baja se pide una vez, no una por cada tipo de
+         * mensaje que inventemos después.
+         */
+        $respuesta = $this->escribe(GuidedEntry::UNSUBSCRIBE);
+
+        $this->assertSame(['darse_de_baja'], $respuesta['tools_used']);
+        $this->assertFalse((bool) $this->conversacion->client->fresh()->accepts_marketing);
+
+        // Y se le dice qué sigue llegando: lo de sus propias citas.
+        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'tus propias citas'));
+        $this->assertSame([GuidedEntry::RESUBSCRIBE], $this->ultimosBotones());
+    }
+
+    public function test_volver_a_recibir_cuesta_lo_mismo_que_salirse(): void
+    {
+        $this->escribe(GuidedEntry::UNSUBSCRIBE);
+
+        $respuesta = $this->escribe(GuidedEntry::RESUBSCRIBE);
+
+        $this->assertStringContainsString('de vuelta', $respuesta['text']);
+        $this->assertTrue((bool) $this->conversacion->client->fresh()->accepts_marketing);
+    }
+
+    public function test_empezar_de_cero_abre_el_catalogo_sin_nada_pegado(): void
+    {
+        $this->visitaPasada(21);
+        $this->escribe(GuidedEntry::RETOUCH);
+
+        $this->escribe(GuidedEntry::FROM_SCRATCH);
+
+        // El servicio anterior no se arrastra: quería otra cosa.
+        $pedido = UltimoPedido::ver($this->phone());
+        $this->assertArrayNotHasKey('empleado', $pedido);
+        $this->assertArrayNotHasKey('servicios', $pedido);
+        // Y ve el catálogo completo, como quien llega nueva.
+        $this->assertContains('Tradicional', $pedido['opciones']);
+    }
 }

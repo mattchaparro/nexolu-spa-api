@@ -27,6 +27,10 @@ class ServiceResource extends JsonResource
             // Los buffers ocupan al profesional pero no se le cobran al
             // cliente: el front muestra duration_min, no esta suma.
             'occupied_min' => $this->occupiedMinutesFor(),
+            // null = el default de plataforma; 0 = no se retoca. Se manda
+            // crudo para que el formulario distinga "no lo he tocado" de
+            // "este servicio no se retoca".
+            'retouch_days' => $this->retouch_days === null ? null : (int) $this->retouch_days,
             'price' => (float) $this->price,
             'is_bookable_online' => (bool) $this->is_bookable_online,
             'is_active' => (bool) $this->is_active,

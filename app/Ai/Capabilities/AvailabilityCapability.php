@@ -577,18 +577,33 @@ class AvailabilityCapability implements Capability
             return null;
         }
 
-        $enviado = app(EnvioDirecto::class)->opciones($caller, '¿Para qué día? 📅', [
-            ['id' => 'hoy', 'title' => 'Hoy'],
-            ['id' => 'manana', 'title' => 'Mañana'],
-            ['id' => 'otro_dia', 'title' => 'Otro día'],
-        ]);
+        /*
+         * Quien viene del recordatorio de retoque no puede recibir un
+         * "¿Para qué día?" pelado: acaba de tocar un botón que promete que
+         * ya sabemos qué y con quién, y el mensaje tiene que DEMOSTRARLO.
+         * Lo deja GuidedEntry::startRetouch y se consume una sola vez.
+         */
+        $pedido = UltimoPedido::ver($phone);
+        $preludio = (string) ($pedido['preludio'] ?? '');
+
+        $enviado = app(EnvioDirecto::class)->opciones(
+            $caller,
+            ($preludio !== '' ? $preludio."\n\n" : '').'¿Para qué día? 📅',
+            [
+                ['id' => 'hoy', 'title' => 'Hoy'],
+                ['id' => 'manana', 'title' => 'Mañana'],
+                ['id' => 'otro_dia', 'title' => 'Otro día'],
+            ],
+        );
 
         if (! $enviado) {
             return null;
         }
 
+        unset($pedido['preludio']);
+
         UltimoPedido::guardar($phone, [
-            ...UltimoPedido::ver($phone),
+            ...$pedido,
             // Tal como los dijo: el toque del dia vuelve a la agenda y
             // alla se resuelven, con lista de por medio si dan para varios.
             'servicios' => array_values(array_filter(array_map('strval', $servicios))),

@@ -52,6 +52,18 @@ final class MessageTemplate
         return new self('recordatorio_cita', 'es', [$cliente, $negocio, $fecha, $hora]);
     }
 
+    /**
+     * "Ya casi te toca retoque".
+     *
+     * Sale semanas despues de la ultima conversacion, asi que SIEMPRE va
+     * como plantilla: fuera de la ventana de 24h Meta descarta el texto
+     * libre sin avisar.
+     */
+    public static function retoque(string $cliente, string $negocio, string $servicio): self
+    {
+        return new self('retoque_recordatorio', 'es', [$cliente, $negocio, $servicio]);
+    }
+
     /** La confirmacion, con el mismo formato que la clienta ya conoce. */
     public static function confirmacion(
         string $fecha,

@@ -29,6 +29,21 @@ Schedule::command('recordatorios:preparar')
     ->runInBackground();
 
 /*
+ * "Ya casi te toca retoque".
+ *
+ * Cada hora, porque cada negocio elige a que hora LOCAL sale el suyo
+ * (`retouch_reminder_hour`): el comando se salta los que no estan en su
+ * hora. Un solo cron para todos los husos.
+ *
+ * Idempotente por el indice unico de `messages`, igual que los
+ * recordatorios de cita: correrlo de mas no manda nada de mas.
+ */
+Schedule::command('retoques:recordar')
+    ->hourly()
+    ->withoutOverlapping()
+    ->runInBackground();
+
+/*
  * Difusiones programadas.
  *
  * Cada cinco minutos, no cada quince: que una promocion salga cuatro minutos

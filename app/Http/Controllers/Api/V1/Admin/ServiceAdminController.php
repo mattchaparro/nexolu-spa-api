@@ -87,6 +87,11 @@ class ServiceAdminController
             'duration_min' => ['required', 'integer', 'min:5', 'max:600'],
             'buffer_before_min' => ['nullable', 'integer', 'min:0', 'max:120'],
             'buffer_after_min' => ['nullable', 'integer', 'min:0', 'max:120'],
+            /*
+             * Cada cuántos días se retoca. Vacío = el default de plataforma
+             * (20); 0 = no se retoca, y por eso el mínimo es 0 y no 1.
+             */
+            'retouch_days' => ['nullable', 'integer', 'min:0', 'max:365'],
             'price' => ['required', 'numeric', 'min:0'],
             // Se guarda como fraccion (0.30), pero el formulario pide 30.
             'commission_rate' => ['nullable', 'numeric', 'min:0', 'max:1'],

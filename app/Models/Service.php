@@ -17,7 +17,7 @@ class Service extends Model
 
     protected $fillable = [
         'business_id', 'name', 'slug', 'description', 'image_path', 'service_category_id',
-        'duration_min', 'buffer_before_min', 'buffer_after_min',
+        'duration_min', 'retouch_days', 'buffer_before_min', 'buffer_after_min',
         'price', 'commission_rate', 'is_bookable_online', 'is_active', 'sort_order',
     ];
 
@@ -25,6 +25,7 @@ class Service extends Model
     {
         return [
             'duration_min' => 'integer',
+            'retouch_days' => 'integer',
             'buffer_before_min' => 'integer',
             'buffer_after_min' => 'integer',
             'price' => 'decimal:2',

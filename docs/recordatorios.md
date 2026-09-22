@@ -152,6 +152,6 @@ alguien mirando que necesita saber ahora si funcionó.
 - **Un solo recordatorio por cita.** Dos (día antes + dos horas antes) chocarían
   con el índice único: haría falta que el `kind` lleve el desfase. Nadie lo ha
   pedido todavía.
-- **Recordatorio de retoque** —"ya va siendo hora de tus uñas"— es otra cosa: no
-  cuelga de una cita futura sino de la última visita. Sería otro `kind` y otro
-  servicio.
+El **recordatorio de retoque** —"ya va siendo hora de tus uñas"— es otra cosa:
+no cuelga de una cita futura sino de la última visita. Ya existe, con su propio
+`kind` y su propio servicio: [retoques.md](retoques.md).
