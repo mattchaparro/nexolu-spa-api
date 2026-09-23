@@ -412,8 +412,21 @@ Route::prefix('v1')->group(function () {
 
             // La tarjeta de sellos de esa persona. Mismo permiso que el
             // historial: cuantas veces vino es exactamente eso.
+            /*
+             * La tarjeta de sellos: tambien para QUIEN COBRA.
+             *
+             * `clientes.historial` era el unico permiso, y quien atiende no lo
+             * tiene -- ver el historial de alguien es mas que elegirlo en un
+             * buscador. Pero el momento de aplicar el premio es justo el
+             * cobro: sin ver la tarjeta, la manicurista no se entera de que la
+             * clienta ya cumplio sus diez sellos y el premio no se entrega.
+             * Una tarjeta que nadie ve al cobrar no es una tarjeta.
+             *
+             * Lo que se expone es el contador y el premio, no el historial:
+             * ver LoyaltyService::cardFor.
+             */
             Route::get('/{client}/loyalty', [LoyaltyCardController::class, 'show'])
-                ->middleware(['feature:loyalty', 'permission:clientes.historial']);
+                ->middleware(['feature:loyalty', 'permission:clientes.historial,caja.cobrar']);
         });
 
         /*

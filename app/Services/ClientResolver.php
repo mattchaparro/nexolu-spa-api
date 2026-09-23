@@ -39,9 +39,23 @@ class ClientResolver
         // llaman igual, y evita duplicar a la misma persona cada vez que
         // alguien escribe su nombre con otra tilde.
         if ($phone !== null) {
+            /*
+             * El mismo numero escrito de otra forma sigue siendo el mismo.
+             *
+             * `normalize` devuelve solo digitos (573001112233), pero en la base
+             * conviven otros formatos: las fichas que vienen del sistema viejo
+             * traen "+57...", y las de la pagina publica se guardaron alguna
+             * vez con espacios. Comparando literal, la misma persona entraba
+             * otra vez como ficha NUEVA -- sin su historial, sin sus sellos y
+             * sin su encuesta.
+             *
+             * Se descubrio probando a mano: identificar a Gisel por su
+             * telefono decia "es Gisel M." y la visita terminaba en una ficha
+             * repetida.
+             */
             $existing = Client::withoutGlobalScope('business')
                 ->where('business_id', $businessId)
-                ->where('phone', $phone)
+                ->whereIn('phone', self::variantes($phone))
                 ->first();
 
             if ($existing !== null) {
@@ -63,6 +77,7 @@ class ClientResolver
 
         $parts = preg_split('/\s+/', trim($name), 2);
 
+
         return Client::create([
             'business_id' => $businessId,
             'name' => $parts[0],
@@ -71,5 +86,30 @@ class ClientResolver
             'email' => $email,
             'is_active' => true,
         ]);
+    }
+
+    /**
+     * Las formas en que ESE numero puede estar escrito en la base.
+     *
+     * No es adivinar: son las tres que existen de verdad. El normalizado
+     * (573001112233), el mismo con "+" --como lo trae el sistema viejo-- y el
+     * nacional sin indicativo (3001112233), que es como lo escribe quien lo
+     * anota a mano.
+     *
+     * @return list<string>
+     */
+    private static function variantes(string $phone): array
+    {
+        $variantes = [$phone, '+'.$phone];
+
+        // Sin el indicativo: 57 + 10 digitos en Colombia. Se recorta por
+        // longitud y no por pais para no atarlo a una tabla de indicativos.
+        if (strlen($phone) > 10) {
+            $nacional = substr($phone, -10);
+            $variantes[] = $nacional;
+            $variantes[] = '+'.$nacional;
+        }
+
+        return array_values(array_unique($variantes));
     }
 }

@@ -152,8 +152,20 @@ class MyWorkController
             ->get()
             ->map(fn (PayrollSettlement $s) => [
                 'id' => $s->id,
-                'period_start' => $s->period_start?->setTimezone($tz)->toDateString(),
-                'period_end' => $s->period_end?->setTimezone($tz)->toDateString(),
+                /*
+                 * El período NO se convierte de zona, y es la diferencia
+                 * entre decir la verdad y decir el día anterior.
+                 *
+                 * Son columnas `date`: Carbon las lee como medianoche UTC, y
+                 * pasarlas a Bogotá (−5) las corre al día de antes. Así, un
+                 * período del 1 al 31 de agosto se leía "31 de julio al 30 de
+                 * agosto" -- que es justo el mes que a nadie le cuadra cuando
+                 * revisa lo que le pagaron.
+                 *
+                 * `paid_at` sí es un instante, y ese sí se convierte.
+                 */
+                'period_start' => $s->period_start?->toDateString(),
+                'period_end' => $s->period_end?->toDateString(),
                 'paid_at' => $s->paid_at?->setTimezone($tz)->toDateString(),
                 'services_count' => (int) $s->services_count,
                 // El desglose que ella revisa: comisión, base, premios y
