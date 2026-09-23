@@ -205,7 +205,15 @@ class StageWorkflowTest extends TestCase
 
         // Los nombres del negocio, no los internos.
         $this->assertContains('Confirmada', $etiquetas);
-        $this->assertContains('En la silla', $etiquetas);
+        $this->assertContains('Lista y cobrada', $etiquetas);
+
+        /*
+         * «En la silla» ya NO está, y es deliberado: «la manicurista
+         * simplemente carga el servicio cuando lo terminó; eso de en la silla
+         * y que se paró es mucha vaina» (Alejandro). Un estado que nadie
+         * mueve no informa nada y sí ensucia el tablero.
+         */
+        $this->assertNotContains('En la silla', $etiquetas);
         $this->assertContains('No asistió', $etiquetas);
         // Y no se ofrece quedarse donde ya está.
         $this->assertNotContains('Agendada', $etiquetas);

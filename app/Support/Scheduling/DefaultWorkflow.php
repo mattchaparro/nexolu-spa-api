@@ -23,6 +23,22 @@ final class DefaultWorkflow
     public const NAME = 'Flujo estándar de spa';
 
     /**
+     * Las etapas, y por qué NO está «En la silla».
+     *
+     * La tenía, y Alejandro la quitó con una frase que vale más que cualquier
+     * diagrama: «la manicurista simplemente carga el servicio cuando lo
+     * terminó; eso de en la silla y que se paró es mucha vaina». Un estado que
+     * nadie mueve no informa nada y sí ensucia el tablero: o se marca tarde,
+     * o se marca nunca, y en los dos casos miente.
+     *
+     * Quedan las cuatro que alguien de verdad mueve: agendada, confirmada
+     * --que es lo que responde la clienta al recordatorio--, lista y cobrada,
+     * cancelada, y la inasistencia.
+     *
+     * El estado núcleo `in_progress` sigue existiendo en la máquina de
+     * estados: un negocio que sí lo use puede armarse su etapa. Lo que cambia
+     * es lo que trae el flujo estándar.
+     *
      * @return list<array<string, mixed>>
      */
     public static function stages(): array
@@ -55,14 +71,6 @@ final class DefaultWorkflow
                      */
                     'config' => ['template' => ''],
                 ]],
-            ],
-            [
-                'key' => 'en_silla',
-                'label' => 'En la silla',
-                'color' => '#0f766e',
-                'maps_to_status' => Appointment::STATUS_IN_PROGRESS,
-                'is_initial' => false,
-                'actions' => [],
             ],
             [
                 'key' => 'lista',
