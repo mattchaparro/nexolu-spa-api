@@ -548,6 +548,68 @@ class GuidedEntryTest extends TestCase
         return $cita;
     }
 
+    // -- Los botones del recordatorio --------------------------------------
+
+    public function test_confirmo_que_voy_deja_la_cita_confirmada(): void
+    {
+        /*
+         * Es lo que el salón hace hoy llamando una por una. La cita pasa por
+         * la máquina de estados --no se le escribe el estado a mano-- para
+         * que quede el registro y el tablero del mostrador diga lo mismo que
+         * la ficha.
+         */
+        $cita = $this->cita('Semipermanente', $this->manana(11));
+
+        $respuesta = $this->escribe(GuidedEntry::CONFIRM_ATTENDANCE);
+
+        $this->assertSame(['confirmar_asistencia'], $respuesta['tools_used']);
+        $this->assertStringContainsString('Te esperamos', $respuesta['text']);
+        $this->assertSame(Appointment::STATUS_CONFIRMED, $cita->fresh()->status);
+    }
+
+    public function test_confirmar_no_le_reenvia_la_confirmacion(): void
+    {
+        /*
+         * Sin la guarda de «lo hizo el cliente», mover la cita de etapa le
+         * mandaría la confirmación entera un segundo después de que el bot
+         * ya le respondió: dos mensajes para un solo toque.
+         */
+        $this->cita('Semipermanente', $this->manana(11));
+
+        $this->escribe(GuidedEntry::CONFIRM_ATTENDANCE);
+
+        $this->assertSame(0, Message::withoutGlobalScope('business')->where('kind', Message::KIND_STAGE)->count());
+    }
+
+    public function test_cancelar_cita_pregunta_antes_de_cancelar(): void
+    {
+        // Con una sola cita va directo a la pregunta; cancelar sin preguntar
+        // por un toque sería imperdonable.
+        $this->cita('Semipermanente', $this->manana(11));
+
+        $this->escribe(GuidedEntry::CANCEL_APPOINTMENT);
+
+        $this->assertSame([GuidedEntry::CONFIRM_CANCEL, GuidedEntry::KEEP], $this->ultimosBotones());
+    }
+
+    public function test_cancelar_cita_con_varias_muestra_la_lista(): void
+    {
+        // Cancelar la que no era es peor que un toque de más.
+        $this->cita('Semipermanente', $this->manana(11));
+        $this->cita('Tradicional', $this->manana(15));
+
+        $this->escribe(GuidedEntry::CANCEL_APPOINTMENT);
+
+        $this->assertCount(2, $this->ultimosBotones());
+    }
+
+    public function test_sin_citas_confirmar_no_rompe_nada(): void
+    {
+        $respuesta = $this->escribe(GuidedEntry::CONFIRM_ATTENDANCE);
+
+        $this->assertStringContainsString('No veo citas próximas', $respuesta['text']);
+    }
+
     // -- El final de la visita ---------------------------------------------
 
     public function test_calificar_servicio_le_manda_el_enlace(): void

@@ -119,6 +119,40 @@ final class MessageTemplate
     }
 
     /**
+     * "Tu cita quedó cancelada", cuando la cancela el SALON.
+     *
+     * Cancelar del lado del negocio pasa fuera de toda conversacion --se
+     * enfermo quien atendia, se cayo la luz-- asi que la ventana esta
+     * cerrada casi siempre. Sin plantilla, la clienta se aparece a una cita
+     * que ya no existe.
+     */
+    public static function cancelacion(
+        string $cliente,
+        string $fecha,
+        string $hora,
+        string $negocio,
+    ): self {
+        return new self('cita_cancelada', 'es', [$cliente, $fecha, $hora, $negocio]);
+    }
+
+    /**
+     * "Se libero un cupo": la lista de espera.
+     *
+     * El mas urgente de todos y el que mas depende de la plantilla: se avisa
+     * dias despues de que la persona pidio el cupo, y es para quien lo tome
+     * primero.
+     */
+    public static function cupoLibre(
+        string $cliente,
+        string $servicio,
+        string $fecha,
+        string $hora,
+        string $negocio,
+    ): self {
+        return new self('cupo_disponible', 'es', [$cliente, $servicio, $fecha, $hora, $negocio]);
+    }
+
+    /**
      * "Te movieron una cita": misma persona, otra hora.
      *
      * `antes` y `ahora` llevan el dia y la hora juntos ("Jueves 17 a las 3:00

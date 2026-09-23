@@ -5,11 +5,13 @@ namespace App\Ai;
 use App\Ai\Capabilities\AvailabilityCapability;
 use App\Ai\Capabilities\CancelAppointmentCapability;
 use App\Models\Appointment;
+use App\Models\AppointmentStageEvent;
 use App\Models\Message;
 use App\Models\WhatsappConversation;
 use App\Services\ClientPortalService;
 use App\Services\Loyalty\LoyaltyService;
 use App\Services\Ratings\SurveyService;
+use App\Services\Scheduling\StageTransitionService;
 use App\Support\ChannelPhone;
 use App\Support\Scheduling\ThankYouMessage;
 use App\Support\TituloCorto;
@@ -102,6 +104,17 @@ final class GuidedEntry
 
     public const RATE = ThankYouMessage::RATE;
 
+    /**
+     * Los botones del recordatorio de la cita.
+     *
+     * «Reagendar» ya existe arriba y su camino es el mismo. Estos dos son
+     * los que faltaban: confirmar que viene --que es lo que el salón hace
+     * hoy llamando una por una-- y cancelar, que libera la silla a tiempo.
+     */
+    public const CONFIRM_ATTENDANCE = 'Confirmo que voy';
+
+    public const CANCEL_APPOINTMENT = 'Cancelar cita';
+
     /** Sin mensajes del bot en este lapso, lo siguiente es una conversación nueva. */
     private const NEW_SESSION_MINUTES = 30;
 
@@ -158,6 +171,13 @@ final class GuidedEntry
 
         if ($cierre !== null) {
             return $cierre;
+        }
+
+        // 0.6) Los del recordatorio: confirmar que viene, o cancelar.
+        $recordatorio = $this->fromReminder($caller, $phone, $texto);
+
+        if ($recordatorio !== null) {
+            return $recordatorio;
         }
 
         /*
@@ -642,6 +662,105 @@ final class GuidedEntry
         UltimoPedido::guardar($phone, $pedido);
 
         return null;
+    }
+
+    // -- El recordatorio de la cita -----------------------------------------
+
+    /**
+     * «Confirmo que voy» y «Cancelar cita», los botones del recordatorio.
+     *
+     * Ahí está la diferencia entre un recordatorio que sirve y uno que no: si
+     * la persona no va a poder, tiene que poder decirlo EN ESE MOMENTO. Uno
+     * sin salida solo consigue que la inasistencia llegue avisada.
+     *
+     * @return array{text: string, conversation_id: null, tools_used: list<string>}|null
+     */
+    private function fromReminder(AiCaller $caller, string $phone, string $texto): ?array
+    {
+        $tocado = $this->plain($texto);
+
+        if ($tocado === $this->plain(self::CONFIRM_ATTENDANCE)) {
+            return $this->confirmAttendance($caller, $phone);
+        }
+
+        if ($tocado === $this->plain(self::CANCEL_APPOINTMENT)) {
+            return $this->startCancel($caller, $phone);
+        }
+
+        return null;
+    }
+
+    /**
+     * «Confirmo que voy»: la cita queda confirmada y el salón lo ve.
+     *
+     * Es lo que hoy se hace llamando una por una. Pasa por la máquina de
+     * estados --no se escribe el estado a mano-- para que quede el registro
+     * de quién la movió y para que el tablero del mostrador diga lo mismo
+     * que la ficha.
+     *
+     * @return array{text: string, conversation_id: null, tools_used: list<string>}
+     */
+    private function confirmAttendance(AiCaller $caller, string $phone): array
+    {
+        $citas = $this->upcoming($caller);
+
+        if ($citas->isEmpty()) {
+            return $this->reply(
+                $phone,
+                '¡Gracias por avisar! 😊 No veo citas próximas a tu nombre. Si quieres, te agendo una.',
+                'confirmar_asistencia',
+            );
+        }
+
+        // La más cercana: el recordatorio salió por esa.
+        $cita = $citas->first();
+
+        try {
+            app(StageTransitionService::class)->moveToStatus(
+                $cita,
+                Appointment::STATUS_CONFIRMED,
+                null,
+                AppointmentStageEvent::ACTOR_CLIENT,
+            );
+        } catch (\Throwable $e) {
+            // Ya estaba confirmada, o el flujo del negocio no permite el
+            // salto. Ninguna de las dos es culpa de ella ni cambia su
+            // respuesta: dijo que viene, y eso ya se anotó.
+            report($e);
+        }
+
+        return $this->reply(
+            $phone,
+            '¡Perfecto! ✅ Te esperamos '.$this->describe($caller, $cita).'. '
+                .'Si algo cambia, escríbeme y la movemos.',
+            'confirmar_asistencia',
+        );
+    }
+
+    /**
+     * «Cancelar cita» sin haber pasado por el menú.
+     *
+     * Con una sola cita se va directo a preguntarle si está segura --con la
+     * multa por delante si es tardía--; con varias, a la lista, porque
+     * cancelar la que no era es peor que un toque de más.
+     *
+     * @return array{text: string, conversation_id: null, tools_used: list<string>}|null
+     */
+    private function startCancel(AiCaller $caller, string $phone): ?array
+    {
+        $citas = $this->upcoming($caller);
+
+        if ($citas->isEmpty()) {
+            return $this->reply(
+                $phone,
+                'No veo citas próximas a tu nombre 😊 ¿Quieres agendar una?',
+                'cancelar_cita',
+            );
+        }
+
+        return $citas->count() === 1
+            ? $this->askCancel($caller, $phone, $citas->first()->id)
+            : $this->listAppointments($caller, $phone);
     }
 
     // -- El final de la visita ----------------------------------------------

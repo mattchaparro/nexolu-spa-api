@@ -6,10 +6,12 @@ use App\Ai\AiCaller;
 use App\Ai\EnvioDirecto;
 use App\Ai\InfoPostCita;
 use App\Models\Appointment;
+use App\Models\AppointmentStageEvent;
 use App\Models\Business;
 use App\Models\Message;
 use App\Services\Loyalty\LoyaltyService;
 use App\Services\Messaging\MessageDispatcher;
+use App\Services\Messaging\MessageTemplate;
 use App\Support\Scheduling\ConfirmationMessage;
 use App\Support\Scheduling\StageActionCatalog;
 use App\Support\Scheduling\StageMessage;
@@ -36,6 +38,18 @@ class NotifyClientAction implements StageAction
         $appointment = $context->appointment;
         $business = $appointment->business;
 
+        /*
+         * Lo movió ELLA. No se le avisa de lo que acaba de hacer.
+         *
+         * Pasa cuando toca «Confirmo que voy» en el recordatorio: la cita
+         * pasa a confirmada y, sin esto, le llegaría la confirmación entera
+         * un segundo después de que el bot ya le dijo "¡Perfecto, te
+         * esperamos!". Dos mensajes para un solo toque.
+         */
+        if ($context->actorKind === AppointmentStageEvent::ACTOR_CLIENT) {
+            return StageActionResult::skipped('Lo hizo el cliente; ya se le respondió en la conversación.');
+        }
+
         $phone = $appointment->client_phone ?? $appointment->client?->phone;
 
         if (! $phone) {
@@ -54,6 +68,7 @@ class NotifyClientAction implements StageAction
          */
         $confirma = $context->stage?->maps_to_status === Appointment::STATUS_CONFIRMED;
         $termina = $context->stage?->maps_to_status === Appointment::STATUS_COMPLETED;
+        $cancela = $context->stage?->maps_to_status === Appointment::STATUS_CANCELLED;
 
         $message = $this->dispatcher->queue(
             $business,
@@ -86,6 +101,13 @@ class NotifyClientAction implements StageAction
                 // plantilla los nombra en renglones fijos (ver
                 // ThankYouMessage::template).
                 $termina => ThankYouMessage::template($appointment),
+                /*
+                 * Cancelar del lado del salón pasa fuera de toda
+                 * conversación --se enfermó quien atendía-- así que la
+                 * ventana está cerrada casi siempre. Sin plantilla, la
+                 * clienta se aparece a una cita que ya no existe.
+                 */
+                $cancela => MessageTemplate::cancelacion(...array_values($this->datosDeCancelacion($appointment))),
                 default => null,
             },
         );
@@ -128,6 +150,30 @@ class NotifyClientAction implements StageAction
             // corregir la ficha.
             default => StageActionResult::failed($message->error ?? 'El canal rechazó el envío.'),
         };
+    }
+
+    /**
+     * Las variables de la cancelación, en el ORDEN que espera la plantilla.
+     *
+     * Con relleno cuando falta algo: un parámetro vacío hace que Meta rechace
+     * el envío entero, y quedarse sin avisar de una cancelación es peor que
+     * decir "tu cita" en vez del nombre del servicio.
+     *
+     * @return array{cliente: string, fecha: string, hora: string, negocio: string}
+     */
+    private function datosDeCancelacion(Appointment $appointment): array
+    {
+        $valores = StageMessage::values($appointment);
+
+        return [
+            // 120 fichas de Luxury traen un nombre que puso ManyChat --un
+            // emoji, un punto-- y con esos no se saluda (NombreDePila ya los
+            // descarta y deja vacío).
+            'cliente' => $valores['cliente'] !== '' ? $valores['cliente'] : 'hola',
+            'fecha' => $valores['fecha'] !== '' ? $valores['fecha'] : 'la fecha agendada',
+            'hora' => $valores['hora'] !== '' ? $valores['hora'] : 'la hora agendada',
+            'negocio' => $valores['negocio'] !== '' ? $valores['negocio'] : 'el salón',
+        ];
     }
 
     /**

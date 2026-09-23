@@ -21,7 +21,7 @@ Por eso el texto se guarda **siempre**, aunque salga la plantilla: es lo que
 se lee en la bandeja y lo que una persona copia en modo manual. De
 "Hola Carolina, tu cita del jueves…" no se sacan de vuelta las variables.
 
-## Las siete, y cómo crearlas
+## Las nueve, y cómo crearlas
 
 En el WhatsApp Manager, idioma **es**. El nombre y **el orden de las
 variables** tienen que ser exactos: Meta no recibe nombres, recibe una lista
@@ -128,11 +128,18 @@ Dentro de la ventana sale el texto del negocio, que **sí** lleva el enlace de
 «mis citas» — y ahí está la diferencia entre un recordatorio que sirve y uno
 que no: si la persona no va a poder, tiene que poder moverla en ese momento.
 
-**Pendiente de decidir:** fuera de la ventana —que es el caso normal de un
-recordatorio— hoy llega sin salida: ni enlace ni botones. Los que tendrían
-sentido son `Confirmo que voy`, `Reagendar` y `Cancelar cita`; «Reagendar» ya
-tiene su camino en el bot, los otros dos hay que construirlos antes de poner
-el botón. Un botón que no hace nada es peor que no tenerlo.
+**Botones**, con estos textos exactos:
+
+1. `Confirmo que voy`
+2. `Reagendar`
+3. `Cancelar cita`
+
+Fuera de la ventana —que es el caso normal de un recordatorio— son la única
+salida que tiene: sin ellos llega un aviso que no se puede contestar.
+
+`Confirmo que voy` deja la cita **confirmada** en el tablero, que es lo que
+hoy se hace llamando una por una. `Cancelar cita` pregunta antes (y avisa la
+multa si es tardía). `Reagendar` abre las horas.
 
 ### 4. `retoque_recordatorio` — categoría *marketing*
 
@@ -140,7 +147,44 @@ Ver [retoques.md](retoques.md): encabezado, cuerpo, pie y los tres botones
 (`Agendar retoque`, `Empezar de cero`, `Darme de baja`), cuyos textos son la
 interfaz y no se pueden cambiar en Meta sin cambiarlos en el código.
 
-### 5, 6 y 7. Los avisos al EQUIPO — categoría *utility*
+### 5. `cita_cancelada` — categoría *utility*
+
+Cuando cancela el **salón**: se enfermó quien atendía, se cayó la luz. Pasa
+fuera de toda conversación, así que sin plantilla la clienta se aparece a una
+cita que ya no existe.
+
+```
+Hola {{1}}, tu cita del {{2}} a las {{3}} en {{4}} quedó cancelada.
+Escríbenos y la reagendamos.
+```
+
+`{{1}}` cliente · `{{2}}` fecha · `{{3}}` hora · `{{4}}` negocio.
+
+**Botón**: `Agendar` — para que reagendar sea un toque y no un mensaje que
+ella tiene que redactar.
+
+### 6. `cupo_disponible` — categoría *utility*
+
+La lista de espera. **El más urgente de todos**: el cupo es para quien lo tome
+primero, y llega días después de que la persona se apuntó, así que su ventana
+lleva rato cerrada.
+
+```
+¡Hola {{1}}! Se liberó un cupo para {{2}}: {{3}} a las {{4}} en {{5}}.
+Es para quien lo tome primero.
+```
+
+`{{1}}` cliente · `{{2}}` servicio · `{{3}}` fecha · `{{4}}` hora ·
+`{{5}}` negocio.
+
+**Botón**: `Agendar`.
+
+> El **enlace** para tomar el cupo no cabe en la plantilla, y es justo lo que
+> el texto libre sí lleva. No se pierde: tocar el botón abre la ventana de 24
+> horas y el bot lo manda. Ese enlace muestra los cupos vigentes **en vivo**,
+> así que sirve aunque ese cupo ya se haya ido.
+
+### 7, 8 y 9. Los avisos al EQUIPO — categoría *utility*
 
 No son para la clienta: son para quien atiende. Van fuera de la ventana
 siempre --la manicurista recibe del número del salón, pero no le escribe--,

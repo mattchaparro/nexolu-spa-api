@@ -277,6 +277,37 @@ class ConfirmationTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_cancelar_desde_el_panel_tambien_sale_como_plantilla(): void
+    {
+        /*
+         * El salón cancela fuera de toda conversación --se enfermó quien
+         * atendía-- así que la ventana está cerrada casi siempre. Sin
+         * plantilla, la clienta se aparece a una cita que ya no existe.
+         */
+        $cita = $this->cita();
+        $stage = new AppointmentWorkflowStage([
+            'key' => 'cancelada',
+            'label' => 'Cancelada',
+            'maps_to_status' => Appointment::STATUS_CANCELLED,
+        ]);
+
+        app(NotifyClientAction::class)->execute(new StageActionContext(
+            $cita,
+            $stage,
+            ['template' => ''],
+            null,
+            AppointmentStageEvent::ACTOR_USER,
+        ));
+
+        $enviado = $this->canal->sent[0];
+
+        $this->assertSame('cita_cancelada', $enviado['template']);
+        $this->assertSame(
+            ['Carolina', 'jueves 17 de septiembre', '3:00 pm', $this->business->name],
+            $enviado['params'],
+        );
+    }
+
     public function test_el_texto_se_guarda_aunque_salga_la_plantilla(): void
     {
         /*

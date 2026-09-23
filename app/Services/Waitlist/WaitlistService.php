@@ -2,6 +2,7 @@
 
 namespace App\Services\Waitlist;
 
+use App\Ai\HoraLegible;
 use App\Models\Appointment;
 use App\Models\Business;
 use App\Models\Client;
@@ -10,6 +11,7 @@ use App\Models\Resource;
 use App\Models\Service;
 use App\Models\WaitlistEntry;
 use App\Services\Messaging\MessageDispatcher;
+use App\Services\Messaging\MessageTemplate;
 use App\Services\Scheduling\AvailabilityService;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
@@ -186,6 +188,18 @@ class WaitlistService
                 $this->body($business, $entry, $slot),
                 null,
                 $entry->client,
+                /*
+                 * Y como plantilla, porque este aviso llega DIAS despues de
+                 * que la persona pidio el cupo: su ventana de 24h se cerro
+                 * hace rato. Es ademas el mas urgente de todos --el cupo es
+                 * para quien lo tome primero-- asi que perderlo en silencio
+                 * es perder la venta y la confianza a la vez.
+                 *
+                 * El texto sigue yendo, y ahi va el ENLACE para tomarlo: la
+                 * plantilla no puede llevarlo, pero tocar su boton abre la
+                 * ventana y el bot lo manda.
+                 */
+                $this->plantilla($business, $entry, $slot),
             );
 
             if ($message !== null) {
@@ -404,6 +418,30 @@ class WaitlistService
      * tome primero. El enlace muestra lo vigente, asi que el mensaje sigue
      * sirviendo aunque ese cupo puntual ya se haya ido.
      */
+    /**
+     * El mismo aviso, como plantilla aprobada.
+     *
+     * Con relleno donde el texto libre se permite quedar corto: un parametro
+     * vacio hace que Meta rechace el envio entero, y perder un cupo por un
+     * nombre en blanco seria absurdo.
+     *
+     * @param  array{starts_at: CarbonImmutable, resource_name: string}  $slot
+     */
+    private function plantilla(Business $business, WaitlistEntry $entry, array $slot): MessageTemplate
+    {
+        $tz = $business->businessTimezone();
+        $local = $slot['starts_at']->setTimezone($tz);
+        $nombre = trim(explode(' ', (string) $entry->client?->name)[0] ?? '');
+
+        return MessageTemplate::cupoLibre(
+            $nombre !== '' ? $nombre : 'hola',
+            $entry->service?->name ?? 'tu servicio',
+            ucfirst($local->locale('es')->isoFormat('dddd D [de] MMMM')),
+            HoraLegible::de($slot['starts_at'], $tz),
+            $business->name,
+        );
+    }
+
     private function body(Business $business, WaitlistEntry $entry, array $slot): string
     {
         $tz = $business->businessTimezone();

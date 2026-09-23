@@ -134,6 +134,34 @@ class WaitlistTest extends TestCase
         $this->assertStringContainsString('/cupo/spa-espera/', $aviso->body);
     }
 
+    public function test_el_aviso_del_cupo_lleva_plantilla(): void
+    {
+        /*
+         * Llega DÍAS después de que la persona se apuntó: su ventana de 24h
+         * lleva rato cerrada, y como texto libre Meta lo acepta sin
+         * entregarlo. Es además el más urgente de todos --el cupo es para
+         * quien lo tome primero-- así que perderlo en silencio es perder la
+         * venta y la confianza a la vez.
+         */
+        $ana = $this->clienta('Ana', '+573001111111');
+        $cita = $this->agendar($ana, '10:00:00');
+
+        $carolina = $this->clienta('Carolina', '+573002222222');
+        $this->esperar($carolina);
+
+        $this->booking()->cancel($cita);
+
+        $aviso = $this->avisos()->first();
+
+        $this->assertSame('cupo_disponible', $aviso->template_name);
+        $this->assertSame('Carolina', $aviso->template_params[0]);
+        $this->assertSame('Manicure', $aviso->template_params[1]);
+        // Y el texto SIGUE llevando el enlace, que la plantilla no puede
+        // llevar: es lo que se manda dentro de la ventana y lo que se copia
+        // a mano desde la bandeja.
+        $this->assertStringContainsString('/cupo/spa-espera/', $aviso->body);
+    }
+
     public function test_se_avisa_a_todos_los_que_encajan_no_de_a_uno(): void
     {
         /*

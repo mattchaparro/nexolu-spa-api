@@ -718,6 +718,10 @@ class StageWorkflowTest extends TestCase
     public function test_cancelar_pasa_por_la_maquina_y_libera_el_horario(): void
     {
         $canal = $this->canalQueFunciona();
+        // Con la ventana abierta sale el texto; cerrada saldría la plantilla
+        // `cita_cancelada`, que es lo único que Meta entrega -- y acá lo que
+        // se mira es lo que DICE el aviso.
+        $this->abrirLaVentana();
 
         $cita = $this->agendar();
         $itemIds = $cita->items()->pluck('id');
