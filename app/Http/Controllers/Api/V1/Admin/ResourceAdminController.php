@@ -88,6 +88,11 @@ class ResourceAdminController
                 'name' => trim($data['name'].' '.($data['last_name'] ?? '')),
                 'color' => $data['color'] ?? null,
                 'bio' => $data['bio'] ?? null,
+                // A donde avisarle de SUS citas, si el negocio tiene el
+                // aviso al equipo encendido. Sin numero, no se le avisa.
+                'phone' => isset($data['phone'])
+                    ? ChannelPhone::normalize($data['phone'], $business->country_code)
+                    : null,
                 // Sale en la vitrina salvo que digan que no. Un equipo que hay
                 // que publicar uno por uno termina siendo una pagina vacia.
                 'is_public' => $data['is_public'] ?? true,
@@ -131,6 +136,9 @@ class ResourceAdminController
             // `present` para poder BORRARLA: sin eso no habria forma de
             // quitarle la resena a alguien una vez escrita.
             'bio' => ['sometimes', 'present', 'nullable', 'string', 'max:280'],
+            // Igual que la resena: `present` para poder borrarlo, que es
+            // como alguien deja de recibir los avisos de sus citas.
+            'phone' => ['sometimes', 'present', 'nullable', 'string', 'max:32'],
             'is_public' => ['nullable', 'boolean'],
             'location_id' => [
                 'sometimes', 'integer',
@@ -308,6 +316,12 @@ class ResourceAdminController
             // Solo para recursos que son personas.
             'email' => ['nullable', 'email', 'max:255', Rule::unique('users', 'email')->whereNull('deleted_at')],
             'password' => ['required_with:email', 'nullable', 'string', 'min:8'],
+            /*
+             * Su WhatsApp. Queda en los dos lados a proposito: en su
+             * usuario, como dato de contacto, y en el recurso, que es de
+             * donde sale el aviso de sus citas. Son la misma persona pero
+             * no el mismo registro: muchas manicuristas no tienen cuenta.
+             */
             'phone' => ['nullable', 'string', 'max:32'],
             'role' => ['nullable', Rule::in(PermissionCatalog::roles())],
         ]);

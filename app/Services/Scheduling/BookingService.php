@@ -11,6 +11,7 @@ use App\Models\ResourceOccupancy;
 use App\Models\Service;
 use App\Models\ServicePackage;
 use App\Models\User;
+use App\Services\Messaging\TeamNotifier;
 use App\Services\Scheduling\Exceptions\OutsideWorkingHoursException;
 use App\Services\Scheduling\Exceptions\SlotUnavailableException;
 use App\Services\Waitlist\WaitlistService;
@@ -171,6 +172,13 @@ class BookingService
                     'error' => $e->getMessage(),
                 ]);
             }
+
+            /*
+             * Y avisarle a quien la va a atender. Blindado igual que la
+             * lista de espera: que falle un WhatsApp no puede impedir que
+             * la cita quede agendada.
+             */
+            $this->notifyTeam($appointment->fresh(['items.resource', 'items.service', 'business', 'client']), true);
 
             return $appointment->load('items');
         });
@@ -356,6 +364,7 @@ class BookingService
             );
 
             $this->notifyWaitlist($appointment);
+            $this->notifyTeam($appointment->fresh(['items.resource', 'items.service', 'business', 'client']), false);
 
             return $appointment->refresh();
         });
@@ -369,6 +378,31 @@ class BookingService
      * cita -- seria dejar el mostrador atascado por la funcion accesoria.
      * Mismo criterio que un canal de mensajeria caido.
      */
+    /**
+     * Avisarle a quien atiende que le agendaron (o le cancelaron).
+     *
+     * Mismo blindaje que la lista de espera, y por la misma razon: el aviso
+     * es una comodidad para el equipo, no una garantia del nucleo. Negarse a
+     * agendar porque WhatsApp esta caido dejaria el mostrador atascado.
+     */
+    private function notifyTeam(?Appointment $appointment, bool $agendada): void
+    {
+        if ($appointment === null) {
+            return;
+        }
+
+        try {
+            $avisos = app(TeamNotifier::class);
+
+            $agendada ? $avisos->booked($appointment) : $avisos->cancelled($appointment);
+        } catch (\Throwable $e) {
+            Log::warning('Fallo el aviso al equipo', [
+                'appointment_id' => $appointment->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
     private function notifyWaitlist(Appointment $appointment): void
     {
         try {

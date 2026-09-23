@@ -8,7 +8,10 @@ use App\Models\Appointment;
 use App\Models\Message;
 use App\Models\WhatsappConversation;
 use App\Services\ClientPortalService;
+use App\Services\Loyalty\LoyaltyService;
+use App\Services\Ratings\SurveyService;
 use App\Support\ChannelPhone;
+use App\Support\Scheduling\ThankYouMessage;
 use App\Support\TituloCorto;
 use Illuminate\Support\Collection;
 
@@ -89,6 +92,16 @@ final class GuidedEntry
 
     public const RESUBSCRIBE = 'Volver a recibir';
 
+    /**
+     * Los dos botones del final de la visita.
+     *
+     * Viven en ThankYouMessage --que es quien los manda-- y se reexportan
+     * acá para que el enrutamiento se lea completo en un solo sitio.
+     */
+    public const MY_CARD = ThankYouMessage::MY_CARD;
+
+    public const RATE = ThankYouMessage::RATE;
+
     /** Sin mensajes del bot en este lapso, lo siguiente es una conversación nueva. */
     private const NEW_SESSION_MINUTES = 30;
 
@@ -138,6 +151,13 @@ final class GuidedEntry
 
         if ($retoque !== null) {
             return $retoque;
+        }
+
+        // 0.5) Los botones del final de la visita: su tarjeta y calificar.
+        $cierre = $this->fromThankYou($caller, $phone, $texto);
+
+        if ($cierre !== null) {
+            return $cierre;
         }
 
         /*
@@ -622,6 +642,115 @@ final class GuidedEntry
         UltimoPedido::guardar($phone, $pedido);
 
         return null;
+    }
+
+    // -- El final de la visita ----------------------------------------------
+
+    /**
+     * «Mi tarjeta» y «Calificar servicio», los botones del gracias.
+     *
+     * Null = no tocó ninguno. Ambos se atienden en CUALQUIER momento, no
+     * solo pegados al mensaje: la clienta puede escribir «mi tarjeta» un
+     * martes cualquiera, y en ManyChat eso funcionaba.
+     *
+     * @return array{text: string, conversation_id: null, tools_used: list<string>}|null
+     */
+    private function fromThankYou(AiCaller $caller, string $phone, string $texto): ?array
+    {
+        $tocado = $this->plain($texto);
+
+        if ($tocado === $this->plain(self::MY_CARD) || $tocado === 'mi tarjeta virtual' || $tocado === 'tarjeta') {
+            return $this->loyaltyCard($caller, $phone);
+        }
+
+        if ($tocado === $this->plain(self::RATE)) {
+            return $this->surveyLink($caller, $phone);
+        }
+
+        return null;
+    }
+
+    /**
+     * Cómo va su tarjeta de sellos.
+     *
+     * "Te faltan 3" es una razón concreta para volver, y es información que
+     * la clienta no tiene de otra forma: en el mostrador nadie se la dice.
+     *
+     * @return array{text: string, conversation_id: null, tools_used: list<string>}
+     */
+    private function loyaltyCard(AiCaller $caller, string $phone): array
+    {
+        $tarjeta = $caller->client !== null
+            ? app(LoyaltyService::class)->cardFor($caller->client)
+            : null;
+
+        if ($tarjeta === null || (int) ($tarjeta['required'] ?? 0) < 1) {
+            return $this->reply(
+                $phone,
+                'Por ahora no tenemos tarjeta de sellos 😊 Pero con gusto te agendo tu próxima cita.',
+                'mi_tarjeta',
+            );
+        }
+
+        $sellos = (int) $tarjeta['stamps'];
+        $faltan = (int) $tarjeta['remaining'];
+        $premio = (string) ($tarjeta['program']['reward_label'] ?? '');
+
+        $lineas = [
+            '*Tu tarjeta* 🎟️',
+            '',
+            sprintf('🎯 Llevas *%d de %d* sellos.', $sellos, (int) $tarjeta['required']),
+        ];
+
+        if ($premio !== '') {
+            $lineas[] = '🎁 Próximo premio: *'.$premio.'*';
+        }
+
+        // Lo que ya se ganó y no ha usado: es plata suya esperando.
+        $listos = collect($tarjeta['rewards'] ?? [])->pluck('label')->filter();
+
+        if ($listos->isNotEmpty()) {
+            $lineas[] = '';
+            $lineas[] = '✨ ¡Ya tienes disponible: *'.$listos->implode('*, *').'*! Recuérdalo al pagar.';
+        } elseif ($faltan > 0) {
+            $lineas[] = '';
+            $lineas[] = $faltan === 1
+                ? '¡Te falta *1 sello*! 💅'
+                : sprintf('Te faltan *%d sellos* 💅', $faltan);
+        }
+
+        return $this->reply($phone, implode("\n", $lineas), 'mi_tarjeta');
+    }
+
+    /**
+     * El enlace para calificar su última visita.
+     *
+     * El token se crea acá, al tocarlo, no al mandar el gracias: así
+     * `survey_sent_at` dice cuándo se le ofreció de verdad y no cuándo se
+     * mandó un botón que quizá nadie tocó.
+     *
+     * @return array{text: string, conversation_id: null, tools_used: list<string>}
+     */
+    private function surveyLink(AiCaller $caller, string $phone): array
+    {
+        $ultima = $this->lastService($caller);
+
+        if ($ultima === null) {
+            return $this->reply(
+                $phone,
+                '¡Gracias por querer contarnos! 😊 Cuando tengamos tu visita registrada te mando el enlace.',
+                'calificar',
+            );
+        }
+
+        app(SurveyService::class)->markSent($ultima);
+        $enlace = rtrim((string) config('app.frontend_url', ''), '/').'/encuesta/'.$ultima->fresh()->survey_token;
+
+        return $this->reply(
+            $phone,
+            "¡Gracias! 🌟 Son 30 segundos y nos ayuda muchísimo 👇\n".$enlace,
+            'calificar',
+        );
     }
 
     // -- Retoque -----------------------------------------------------------

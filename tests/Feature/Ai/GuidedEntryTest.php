@@ -10,6 +10,8 @@ use App\Models\Appointment;
 use App\Models\Business;
 use App\Models\Client;
 use App\Models\ClientPenalty;
+use App\Models\LoyaltyProgram;
+use App\Models\LoyaltyStamp;
 use App\Models\Message;
 use App\Models\Resource;
 use App\Models\Service;
@@ -17,6 +19,7 @@ use App\Models\ServiceCategory;
 use App\Models\WhatsappConversation;
 use App\Services\Scheduling\BookingService;
 use App\Support\ChannelPhone;
+use App\Support\Money\LoyaltyCalculator;
 use App\Support\PermissionCatalog;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -543,6 +546,68 @@ class GuidedEntryTest extends TestCase
         $this->travel($haceDias)->days();
 
         return $cita;
+    }
+
+    // -- El final de la visita ---------------------------------------------
+
+    public function test_calificar_servicio_le_manda_el_enlace(): void
+    {
+        /*
+         * El botón que va detrás del «Gracias por tu visita». El token se
+         * crea al TOCARLO, no al mandar el mensaje: así `survey_sent_at`
+         * dice cuándo se le ofreció de verdad.
+         */
+        $cita = $this->visitaPasada(1);
+
+        $respuesta = $this->escribe(GuidedEntry::RATE);
+
+        $this->assertSame(['calificar'], $respuesta['tools_used']);
+        $this->assertStringContainsString('/encuesta/'.$cita->fresh()->survey_token, $respuesta['text']);
+        $this->assertNotNull($cita->fresh()->survey_sent_at);
+    }
+
+    public function test_mi_tarjeta_dice_cuantos_sellos_lleva(): void
+    {
+        /*
+         * "Te faltan 3" es una razón concreta para volver, y es información
+         * que la clienta no tiene de otra forma: en el mostrador nadie se la
+         * dice. En ManyChat se pedía escribiendo «Mi tarjeta»; acá también
+         * se puede tocar.
+         */
+        $programa = LoyaltyProgram::create([
+            'business_id' => $this->business->id,
+            'name' => 'Tarjeta Luxury',
+            'mode' => 'simple',
+            'stamps_required' => 10,
+            'reward_type' => LoyaltyCalculator::REWARD_DISCOUNT_PERCENT,
+            'reward_value' => 15,
+            'min_ticket' => 0,
+            'is_active' => true,
+        ]);
+
+        // Siete días atrás: el mismo día de la semana, así Maria trabaja.
+        $visita = $this->visitaPasada(7);
+        LoyaltyStamp::create([
+            'business_id' => $this->business->id,
+            'program_id' => $programa->id,
+            'client_id' => $this->conversacion->client_id,
+            'appointment_id' => $visita->id,
+            'earned_at' => now()->subDays(7),
+        ]);
+
+        $respuesta = $this->escribe(GuidedEntry::MY_CARD);
+
+        $this->assertSame(['mi_tarjeta'], $respuesta['tools_used']);
+        $this->assertStringContainsString('*1 de 10* sellos', $respuesta['text']);
+        $this->assertStringContainsString('15% de descuento', $respuesta['text']);
+        $this->assertStringContainsString('Te faltan *9 sellos*', $respuesta['text']);
+    }
+
+    public function test_sin_programa_de_sellos_no_inventa_una_tarjeta(): void
+    {
+        $respuesta = $this->escribe(GuidedEntry::MY_CARD);
+
+        $this->assertStringContainsString('no tenemos tarjeta de sellos', $respuesta['text']);
     }
 
     public function test_agendar_retoque_solo_pregunta_el_dia(): void

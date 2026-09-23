@@ -169,6 +169,9 @@ class BusinessesController
             'scheduling_settings.max_booking_horizon_days' => ['nullable', 'integer', 'min:1', 'max:365'],
             'scheduling_settings.no_show_penalty_amount' => ['nullable', 'numeric', 'min:0'],
             'scheduling_settings.late_cancellation_penalty_amount' => ['nullable', 'numeric', 'min:0'],
+            // El único que no es un número: avisarle al equipo por WhatsApp
+            // cuando le agenden o le cancelen una cita.
+            'scheduling_settings.notify_team_whatsapp' => ['nullable', 'boolean'],
 
             /*
              * El flujo de etapas del negocio.

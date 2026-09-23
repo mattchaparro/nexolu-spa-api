@@ -83,6 +83,52 @@ final class MessageTemplate
         return new self('retoque_recordatorio', 'es', [$cliente, $negocio, $servicio]);
     }
 
+    /**
+     * "Gracias por tu visita", con el estado de su tarjeta de sellos.
+     *
+     * Sale al terminar el servicio, y casi nunca hay ventana abierta: la
+     * clienta vino al salon, no escribio por WhatsApp. Por eso existe esta
+     * plantilla -- sin ella, el mensaje que mas hace volver no se entrega.
+     */
+    public static function gracias(
+        string $cliente,
+        string $servicio,
+        string $fecha,
+        string $sellos,
+        string $faltan,
+        string $premio,
+    ): self {
+        return new self('gracias_por_tu_visita', 'es', [$cliente, $servicio, $fecha, $sellos, $faltan, $premio]);
+    }
+
+    /**
+     * "Te agendaron una cita": el aviso a quien va a atender.
+     *
+     * Casi siempre fuera de la ventana: la manicurista no le escribe al
+     * numero del salon, lo usa para recibir. Por eso el aviso al equipo
+     * nace con plantilla, a diferencia de los de la clienta.
+     */
+    public static function equipoAgendada(
+        string $profesional,
+        string $cliente,
+        string $servicio,
+        string $fecha,
+        string $hora,
+    ): self {
+        return new self('cita_nueva_equipo', 'es', [$profesional, $cliente, $servicio, $fecha, $hora]);
+    }
+
+    /** "Te cancelaron una cita", con la hora que queda libre. */
+    public static function equipoCancelada(
+        string $profesional,
+        string $cliente,
+        string $servicio,
+        string $fecha,
+        string $hora,
+    ): self {
+        return new self('cita_cancelada_equipo', 'es', [$profesional, $cliente, $servicio, $fecha, $hora]);
+    }
+
     /** La confirmacion, con el mismo formato que la clienta ya conoce. */
     public static function confirmacion(
         string $fecha,

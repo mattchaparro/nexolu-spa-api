@@ -42,6 +42,12 @@ final class StageMessage
                 return ConfirmationMessage::text($appointment);
             }
 
+            // Lo mismo al terminar: el gracias con el estado de su tarjeta
+            // de sellos, que es la parte que hace volver.
+            if ($stage?->maps_to_status === Appointment::STATUS_COMPLETED) {
+                return ThankYouMessage::text($appointment);
+            }
+
             $template = self::fallback($stage);
         }
 

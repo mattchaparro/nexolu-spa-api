@@ -44,6 +44,17 @@ class Message extends Model
 
     public const KIND_STAFF = 'equipo';
 
+    /**
+     * Los avisos que le llegan por WhatsApp a QUIEN ATIENDE, no al cliente.
+     *
+     * Dos tipos y no uno: una cita puede agendarse y despues cancelarse, y
+     * las dos cosas tienen que poder salir para la misma cita. Con un solo
+     * tipo, el indice unico dejaria pasar solo la primera.
+     */
+    public const KIND_TEAM_BOOKED = 'equipo_agendada';
+
+    public const KIND_TEAM_CANCELLED = 'equipo_cancelada';
+
     public const KIND_WAITLIST = 'lista_espera';
 
     /**

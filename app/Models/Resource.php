@@ -55,7 +55,7 @@ class Resource extends Model
 
     protected $fillable = [
         'business_id', 'location_id', 'type', 'user_id', 'name', 'color', 'photo_path',
-        'bio', 'is_public',
+        'bio', 'phone', 'is_public',
         'is_bookable_online', 'is_active', 'sort_order',
         'payroll_mode', 'commission_rate', 'base_amount', 'base_period', 'base_until', 'payroll_started_on',
     ];
@@ -88,6 +88,27 @@ class Resource extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /**
+     * A que numero avisarle de sus citas, o null si no hay a donde.
+     *
+     * El del recurso manda sobre el de su usuario: la cuenta con la que
+     * entra al sistema puede tener el telefono de la casa, y quien atiende
+     * suele trabajar con otro. Sin numero, simplemente no se le avisa --
+     * pasa todo el tiempo y no es una falla.
+     */
+    public function notificationPhone(): ?string
+    {
+        $propio = trim((string) $this->phone);
+
+        if ($propio !== '') {
+            return $propio;
+        }
+
+        $delUsuario = trim((string) $this->user?->phone);
+
+        return $delUsuario !== '' ? $delUsuario : null;
     }
 
     /** En que local trabaja. */

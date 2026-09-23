@@ -3,14 +3,17 @@
 namespace App\Services\Scheduling\Actions;
 
 use App\Ai\AiCaller;
+use App\Ai\EnvioDirecto;
 use App\Ai\InfoPostCita;
 use App\Models\Appointment;
 use App\Models\Business;
 use App\Models\Message;
+use App\Services\Loyalty\LoyaltyService;
 use App\Services\Messaging\MessageDispatcher;
 use App\Support\Scheduling\ConfirmationMessage;
 use App\Support\Scheduling\StageActionCatalog;
 use App\Support\Scheduling\StageMessage;
+use App\Support\Scheduling\ThankYouMessage;
 
 /**
  * Le avisa al cliente que su cita cambio.
@@ -50,6 +53,7 @@ class NotifyClientAction implements StageAction
          * El canal decide COMO sale, no SI existe.
          */
         $confirma = $context->stage?->maps_to_status === Appointment::STATUS_CONFIRMED;
+        $termina = $context->stage?->maps_to_status === Appointment::STATUS_COMPLETED;
 
         $message = $this->dispatcher->queue(
             $business,
@@ -76,7 +80,14 @@ class NotifyClientAction implements StageAction
              * dos usa lo decide MessageDispatcher al enviar, que es el único
              * que sabe si la ventana está abierta.
              */
-            $confirma ? ConfirmationMessage::template($appointment) : null,
+            match (true) {
+                $confirma => ConfirmationMessage::template($appointment),
+                // Null si el negocio no tiene programa de sellos: la
+                // plantilla los nombra en renglones fijos (ver
+                // ThankYouMessage::template).
+                $termina => ThankYouMessage::template($appointment),
+                default => null,
+            },
         );
 
         if ($message === null) {
@@ -98,6 +109,15 @@ class NotifyClientAction implements StageAction
             $this->ofrecerInfo($business, $appointment, $phone);
         }
 
+        /*
+         * Y al terminar, los dos botones del final: calificar y ver la
+         * tarjeta. Igual que en ManyChat, van en un segundo mensaje --con la
+         * ventana abierta--; fuera de ella viajan dentro de la plantilla.
+         */
+        if ($termina && $message->status === Message::STATUS_SENT) {
+            $this->ofrecerCierre($business, $appointment, $phone);
+        }
+
         return match ($message->status) {
             Message::STATUS_SENT => StageActionResult::ok("Mensaje enviado a {$phone}."),
             Message::STATUS_MANUAL => StageActionResult::ok(
@@ -108,6 +128,38 @@ class NotifyClientAction implements StageAction
             // corregir la ficha.
             default => StageActionResult::failed($message->error ?? 'El canal rechazó el envío.'),
         };
+    }
+
+    /**
+     * «Calificar servicio» y «Mi tarjeta», detrás del gracias.
+     *
+     * La opinión primero: es lo que el salón necesita y lo que se pide en
+     * caliente, cuando acaba de ver sus uñas. La tarjeta es el anzuelo para
+     * volver y aguanta el segundo lugar.
+     */
+    private function ofrecerCierre(Business $business, Appointment $appointment, string $phone): void
+    {
+        if (! $this->dispatcher->windowIsOpenFor($business, $phone)) {
+            return;
+        }
+
+        $opciones = [['id' => 'calificar', 'title' => ThankYouMessage::RATE]];
+
+        // La tarjeta solo si el negocio tiene programa: un botón que
+        // contesta "acá no hay sellos" es peor que no estar.
+        if ($business->hasFeature('loyalty') && app(LoyaltyService::class)->activeProgram($business) !== null) {
+            $opciones[] = ['id' => 'tarjeta', 'title' => ThankYouMessage::MY_CARD];
+        }
+
+        try {
+            app(EnvioDirecto::class)->opciones(
+                AiCaller::customer($business, $phone, $appointment->client, 'whatsapp'),
+                'Nos encantaría conocer tu opinión sobre el servicio que recibiste 😊 ¡Ayúdanos a mejorar! 🌟',
+                $opciones,
+            );
+        } catch (\Throwable $e) {
+            report($e);
+        }
     }
 
     /**

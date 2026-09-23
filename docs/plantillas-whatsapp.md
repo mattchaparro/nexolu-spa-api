@@ -21,14 +21,14 @@ Por eso el texto se guarda **siempre**, aunque salga la plantilla: es lo que
 se lee en la bandeja y lo que una persona copia en modo manual. De
 "Hola Carolina, tu cita del jueves…" no se sacan de vuelta las variables.
 
-## Las tres, y cómo crearlas
+## Las seis, y cómo crearlas
 
 En el WhatsApp Manager, idioma **es**. El nombre y **el orden de las
 variables** tienen que ser exactos: Meta no recibe nombres, recibe una lista
 posicional, y un parámetro en el puesto equivocado manda "tu cita en miércoles
 3 a las Luxury Nails" sin que nada falle.
 
-El **nombre del negocio va adentro** de las tres a propósito: con el número
+El **nombre del negocio va adentro** de las de la clienta a propósito: con el número
 compartido de Nexolu el mensaje no sale del teléfono del spa, así que si el
 texto no dice de quién es, la clienta recibe un mensaje de un desconocido.
 
@@ -82,7 +82,41 @@ dice «Te lo confirmamos en el salón», porque un parámetro vacío hace que Me
 rechace el envío entero) y no lleva el Instagram (la plantilla es de la WABA de
 Nexolu y la comparten todos los negocios, así que no puede llevar el de uno).
 
-### 2. `recordatorio_cita` — categoría *utility*
+### 2. `gracias_por_tu_visita` — categoría *utility*
+
+Sale cuando la manicurista termina (la cita pasa a «Lista y cobrada»). Casi
+nunca hay ventana abierta: la clienta **vino al salón**, no escribió por
+WhatsApp. Sin esta plantilla, el mensaje que más hace volver no se entrega.
+
+```
+*Gracias por tu visita*
+
+👋 ¡Hola, {{1}}!
+Gracias por visitarnos 💅
+
+🧾 Servicio: *{{2}}*
+📅 Fecha: *{{3}}*
+
+*Info de tu tarjeta*
+🎯 ¡Ya tienes *{{4}} de {{5}}* sellos!
+🎁 Próximo: *{{6}}*
+```
+
+`{{1}}` cliente · `{{2}}` servicio · `{{3}}` fecha · `{{4}}` sellos que lleva ·
+`{{5}}` sellos que necesita · `{{6}}` próximo premio.
+
+**Botones**: `Calificar servicio` y `Mi tarjeta`.
+
+La tarjeta es la parte que hace volver: «te faltan 3 sellos» es una razón
+concreta para agendar otra vez, y es información que la clienta no tiene de
+otra forma — en el mostrador nadie se la dice.
+
+> ⚠️ **Los renglones de la tarjeta son fijos.** Un negocio sin programa de
+> sellos recibiría "¡Ya tienes 0 de 0 sellos!", así que el código **no manda
+> la plantilla** cuando no hay programa activo: ese negocio recibe solo el
+> texto, que dentro de la ventana llega igual. Luxury sí tiene programa.
+
+### 3. `recordatorio_cita` — categoría *utility*
 
 ```
 Hola {{1}}, te recordamos tu cita en {{2}} el {{3}} a las {{4}}.
@@ -100,11 +134,59 @@ sentido son `Confirmo que voy`, `Reagendar` y `Cancelar cita`; «Reagendar» ya
 tiene su camino en el bot, los otros dos hay que construirlos antes de poner
 el botón. Un botón que no hace nada es peor que no tenerlo.
 
-### 3. `retoque_recordatorio` — categoría *marketing*
+### 4. `retoque_recordatorio` — categoría *marketing*
 
 Ver [retoques.md](retoques.md): encabezado, cuerpo, pie y los tres botones
 (`Agendar retoque`, `Empezar de cero`, `Darme de baja`), cuyos textos son la
 interfaz y no se pueden cambiar en Meta sin cambiarlos en el código.
+
+### 5 y 6. Los avisos al EQUIPO — categoría *utility*
+
+No son para la clienta: son para quien atiende. Van fuera de la ventana
+siempre --la manicurista recibe del número del salón, pero no le escribe--,
+así que sin plantilla no existen.
+
+`cita_nueva_equipo`:
+
+```
+¡Hola, {{1}}! 💅 Te agendaron una cita.
+
+🙋‍♀️ Clienta: *{{2}}*
+💅 Servicio: *{{3}}*
+📅 {{4}}
+⏰ {{5}}
+```
+
+`cita_cancelada_equipo`:
+
+```
+Hola, {{1}}: se canceló una cita y esa hora te queda libre.
+
+🙋‍♀️ Clienta: *{{2}}*
+💅 Servicio: *{{3}}*
+📅 {{4}}
+⏰ {{5}}
+```
+
+En las dos: `{{1}}` profesional · `{{2}}` clienta · `{{3}}` servicio ·
+`{{4}}` fecha · `{{5}}` hora. Sin botones: quien atiende abre la agenda.
+
+Todo el detalle en [avisos-al-equipo.md](avisos-al-equipo.md).
+
+**Están apagados por defecto.** Se encienden por negocio (Superadmin → el
+negocio → Configuración de agenda → «Avisarle por WhatsApp al equipo») y cada
+persona necesita su WhatsApp cargado en su ficha del equipo. Sin número no se
+le avisa, y no es una falla: muchas manicuristas no tienen ni cuenta.
+
+Una cita de manos y pies con dos manicuristas manda **dos avisos**, y cada
+uno nombra solo el servicio de quien lo recibe.
+
+### Las difusiones son aparte
+
+Las campañas usan **la plantilla que elija el negocio**, no una nuestra. Si en
+ManyChat hay difusiones que quieres conservar, cada una necesita su propia
+plantilla aprobada en esta WABA. Esas se eligen desde el panel al crear la
+difusión; no van en el código.
 
 ## Lo que NO hay que hacer (y ManyChat obligaba)
 

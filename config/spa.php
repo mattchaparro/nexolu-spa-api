@@ -74,6 +74,17 @@ return [
          */
         'retouch_reminder_hour' => 10,
 
+        /*
+         * Avisarle por WhatsApp a quien atiende cuando le agendan o le
+         * cancelan una cita.
+         *
+         * APAGADO por defecto, y no es timidez: encenderlo solo significaria
+         * empezar a escribirle al equipo de cada negocio, a nombre del salon,
+         * sin que nadie lo pidiera. Cada negocio lo prende y carga los
+         * telefonos de su equipo.
+         */
+        'notify_team_whatsapp' => false,
+
         // Penalizacion por inasistencia. 0 = deshabilitada.
         'no_show_penalty_amount' => 0,
 

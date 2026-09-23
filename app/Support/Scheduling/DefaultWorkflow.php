@@ -73,7 +73,16 @@ final class DefaultWorkflow
                 // Sin `mark_paid` por defecto: cobrar tiene que ser un acto
                 // deliberado. El negocio que quiera cobrar al marcar "lista"
                 // lo enciende sabiendo lo que hace.
-                'actions' => [],
+                //
+                // El aviso SÍ: es el "Gracias por tu visita" con el estado de
+                // su tarjeta de sellos y la invitación a calificar -- el
+                // mensaje que más hace volver, y el único momento en que la
+                // clienta sabe cuántos sellos lleva. Texto vacío = el nuestro
+                // (ver StageMessage::render).
+                'actions' => [[
+                    'type' => StageActionCatalog::NOTIFY_CLIENT,
+                    'config' => ['template' => ''],
+                ]],
             ],
             [
                 'key' => 'cancelada',

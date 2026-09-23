@@ -25,6 +25,9 @@ class ResourceResource extends JsonResource
             // `is_bookable_online`: alguien puede no aceptar reservas por
             // internet y aun así merecer estar en la vitrina del local.
             'bio' => $this->bio,
+            // A dónde le llegan los avisos de sus citas. Vacío = no le
+            // llegan, que es lo que pasa hoy con casi todo el equipo.
+            'phone' => $this->phone,
             'is_public' => (bool) $this->is_public,
             'user_id' => $this->user_id,
             'is_bookable_online' => (bool) $this->is_bookable_online,
