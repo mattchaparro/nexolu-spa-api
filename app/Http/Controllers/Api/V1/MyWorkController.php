@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Models\Appointment;
 use App\Models\AppointmentItem;
+use App\Models\PayrollSettlement;
 use App\Models\ServiceRating;
 use App\Support\Ratings\Comentario;
 use App\Support\Ratings\Nota;
@@ -46,6 +47,11 @@ class MyWorkController
             'pending_checkout' => $this->pendingCheckout($resource->id, $now),
             'agenda' => $this->agenda($resource->id, $now, $tz),
             'ratings' => $this->calificaciones($resource->id, $now, $tz),
+            // Lo que ya le pagaron. En la app vieja era una pantalla suya
+            // (Employee/Payments) y es de las que más se miran: sin esto,
+            // "¿cuánto me pagaron el mes pasado?" vuelve a ser una pregunta
+            // para el administrador.
+            'payments' => $this->pagos($resource->id, $tz),
         ]);
     }
 
@@ -124,6 +130,44 @@ class MyWorkController
                 'date' => $r->created_at?->setTimezone($tz)->toDateString(),
             ])->values()->all(),
         ];
+    }
+
+    /**
+     * Lo que YA le pagaron, liquidación por liquidación.
+     *
+     * Solo las pagadas: una liquidación preparada y sin pagar es un trámite
+     * del administrador, y verla acá se lee como "ya me lo pagaron".
+     *
+     * Los últimos doce: alcanza para "¿cuánto me pagaron en mayo?" sin
+     * volverlo un historial que nadie baja hasta el final.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function pagos(int $resourceId, string $tz): array
+    {
+        return PayrollSettlement::where('resource_id', $resourceId)
+            ->whereNotNull('paid_at')
+            ->orderByDesc('paid_at')
+            ->limit(12)
+            ->get()
+            ->map(fn (PayrollSettlement $s) => [
+                'id' => $s->id,
+                'period_start' => $s->period_start?->setTimezone($tz)->toDateString(),
+                'period_end' => $s->period_end?->setTimezone($tz)->toDateString(),
+                'paid_at' => $s->paid_at?->setTimezone($tz)->toDateString(),
+                'services_count' => (int) $s->services_count,
+                // El desglose que ella revisa: comisión, base, premios y
+                // descuentos. Sin eso, el neto es un número que hay que
+                // creer -- y el descuento que no se entiende es el que
+                // termina en una discusión el día de pago.
+                'commission_total' => round((float) $s->commission_total, 2),
+                'base_total' => round((float) $s->base_total, 2),
+                'bonus_total' => round((float) $s->bonus_total, 2),
+                'deduction_total' => round((float) $s->deduction_total, 2),
+                'net_total' => round((float) $s->net_total, 2),
+                'notes' => $s->notes,
+            ])
+            ->all();
     }
 
     /**
