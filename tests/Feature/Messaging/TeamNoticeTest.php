@@ -196,6 +196,81 @@ class TeamNoticeTest extends TestCase
         $this->assertSame('cita_cancelada_equipo', $aviso->template_name);
     }
 
+    // ---- Cuando la mueven ----
+
+    public function test_moverla_de_hora_le_dice_el_antes_y_el_despues(): void
+    {
+        $cita = $this->agendar();
+
+        app(BookingService::class)->reschedule(
+            $cita,
+            CarbonImmutable::now('America/Bogota')->addDay()->setTime(15, 0),
+        );
+
+        $aviso = $this->avisos(Message::KIND_TEAM_MOVED)->sole();
+
+        $this->assertSame('573009998877', $aviso->to);
+        $this->assertStringContainsString('Antes: Jueves 17 de septiembre a las 10:00 am', $aviso->body);
+        $this->assertStringContainsString('Ahora: *Jueves 17 de septiembre a las 3:00 pm*', $aviso->body);
+        $this->assertSame('cita_movida_equipo', $aviso->template_name);
+    }
+
+    public function test_moverla_dos_veces_manda_los_dos_avisos(): void
+    {
+        /*
+         * Por esto el aviso de mudanza NO se cuelga de la cita: el índice
+         * único --uno por cita, tipo y destinatario-- dejaría pasar solo el
+         * primero, y ella se aparecería a la hora vieja.
+         */
+        $cita = $this->agendar();
+        $manana = CarbonImmutable::now('America/Bogota')->addDay();
+
+        app(BookingService::class)->reschedule($cita, $manana->setTime(15, 0));
+        app(BookingService::class)->reschedule($cita->fresh(), $manana->setTime(16, 0));
+
+        $this->assertCount(2, $this->avisos(Message::KIND_TEAM_MOVED));
+    }
+
+    public function test_si_cambia_de_manicurista_una_la_pierde_y_la_otra_la_recibe(): void
+    {
+        $anyi = $this->makeResource($this->business, 'Anyi');
+        $anyi->update(['phone' => '+573007776655']);
+        $this->manos->resources()->attach($anyi->id);
+
+        $cita = $this->agendar();
+
+        app(BookingService::class)->reschedule(
+            $cita,
+            CarbonImmutable::now('America/Bogota')->addDay()->setTime(15, 0),
+            $anyi->fresh(),
+        );
+
+        // A Anyi le agendaron: para ella es una cita nueva.
+        $nueva = $this->avisos(Message::KIND_TEAM_BOOKED)->firstWhere('to', '573007776655');
+        $this->assertNotNull($nueva);
+        $this->assertStringContainsString('3:00 pm', $nueva->body);
+
+        // Y a Maria le queda libre su hora VIEJA, no la nueva: esa ya no es
+        // suya, y lo que necesita saber es qué espacio recuperó.
+        $libre = $this->avisos(Message::KIND_TEAM_CANCELLED)->sole();
+        $this->assertSame('573009998877', $libre->to);
+        $this->assertStringContainsString('10:00 am', $libre->body);
+        $this->assertStringNotContainsString('3:00 pm', $libre->body);
+    }
+
+    public function test_mover_a_la_misma_hora_y_con_la_misma_persona_no_avisa_nada(): void
+    {
+        // Avisar de una mudanza que no movió nada es ruido puro.
+        $cita = $this->agendar();
+
+        app(BookingService::class)->reschedule(
+            $cita,
+            CarbonImmutable::now('America/Bogota')->addDay()->setTime(10, 0),
+        );
+
+        $this->assertCount(0, $this->avisos(Message::KIND_TEAM_MOVED));
+    }
+
     public function test_agendar_y_cancelar_la_misma_cita_manda_los_dos_avisos(): void
     {
         // Por eso son dos tipos y no uno: con uno solo, el índice único

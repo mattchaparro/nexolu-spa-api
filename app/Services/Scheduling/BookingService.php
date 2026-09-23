@@ -190,7 +190,19 @@ class BookingService
         $tz = $business->businessTimezone();
         $granularity = (int) $business->schedulingSetting('slot_granularity_min');
 
-        return DB::transaction(function () use ($appointment, $newStart, $newResource, $business, $tz, $granularity) {
+        /*
+         * Como estaba ANTES, para poder avisarle al equipo quien la pierde,
+         * quien la recibe y a quien solo le cambio la hora. Se captura aca
+         * arriba porque despues del update los items ya tienen la hora nueva
+         * -- el mismo motivo por el que la lista de espera captura su hueco.
+         */
+        $antes = [
+            'resources' => $appointment->loadMissing('items')->items
+                ->pluck('resource_id')->filter()->unique()->values()->all(),
+            'starts_at' => CarbonImmutable::parse($appointment->starts_at),
+        ];
+
+        $movida = DB::transaction(function () use ($appointment, $newStart, $newResource, $business, $tz, $granularity) {
             $items = $appointment->items()->with(['service', 'resource'])->orderBy('sort_order')->get();
 
             if ($items->count() > 1) {
@@ -275,6 +287,41 @@ class BookingService
 
             return $appointment->fresh('items');
         });
+
+        /*
+         * Y al equipo. Fuera de la transacción a propósito: un WhatsApp que
+         * falla no puede deshacer una cita que ya se movió bien.
+         */
+        $this->notifyTeamMoved($movida, $antes);
+
+        return $movida;
+    }
+
+    /**
+     * Avisarle al equipo que la cita se movió.
+     *
+     * Mismo blindaje que la lista de espera: el aviso es una comodidad, no
+     * una garantía del núcleo.
+     *
+     * @param  array{resources: list<int>, starts_at: CarbonImmutable}  $antes
+     */
+    private function notifyTeamMoved(?Appointment $appointment, array $antes): void
+    {
+        if ($appointment === null) {
+            return;
+        }
+
+        try {
+            app(TeamNotifier::class)->rescheduled(
+                $appointment->fresh(['items.resource', 'items.service', 'business', 'client']),
+                $antes,
+            );
+        } catch (\Throwable $e) {
+            Log::warning('Fallo el aviso al equipo de una cita movida', [
+                'appointment_id' => $appointment->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     /** Como notifyWaitlist(), pero para un hueco suelto que quedo libre al mover. */

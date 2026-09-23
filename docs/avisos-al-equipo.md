@@ -53,17 +53,37 @@ Los cuerpos exactos están en [plantillas-whatsapp.md](plantillas-whatsapp.md).
 
 ## Qué lo dispara
 
-`BookingService::book()` y `BookingService::cancel()`, que son la única puerta
-por la que se agenda y se cancela: da igual si vino del panel, de la página
-pública o del bot de WhatsApp.
+`BookingService::book()`, `::cancel()` y `::reschedule()`, que son la única
+puerta por la que se agenda, se cancela y se mueve: da igual si vino del
+panel, de la página pública o del bot de WhatsApp.
 
 Blindado igual que la lista de espera: si el aviso falla, la cita **igual**
 queda agendada o cancelada. Negarse a agendar porque WhatsApp está caído
 dejaría el mostrador atascado por algo que no depende de nadie ahí.
 
-## Lo que todavía no avisa
+## Cuando la mueven
 
-**Reagendar.** Mover una cita no manda nada al equipo todavía: sería un tercer
-tipo de aviso («te movieron la de las 3 a las 5») y hay que decidir si se
-manda uno o dos —a quien la pierde y a quien la recibe, cuando cambia de
-persona—. No está hecho.
+Tres casos, y por eso no es un solo aviso:
+
+| Quién | Qué recibe | Con qué hora |
+|---|---|---|
+| La misma persona, otra hora | «Te movieron una cita», con el antes y el después | Las dos |
+| La que **pierde** la cita | El aviso de cancelación: esa hora le queda libre | La **vieja** — es el espacio que recupera |
+| La que la **recibe** | El de cita nueva: para ella es una cita nueva | La nueva |
+
+Quien la recibe no se entera de con quién estaba antes, y quien la pierde no
+necesita saber a qué hora quedó: lo que cada una necesita es su propia agenda.
+
+Mover una cita a la **misma hora y con la misma persona** no avisa nada.
+Avisar de una mudanza que no movió nada es ruido puro.
+
+### Por qué este aviso no se cuelga de la cita
+
+Los otros dos sí (es lo que garantiza no mandarlos dos veces). El de mudanza
+no, y es deliberado: **una cita se puede mover dos veces**, y el índice único
+dejaría pasar solo el primer aviso — la segunda mudanza se descartaría en
+silencio y ella se aparecería a la hora vieja.
+
+El evento acá es la **mudanza**, no la cita. El costo es que ese mensaje no
+queda enlazado a la cita en la bandeja; entre eso y no avisar, se prefiere
+avisar.

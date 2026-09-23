@@ -118,6 +118,23 @@ final class MessageTemplate
         return new self('cita_nueva_equipo', 'es', [$profesional, $cliente, $servicio, $fecha, $hora]);
     }
 
+    /**
+     * "Te movieron una cita": misma persona, otra hora.
+     *
+     * `antes` y `ahora` llevan el dia y la hora juntos ("Jueves 17 a las 3:00
+     * pm"). Dos variables y no cuatro: lo que ella compara es un momento
+     * contra otro, no cuatro datos sueltos.
+     */
+    public static function equipoMovida(
+        string $profesional,
+        string $cliente,
+        string $servicio,
+        string $antes,
+        string $ahora,
+    ): self {
+        return new self('cita_movida_equipo', 'es', [$profesional, $cliente, $servicio, $antes, $ahora]);
+    }
+
     /** "Te cancelaron una cita", con la hora que queda libre. */
     public static function equipoCancelada(
         string $profesional,

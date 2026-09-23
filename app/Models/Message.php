@@ -55,6 +55,15 @@ class Message extends Model
 
     public const KIND_TEAM_CANCELLED = 'equipo_cancelada';
 
+    /**
+     * Le movieron una cita: misma persona, otra hora.
+     *
+     * Este NO se cuelga de la cita a proposito -- ver TeamNotifier: una cita
+     * se puede mover dos veces, y el indice unico dejaria pasar solo el
+     * primer aviso. El evento es la mudanza, no la cita.
+     */
+    public const KIND_TEAM_MOVED = 'equipo_movida';
+
     public const KIND_WAITLIST = 'lista_espera';
 
     /**

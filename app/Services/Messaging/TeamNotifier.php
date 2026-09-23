@@ -47,6 +47,65 @@ class TeamNotifier
         return $this->avisar($appointment, Message::KIND_TEAM_CANCELLED);
     }
 
+    /**
+     * La movieron. Tres casos, y por eso no es un solo aviso:
+     *
+     * - La MISMA persona a otra hora: "te la movieron", con el antes y el
+     *   después. Es el caso normal.
+     * - Quien la PIERDE (la cita pasó a otra persona): esa hora le queda
+     *   libre, que es exactamente lo que dice el aviso de cancelación.
+     * - Quien la RECIBE: para ella es una cita nueva, y no tiene por qué
+     *   enterarse de con quién estaba antes.
+     *
+     * @param  array{resources: list<int>, starts_at: CarbonImmutable}  $antes  cómo estaba ANTES de moverla
+     * @return int cuántos avisos quedaron listos
+     */
+    public function rescheduled(Appointment $appointment, array $antes): int
+    {
+        $business = $appointment->business;
+
+        if ($business === null || ! $business->schedulingSetting('notify_team_whatsapp')) {
+            return 0;
+        }
+
+        $ahora = $this->quienesAtienden($appointment);
+        $ahoraIds = $ahora->pluck('id')->all();
+        $mismaHora = CarbonImmutable::parse($appointment->starts_at)->equalTo($antes['starts_at']);
+
+        // No se movió nada: ni de hora ni de persona. Pasa cuando algo
+        // "reagenda" a la misma hora -- avisar de eso es ruido puro.
+        if ($mismaHora && array_diff($antes['resources'], $ahoraIds) === []
+            && array_diff($ahoraIds, $antes['resources']) === []) {
+            return 0;
+        }
+
+        $avisados = 0;
+
+        foreach ($ahora as $resource) {
+            $seQueda = in_array($resource->id, $antes['resources'], true);
+
+            $avisados += $seQueda
+                ? $this->mandarMudanza($appointment, $resource, $antes['starts_at'])
+                : $this->mandarUno($appointment, $resource, Message::KIND_TEAM_BOOKED);
+        }
+
+        // Las que ya no la atienden: su hora vieja queda libre.
+        foreach (array_diff($antes['resources'], $ahoraIds) as $id) {
+            $resource = Resource::withoutGlobalScopes()->find($id);
+
+            if ($resource !== null) {
+                $avisados += $this->mandarUno(
+                    $appointment,
+                    $resource,
+                    Message::KIND_TEAM_CANCELLED,
+                    $antes['starts_at'],
+                );
+            }
+        }
+
+        return $avisados;
+    }
+
     private function avisar(Appointment $appointment, string $kind): int
     {
         $business = $appointment->business;
@@ -58,32 +117,108 @@ class TeamNotifier
         $avisados = 0;
 
         foreach ($this->quienesAtienden($appointment) as $resource) {
-            $phone = $resource->notificationPhone();
-
-            if ($phone === null) {
-                continue;
-            }
-
-            $datos = $this->datos($appointment, $resource);
-
-            $mensaje = $this->dispatcher->queue(
-                $business,
-                $kind,
-                $phone,
-                $this->texto($kind, $datos),
-                $appointment,
-                null,
-                $kind === Message::KIND_TEAM_BOOKED
-                    ? MessageTemplate::equipoAgendada(...array_values($datos))
-                    : MessageTemplate::equipoCancelada(...array_values($datos)),
-            );
-
-            if ($mensaje !== null) {
-                $avisados++;
-            }
+            $avisados += $this->mandarUno($appointment, $resource, $kind);
         }
 
         return $avisados;
+    }
+
+    /**
+     * Un aviso de agendada o cancelada, a una persona.
+     *
+     * `$cuando` reemplaza la hora de la cita: al mover, quien la PIERDE tiene
+     * que ver la hora que le queda libre -- la vieja --, no la nueva, que ya
+     * no es suya.
+     *
+     * @return int 1 si quedó listo, 0 si no había a dónde o ya existía
+     */
+    private function mandarUno(
+        Appointment $appointment,
+        Resource $resource,
+        string $kind,
+        ?CarbonImmutable $cuando = null,
+    ): int {
+        $phone = $resource->notificationPhone();
+
+        if ($phone === null) {
+            return 0;
+        }
+
+        $datos = $this->datos($appointment, $resource, $cuando);
+
+        $mensaje = $this->dispatcher->queue(
+            $appointment->business,
+            $kind,
+            $phone,
+            $this->texto($kind, $datos),
+            $appointment,
+            null,
+            $kind === Message::KIND_TEAM_BOOKED
+                ? MessageTemplate::equipoAgendada(...array_values($datos))
+                : MessageTemplate::equipoCancelada(...array_values($datos)),
+        );
+
+        return $mensaje === null ? 0 : 1;
+    }
+
+    /**
+     * «Te movieron la cita», con el antes y el después.
+     *
+     * NO se cuelga de la cita, y es a propósito: una cita se puede mover dos
+     * veces, y el índice único de `messages` --uno por cita, tipo y
+     * destinatario-- dejaría pasar solo el primer aviso. La segunda mudanza
+     * se descartaría en silencio y ella se aparecería a la hora vieja.
+     *
+     * El evento acá es la MUDANZA, no la cita. El costo de no colgarlo es que
+     * el mensaje no queda enlazado a la cita en la bandeja; entre eso y no
+     * avisar, se prefiere avisar.
+     */
+    private function mandarMudanza(
+        Appointment $appointment,
+        Resource $resource,
+        CarbonImmutable $antes,
+    ): int {
+        $phone = $resource->notificationPhone();
+
+        if ($phone === null) {
+            return 0;
+        }
+
+        $tz = $appointment->business?->businessTimezone() ?? config('spa.defaults.timezone');
+        $datos = $this->datos($appointment, $resource);
+
+        $variables = [
+            'profesional' => $datos['profesional'],
+            'cliente' => $datos['cliente'],
+            'servicio' => $datos['servicio'],
+            'antes' => $this->momento($antes, $tz),
+            'ahora' => $this->momento(CarbonImmutable::parse($appointment->starts_at), $tz),
+        ];
+
+        $mensaje = $this->dispatcher->queue(
+            $appointment->business,
+            Message::KIND_TEAM_MOVED,
+            $phone,
+            sprintf(
+                "Hola, %s: te movieron una cita.\n\n🙋‍♀️ Clienta: *%s*\n💅 Servicio: *%s*\n\n❌ Antes: %s\n✅ Ahora: *%s*",
+                ...array_values($variables),
+            ),
+            // Sin cita: ver el comentario de arriba.
+            null,
+            $appointment->client,
+            MessageTemplate::equipoMovida(...array_values($variables)),
+        );
+
+        return $mensaje === null ? 0 : 1;
+    }
+
+    /** "Jueves 17 de septiembre a las 3:00 pm" */
+    private function momento(CarbonImmutable $cuando, string $tz): string
+    {
+        $local = $cuando->setTimezone($tz);
+
+        return ucfirst($local->locale('es')->isoFormat('dddd D [de] MMMM'))
+            .' a las '.HoraLegible::de($cuando, $tz);
     }
 
     /**
@@ -105,11 +240,11 @@ class TeamNotifier
      *
      * @return array{profesional: string, cliente: string, servicio: string, fecha: string, hora: string}
      */
-    private function datos(Appointment $appointment, Resource $resource): array
+    private function datos(Appointment $appointment, Resource $resource, ?CarbonImmutable $cuando = null): array
     {
         $business = $appointment->business;
         $tz = $business?->businessTimezone() ?? config('spa.defaults.timezone');
-        $inicio = CarbonImmutable::parse($appointment->starts_at)->setTimezone($tz);
+        $inicio = ($cuando ?? CarbonImmutable::parse($appointment->starts_at))->setTimezone($tz);
 
         // Solo lo que ELLA atiende, no la cita entera: si hace las manos y
         // otra los pies, su aviso dice manos.
@@ -124,7 +259,7 @@ class TeamNotifier
             'cliente' => trim((string) ($appointment->client?->fullName() ?? $appointment->client_name ?? '')) ?: 'Una clienta',
             'servicio' => $suyos->isNotEmpty() ? $suyos->implode(' y ') : 'un servicio',
             'fecha' => ucfirst($inicio->locale('es')->isoFormat('dddd D [de] MMMM')),
-            'hora' => HoraLegible::de($appointment->starts_at, $tz),
+            'hora' => HoraLegible::de($cuando ?? $appointment->starts_at, $tz),
         ];
     }
 

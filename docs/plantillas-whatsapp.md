@@ -21,7 +21,7 @@ Por eso el texto se guarda **siempre**, aunque salga la plantilla: es lo que
 se lee en la bandeja y lo que una persona copia en modo manual. De
 "Hola Carolina, tu cita del jueves…" no se sacan de vuelta las variables.
 
-## Las seis, y cómo crearlas
+## Las siete, y cómo crearlas
 
 En el WhatsApp Manager, idioma **es**. El nombre y **el orden de las
 variables** tienen que ser exactos: Meta no recibe nombres, recibe una lista
@@ -140,7 +140,7 @@ Ver [retoques.md](retoques.md): encabezado, cuerpo, pie y los tres botones
 (`Agendar retoque`, `Empezar de cero`, `Darme de baja`), cuyos textos son la
 interfaz y no se pueden cambiar en Meta sin cambiarlos en el código.
 
-### 5 y 6. Los avisos al EQUIPO — categoría *utility*
+### 5, 6 y 7. Los avisos al EQUIPO — categoría *utility*
 
 No son para la clienta: son para quien atiende. Van fuera de la ventana
 siempre --la manicurista recibe del número del salón, pero no le escribe--,
@@ -168,7 +168,23 @@ Hola, {{1}}: se canceló una cita y esa hora te queda libre.
 ⏰ {{5}}
 ```
 
-En las dos: `{{1}}` profesional · `{{2}}` clienta · `{{3}}` servicio ·
+`cita_movida_equipo`:
+
+```
+Hola, {{1}}: te movieron una cita.
+
+🙋‍♀️ Clienta: *{{2}}*
+💅 Servicio: *{{3}}*
+
+❌ Antes: {{4}}
+✅ Ahora: *{{5}}*
+```
+
+Acá `{{4}}` y `{{5}}` llevan el día y la hora juntos ("Jueves 17 de
+septiembre a las 3:00 pm"): lo que ella compara es un momento contra otro,
+no cuatro datos sueltos.
+
+En las dos primeras: `{{1}}` profesional · `{{2}}` clienta · `{{3}}` servicio ·
 `{{4}}` fecha · `{{5}}` hora. Sin botones: quien atiende abre la agenda.
 
 Todo el detalle en [avisos-al-equipo.md](avisos-al-equipo.md).
@@ -180,6 +196,11 @@ le avisa, y no es una falla: muchas manicuristas no tienen ni cuenta.
 
 Una cita de manos y pies con dos manicuristas manda **dos avisos**, y cada
 uno nombra solo el servicio de quien lo recibe.
+
+**Al mover una cita** se avisa según quién gana y quién pierde: a la misma
+persona a otra hora le llega `cita_movida_equipo`; si la cita cambia de
+manicurista, la que la pierde recibe la de cancelación **con su hora vieja**
+--que es el espacio que recupera-- y la que la recibe, la de cita nueva.
 
 ### Las difusiones son aparte
 
