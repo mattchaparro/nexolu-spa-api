@@ -158,14 +158,6 @@ class MessageDispatcher
 
         try {
             /*
-             * Plantilla o texto libre, y no es una preferencia de estilo:
-             * WhatsApp solo entrega texto libre dentro de las 24 horas
-             * siguientes a que la clienta escribio. Un recordatorio de la cita
-             * de manana llega mucho despues de eso, asi que mandarlo como
-             * texto es que Meta lo rechace -- silenciosamente, salvo por el
-             * motivo que queda en la bandeja.
-             */
-            /*
              * La clave de idempotencia ES la fila de la bandeja: reintentar
              * este mismo Message (boton "volver a enviar", el job que corre
              * dos veces) no puede duplicarle el mensaje a la clienta - el
@@ -173,7 +165,7 @@ class MessageDispatcher
              */
             $idempotencyKey = 'spa-msg:'.$message->id;
 
-            $ok = $message->usesTemplate()
+            $ok = $this->goesAsTemplate($message)
                 ? $this->channel->sendTemplate(
                     $message->to,
                     (string) $message->template_name,
@@ -251,6 +243,91 @@ class MessageDispatcher
      * negocio en automatico sin canal configurado no manda nada, y prometerlo
      * dejaria mensajes "en cola" que nadie va a mover.
      */
+    /**
+     * ¿Sale como plantilla o como texto libre?
+     *
+     * No es una preferencia de estilo: WhatsApp solo entrega texto libre
+     * dentro de las 24 horas siguientes a que la clienta escribio. Fuera de
+     * esa ventana Meta ACEPTA el texto y no lo entrega -- sin error, sin
+     * rebote: el mensaje se ve enviado en la bandeja y nunca llega.
+     *
+     * Por eso un mensaje puede traer las dos cosas, y aca se elige:
+     *
+     * - Con la ventana ABIERTA gana el texto. Es el que escribio el negocio,
+     *   con lo que la plantilla no puede llevar: el enlace de "mis citas",
+     *   el Instagram, las lineas que sobran cuando no hay precio o no se sabe
+     *   quien atiende. Una plantilla aprobada es fija; el texto no.
+     * - Con la ventana CERRADA, la plantilla, que es lo unico que Meta
+     *   entrega.
+     *
+     * Sin plantilla se manda el texto igual: es lo que habia antes y lo que
+     * el negocio ve en "Mensajes por enviar" para mandarlo a mano.
+     */
+    private function goesAsTemplate(Message $message): bool
+    {
+        if (! $message->usesTemplate()) {
+            return false;
+        }
+
+        if (trim((string) $message->body) === '') {
+            return true;
+        }
+
+        // Con botones gana la plantilla aunque la ventana esté abierta: el
+        // texto libre no puede llevarlos.
+        if (MessageTemplate::hasButtons($message->template_name)) {
+            return true;
+        }
+
+        return ! $this->windowIsOpen($message);
+    }
+
+    /**
+     * ¿La clienta escribió en las últimas 24 horas?
+     *
+     * Público porque no solo decide cómo sale UN mensaje: quien quiera
+     * mandarle algo más detrás --los botones de información tras confirmar,
+     * por ejemplo-- necesita saber si eso se va a entregar.
+     */
+    public function windowIsOpenFor(Business $business, ?string $phone): bool
+    {
+        // Normalizado acá y no en quien llama: el hilo se guarda con el
+        // número normalizado, y comparar "+57 300…" contra "57300…" diría
+        // que la ventana está cerrada siempre.
+        $phone = $phone === null ? null : ChannelPhone::normalize($phone, $business->country_code);
+
+        if ($phone === null) {
+            return false;
+        }
+
+        $conversacion = WhatsappConversation::withoutGlobalScopes()
+            ->where('business_id', $business->id)
+            ->where('phone', $phone)
+            ->first();
+
+        return $conversacion?->windowIsOpen() ?? false;
+    }
+
+    private function windowIsOpen(Message $message): bool
+    {
+        $conversacion = WhatsappConversation::withoutGlobalScopes()
+            ->when(
+                $message->conversation_id !== null,
+                fn ($q) => $q->whereKey($message->conversation_id),
+                /*
+                 * Un recordatorio no cuelga de un hilo -- no es conversacion --
+                 * pero la ventana es del NUMERO, no del mensaje: si la clienta
+                 * escribio hace una hora por cualquier motivo, su recordatorio
+                 * puede salir como texto.
+                 */
+                fn ($q) => $q->where('business_id', $message->business_id)
+                    ->where('phone', $message->to),
+            )
+            ->first();
+
+        return $conversacion?->windowIsOpen() ?? false;
+    }
+
     public function sendsByItself(Business $business): bool
     {
         return $business->messaging_mode === 'auto' && $this->channel->isConfigured();

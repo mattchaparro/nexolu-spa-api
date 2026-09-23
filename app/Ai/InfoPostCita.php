@@ -61,13 +61,39 @@ final class InfoPostCita
         return true;
     }
 
-    /** La respuesta de un tema tocado, o null si no era uno de estos botones. */
-    public function respuestaA(string $phone, string $texto): ?string
+    /**
+     * La respuesta de un tema tocado, o null si no era uno de estos botones.
+     *
+     * El caché guarda lo que se acaba de ofrecer, pero esos mismos botones
+     * viajan TAMBIÉN en la plantilla de confirmación --que sale cuando la
+     * clienta no ha escrito-- y ahí puede tocarlos tres días después, con el
+     * caché vencido. Por eso, con el negocio a la mano, se vuelve a la base
+     * de conocimiento en vez de dejar el botón muerto.
+     */
+    public function respuestaA(string $phone, string $texto, ?AiCaller $caller = null): ?string
     {
         $mapa = Cache::get($this->clave($phone), []);
         $clave = UltimoPedido::claveDe($mapa, $texto);
 
-        return $clave === null ? null : (string) $mapa[$clave];
+        if ($clave !== null) {
+            return (string) $mapa[$clave];
+        }
+
+        if ($caller === null) {
+            return null;
+        }
+
+        // Con las llaves en plano, como las guarda `ofrecer`: `claveDe`
+        // normaliza el texto tocado, no las llaves del mapa.
+        $vivos = [];
+
+        foreach ($this->conocimiento($caller) as $titulo => $respuesta) {
+            $vivos[$this->plano($titulo)] = $respuesta;
+        }
+
+        $clave = UltimoPedido::claveDe($vivos, $texto);
+
+        return $clave === null ? null : (string) $vivos[$clave];
     }
 
     public function olvidar(string $phone): void

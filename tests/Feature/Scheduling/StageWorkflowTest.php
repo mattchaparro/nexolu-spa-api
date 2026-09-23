@@ -14,6 +14,7 @@ use App\Models\Resource;
 use App\Models\ResourceOccupancy;
 use App\Models\Service;
 use App\Models\User;
+use App\Models\WhatsappConversation;
 use App\Services\Messaging\Contracts\MessagingChannel;
 use App\Support\PermissionCatalog;
 use App\Support\Scheduling\DefaultWorkflow;
@@ -103,6 +104,24 @@ class StageWorkflowTest extends TestCase
         ])->assertCreated()->json('id');
 
         return Appointment::withoutGlobalScope('business')->findOrFail($id);
+    }
+
+    /**
+     * La clienta escribió hace poco: la ventana de 24h está abierta.
+     *
+     * Importa para los avisos: con la ventana abierta sale el TEXTO --el que
+     * escribió el negocio, con sus marcadores rellenos-- y con la ventana
+     * cerrada sale la plantilla aprobada, que es lo único que Meta entrega.
+     */
+    private function abrirLaVentana(): void
+    {
+        WhatsappConversation::withoutGlobalScope('business')->create([
+            'business_id' => $this->business->id,
+            'phone' => '573001112233',
+            'last_message_at' => now(),
+            'last_inbound_at' => now(),
+            'status' => WhatsappConversation::STATUS_OPEN,
+        ]);
     }
 
     /** Un canal que dice que sí y anota a quién le escribió. */
@@ -383,6 +402,7 @@ class StageWorkflowTest extends TestCase
     public function test_confirmar_le_manda_el_mensaje_al_cliente(): void
     {
         $canal = $this->canalQueFunciona();
+        $this->abrirLaVentana();
 
         $cita = $this->agendar();
 
@@ -391,8 +411,13 @@ class StageWorkflowTest extends TestCase
         ])->assertOk();
 
         $this->assertCount(1, $canal->sent);
-        // La plantilla se rellenó con los datos de la cita.
-        $this->assertStringContainsString('Carolina', $canal->sent[0]['body']);
+        /*
+         * La confirmación de siempre, con los datos de la cita: la MISMA que
+         * recibe quien agenda por el chat. Sin saludo con el nombre a
+         * propósito -- es el formato que Luxury usa en ManyChat y que sus
+         * clientas reconocen: cada dato en su renglón.
+         */
+        $this->assertStringContainsString('¡Tu cita quedó confirmada! ✅', $canal->sent[0]['body']);
         $this->assertStringContainsString('10:00 am', $canal->sent[0]['body']);
         $this->assertStringContainsString('Maria', $canal->sent[0]['body']);
 
@@ -403,6 +428,7 @@ class StageWorkflowTest extends TestCase
     public function test_una_plantilla_con_el_marcador_viejo_sigue_funcionando(): void
     {
         $canal = $this->canalQueFunciona();
+        $this->abrirLaVentana();
 
         // `{clienta}` fue el nombre del marcador antes de que el producto
         // pasara a hablar de clientes en general. Una plantilla escrita así
@@ -462,7 +488,10 @@ class StageWorkflowTest extends TestCase
 
             public function sendTemplate(string $to, string $name, string $languageCode, array $components = [], ?int $businessId = null, string $type = 'generico', ?string $idempotencyKey = null): bool
             {
-                return true;
+                // Caido es caido: la confirmacion sale como plantilla cuando
+                // la clienta no ha escrito, y un proveedor con timeout no
+                // responde mejor por ser plantilla.
+                throw new \RuntimeException('Timeout hablando con el proveedor');
             }
 
             public function sendDocument(string $to, string $documentUrl, string $filename, string $caption = '', ?int $businessId = null, string $type = 'generico'): bool

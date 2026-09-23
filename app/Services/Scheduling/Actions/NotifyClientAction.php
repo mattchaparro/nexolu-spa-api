@@ -2,8 +2,13 @@
 
 namespace App\Services\Scheduling\Actions;
 
+use App\Ai\AiCaller;
+use App\Ai\InfoPostCita;
+use App\Models\Appointment;
+use App\Models\Business;
 use App\Models\Message;
 use App\Services\Messaging\MessageDispatcher;
+use App\Support\Scheduling\ConfirmationMessage;
 use App\Support\Scheduling\StageActionCatalog;
 use App\Support\Scheduling\StageMessage;
 
@@ -44,6 +49,8 @@ class NotifyClientAction implements StageAction
          * aparece en "Mensajes por enviar" para que alguien lo mande a mano.
          * El canal decide COMO sale, no SI existe.
          */
+        $confirma = $context->stage?->maps_to_status === Appointment::STATUS_CONFIRMED;
+
         $message = $this->dispatcher->queue(
             $business,
             Message::KIND_STAGE,
@@ -54,12 +61,41 @@ class NotifyClientAction implements StageAction
                 $context->stage,
             ),
             $appointment,
+            null,
+            /*
+             * La confirmación viaja TAMBIÉN como plantilla.
+             *
+             * Es el único aviso que el salón manda sin que la clienta haya
+             * escrito: se confirma la agenda del día siguiente, o se agenda
+             * a alguien que no escribe hace un mes. Fuera de las 24 horas
+             * Meta acepta el texto libre y NO lo entrega --sin error, sin
+             * rebote-- así que ese mensaje simplemente no existía para ella.
+             *
+             * El texto sigue yendo: es el que sale dentro de la ventana, el
+             * que se ve en la bandeja y el que se manda a mano. Cuál de los
+             * dos usa lo decide MessageDispatcher al enviar, que es el único
+             * que sabe si la ventana está abierta.
+             */
+            $confirma ? ConfirmationMessage::template($appointment) : null,
         );
 
         if ($message === null) {
             // Repetido: ya hay un aviso de etapa para esta cita. Volver a
             // moverla de etapa no le manda un segundo mensaje al cliente.
             return StageActionResult::skipped('Ya se le avisó al cliente de esta cita.');
+        }
+
+        /*
+         * Y, detrás de la confirmación, lo que el negocio tenga escrito para
+         * después de la cita: garantías, recomendaciones, cancelaciones.
+         *
+         * Es lo mismo que hace el bot cuando la clienta agenda sola, y lo
+         * que ella ya conoce de ManyChat. Solo con la ventana abierta: fuera
+         * de ella esos botones viajan DENTRO de la plantilla, porque un
+         * segundo mensaje de texto no se entregaría.
+         */
+        if ($confirma && $message->status === Message::STATUS_SENT) {
+            $this->ofrecerInfo($business, $appointment, $phone);
         }
 
         return match ($message->status) {
@@ -72,5 +108,28 @@ class NotifyClientAction implements StageAction
             // corregir la ficha.
             default => StageActionResult::failed($message->error ?? 'El canal rechazó el envío.'),
         };
+    }
+
+    /**
+     * Los botones de información, detrás de la confirmación.
+     *
+     * Mejor esfuerzo y en silencio: la cita ya quedó confirmada y ella ya lo
+     * sabe. Que el negocio no haya escrito nada --o que el Core no responda--
+     * no puede volver roja una transición que salió bien.
+     */
+    private function ofrecerInfo(Business $business, Appointment $appointment, string $phone): void
+    {
+        if (! $this->dispatcher->windowIsOpenFor($business, $phone)) {
+            return;
+        }
+
+        try {
+            app(InfoPostCita::class)->ofrecer(
+                AiCaller::customer($business, $phone, $appointment->client, 'whatsapp'),
+                $phone,
+            );
+        } catch (\Throwable $e) {
+            report($e);
+        }
     }
 }

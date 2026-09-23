@@ -31,6 +31,17 @@ final class StageMessage
         $template = trim($template);
 
         if ($template === '') {
+            /*
+             * La confirmación no se arma con marcadores: es la MISMA que
+             * manda el bot cuando la clienta agenda sola, con sus renglones
+             * que aparecen y desaparecen (el precio, quién atiende) y el
+             * Instagram al final. Un textarea no puede expresar eso, así que
+             * quien no escribió nada recibe la buena.
+             */
+            if ($stage?->maps_to_status === Appointment::STATUS_CONFIRMED) {
+                return ConfirmationMessage::text($appointment);
+            }
+
             $template = self::fallback($stage);
         }
 
@@ -73,7 +84,18 @@ final class StageMessage
             ? CarbonImmutable::parse($appointment->starts_at)->setTimezone($tz)
             : null;
 
-        $item = $appointment->items->first();
+        /*
+         * TODOS los servicios y TODAS las personas, no el primer renglon.
+         *
+         * "Manos y pies con Anyi y Marcela" se anunciaba como "Manicure con
+         * Anyi": el mensaje le decia a la clienta menos de lo que habia
+         * reservado, y el dia de la cita eso es una discusion en el mostrador.
+         */
+        $servicios = $appointment->items->map(fn ($i) => $i->service?->name)->filter()->unique();
+        $personas = $appointment->items->map(fn ($i) => $i->resource?->name)->filter()->unique();
+        $precio = (float) $appointment->items->sum(
+            fn ($i) => (float) ($i->price ?? $i->service?->price ?? 0),
+        );
 
         /*
          * Solo el primer nombre, y solo si de verdad lo es.
@@ -93,9 +115,19 @@ final class StageMessage
             'clienta' => $nombre,
             'fecha' => $start?->translatedFormat('l j \d\e F') ?? '',
             'hora' => $start?->format('g:i a') ?? '',
-            'servicio' => $item?->service?->name ?? '',
-            'profesional' => $item?->resource?->name ?? '',
+            'servicio' => $servicios->implode(' y '),
+            'profesional' => $personas->implode(' y '),
             'negocio' => $business?->name ?? '',
+
+            /*
+             * Lo que va a pagar. Sin decimales y con punto de miles, como se
+             * escribe aca: $45.000, no $45,000.00.
+             *
+             * Vacio cuando no hay precio -- un servicio que se cotiza al
+             * verlo -- y la linea entera se cae con `limpiar`, en vez de
+             * prometerle "Precio: $0".
+             */
+            'precio' => $precio > 0 ? '$'.number_format($precio, 0, ',', '.') : '',
 
             /*
              * El enlace de la encuesta. Vacio si la cita todavia no tiene

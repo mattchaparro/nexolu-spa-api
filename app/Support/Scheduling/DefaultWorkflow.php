@@ -46,9 +46,14 @@ final class DefaultWorkflow
                 // modulo: confirmar deja de ser llamar una por una.
                 'actions' => [[
                     'type' => StageActionCatalog::NOTIFY_CLIENT,
-                    'config' => [
-                        'template' => 'Hola {cliente}, te confirmamos tu cita en {negocio}: {servicio} el {fecha} a las {hora} con {profesional}. ¡Te esperamos!',
-                    ],
+                    /*
+                     * Sin texto propio a proposito: vacio significa "la
+                     * confirmacion de siempre" (ver StageMessage::render), la
+                     * misma que recibe quien agenda por el bot, con el precio,
+                     * quien la atiende y el Instagram del negocio. El que
+                     * quiera otra la escribe y la suya manda.
+                     */
+                    'config' => ['template' => ''],
                 ]],
             ],
             [

@@ -97,7 +97,7 @@ final class Toques
          * porque ese ya se olvidó al agendar: la cita quedó lista y lo que
          * sigue es información.
          */
-        $info = app(InfoPostCita::class)->respuestaA($phone, $this->plano($ultimaLinea));
+        $info = app(InfoPostCita::class)->respuestaA($phone, $this->plano($ultimaLinea), $caller);
 
         if ($info !== null) {
             return ['text' => $info, 'conversation_id' => null, 'tools_used' => ['info_post_cita']];

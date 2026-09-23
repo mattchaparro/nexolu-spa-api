@@ -8,11 +8,14 @@ use App\Models\Client;
 use App\Models\Message;
 use App\Models\Resource;
 use App\Models\Service;
+use App\Models\WhatsappConversation;
+use App\Services\Messaging\Contracts\MessagingChannel;
 use App\Services\Messaging\RetouchReminderService;
 use App\Services\Scheduling\BookingService;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Feature\Scheduling\SchedulingScenario;
+use Tests\Support\FakeMessagingChannel;
 use Tests\TestCase;
 
 /**
@@ -132,6 +135,34 @@ class RetouchTest extends TestCase
         $mensaje = Message::withoutGlobalScopes()->sole();
         $this->assertSame('retoque_recordatorio', $mensaje->template_name);
         $this->assertSame(['Carolina', $this->business->name, 'Semipermanente'], $mensaje->template_params);
+    }
+
+    public function test_sale_como_plantilla_aunque_la_ventana_este_abierta(): void
+    {
+        /*
+         * Con la ventana abierta el texto libre suele ser mejor -- lleva
+         * enlaces y renglones que una plantilla no puede --, pero no puede
+         * llevar BOTONES, y el botón «Agendar retoque» es justo lo que hace
+         * que este mensaje sirva: sin él la clienta tiene que escribir y
+         * volver a contar lo que el salón ya sabe.
+         */
+        $canal = new FakeMessagingChannel;
+        $this->app->instance(MessagingChannel::class, $canal);
+        $this->business->update(['messaging_mode' => 'auto']);
+
+        WhatsappConversation::withoutGlobalScope('business')->create([
+            'business_id' => $this->business->id,
+            'phone' => '573001112233',
+            'client_id' => $this->carolina->id,
+            'last_message_at' => now(),
+            'last_inbound_at' => now(),
+            'status' => WhatsappConversation::STATUS_OPEN,
+        ]);
+
+        $this->visita(20);
+        $this->retoques()->run($this->business->fresh(), $this->ahora());
+
+        $this->assertSame('retoque_recordatorio', $canal->sent[0]['template']);
     }
 
     public function test_una_corrida_perdida_se_recupera_en_la_siguiente(): void

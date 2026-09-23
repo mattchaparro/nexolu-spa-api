@@ -13,6 +13,25 @@ namespace App\Services\Messaging;
 final class MessageTemplate
 {
     /**
+     * Las que traen BOTONES, y por eso salen como plantilla siempre.
+     *
+     * Dentro de las 24 horas el texto libre suele ser mejor --lleva enlaces y
+     * renglones que una plantilla aprobada no puede tener-- pero no puede
+     * reproducir un boton de respuesta rapida. Mandar el recordatorio de
+     * retoque como texto le quita «Agendar retoque», que es justamente el
+     * atajo que hace que ese mensaje sirva.
+     *
+     * @var list<string>
+     */
+    private const CON_BOTONES = ['retoque_recordatorio'];
+
+    /** @param  string|null  $name  el `template_name` de la fila de la bandeja */
+    public static function hasButtons(?string $name): bool
+    {
+        return $name !== null && in_array($name, self::CON_BOTONES, true);
+    }
+
+    /**
      * @param  list<string>  $params  en el orden en que la plantilla los espera
      */
     private function __construct(
