@@ -38,6 +38,22 @@ class ImportaCitasFuturas extends Importador
     /** AGENDADO en `service_statuses` del legacy. */
     private const AGENDADO = 4;
 
+    /**
+     * Los estados del sistema viejo que SÍ significan «esta cita se cayó»:
+     * Eliminado y Cancelado. Todos los demás -- Iniciado, Finalizado,
+     * Agendado, Pendiente de pago -- son una cita que sigue viva.
+     *
+     * Está escrito por lo que NO es, y no por lo que es, a propósito. Antes
+     * se cancelaba todo lo que no estuviera AGENDADO, y eso incluía a los
+     * servicios FINALIZADOS: la manicurista terminaba la cita, el estado
+     * cambiaba, el servicio salía de la lista de agendados y la siguiente
+     * sincronización --media hora después-- lo leía como «la cancelaron».
+     *
+     * Le costó 27.500 pesos de comisión a Marcela en una sola cita, y le
+     * habría costado una por día mientras nadie lo mirara.
+     */
+    private const SE_CAYO = [3, 6];
+
     /** @var array<int, int> id de servicio nuevo => duracion en minutos */
     private array $duraciones = [];
 
@@ -79,17 +95,21 @@ class ImportaCitasFuturas extends Importador
         }
 
         /*
-         * Para decidir que cancelar se miran TODAS las agendadas del sistema
-         * viejo, sin filtro de fecha.
+         * Para decidir que cancelar se miran TODAS las que siguen vivas en el
+         * sistema viejo, sin filtro de fecha y sin filtro de estado.
          *
-         * La lista de arriba solo trae las de hoy en adelante, que es lo que
-         * hay que crear. Pero si se usara esa misma lista para cancelar, una
-         * cita de ayer que alla sigue agendada -- porque nadie la cerro --
-         * se cancelaria aca sin que nadie la haya cancelado.
+         * Sin filtro de FECHA: la lista de arriba solo trae las de hoy en
+         * adelante, que es lo que hay que crear. Pero si se usara esa misma
+         * lista para cancelar, una cita de ayer que alla sigue agendada --
+         * porque nadie la cerro -- se cancelaria aca sin que nadie la haya
+         * cancelado.
+         *
+         * Sin filtro de ESTADO: ver `SE_CAYO`. Una cita que la manicurista
+         * termino deja de estar «agendada», y eso no es que se haya caido.
          */
         $this->cancelarLasQueYaNoEstan(
             $this->legacy('employee_services')
-                ->where('status_id', self::AGENDADO)
+                ->whereNotIn('status_id', self::SE_CAYO)
                 ->whereNull('deleted_at')
                 ->pluck('id')
                 ->all(),
