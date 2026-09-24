@@ -14,6 +14,7 @@ use App\Services\Scheduling\Exceptions\OutsideWorkingHoursException;
 use App\Support\PermissionCatalog;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
@@ -92,8 +93,10 @@ class BreakTest extends TestCase
 
     public function test_sin_descanso_el_dia_esta_entero(): void
     {
+        // Servicio de una hora: los turnos van en punto, asi que la hora
+        // vecina al almuerzo es las 12:00 y no las 12:30.
         $this->assertContains('13:00', $this->horas());
-        $this->assertContains('12:30', $this->horas());
+        $this->assertContains('12:00', $this->horas());
     }
 
     public function test_el_almuerzo_parte_el_dia_en_dos(): void
@@ -336,7 +339,7 @@ class BreakTest extends TestCase
     {
         $otro = $this->makeBusiness();
 
-        $ajenaId = \Illuminate\Support\Facades\DB::table('resources')->insertGetId([
+        $ajenaId = DB::table('resources')->insertGetId([
             'business_id' => $otro->id, 'type' => Resource::TYPE_STAFF,
             'name' => 'Ajena', 'is_active' => true, 'sort_order' => 0,
             'payroll_mode' => 'commission', 'base_amount' => 0, 'base_period' => 'month',

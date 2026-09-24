@@ -33,7 +33,7 @@ class AvailabilityTest extends TestCase
         $this->assertSame([], $slots);
     }
 
-    public function test_los_huecos_respetan_la_granularidad_del_negocio(): void
+    public function test_las_horas_avanzan_lo_que_dura_el_servicio(): void
     {
         $business = $this->makeBusiness(['slot_granularity_min' => 30]);
         $resource = $this->makeResource($business, start: '09:00:00', end: '11:00:00');
@@ -41,8 +41,34 @@ class AvailabilityTest extends TestCase
 
         $slots = $this->availability->slotsForService($business, $service, $this->wednesday());
 
-        // 09:00-11:00 con servicio de 60 min cada 30: 09:00, 09:30, 10:00.
-        $this->assertSame(['09:00', '09:30', '10:00'], $this->startTimes($slots));
+        /*
+         * 09:00-11:00 con un servicio de una hora: las 9 y las 10, y ya.
+         *
+         * Antes se avanzaba de treinta en treinta --la rejilla-- y salia
+         * tambien las 09:30. Quien tomara esa hora dejaba media hora muerta
+         * al principio y otra media al final: dos huecos de treinta minutos
+         * en vez de un dia lleno. Con el paso igual a la duracion, los dos
+         * turnos encajan y la jornada queda completa.
+         */
+        $this->assertSame(['09:00', '10:00'], $this->startTimes($slots));
+    }
+
+    public function test_la_rejilla_sigue_mandando_en_que_las_horas_sean_limpias(): void
+    {
+        /*
+         * Un servicio de cuarenta minutos avanzando de cuarenta en cuarenta
+         * ofreceria las 09:40 y las 10:20. Se redondea hacia arriba a la
+         * rejilla --cuarenta y cinco-- y quedan horas que se leen de un
+         * vistazo, a cambio de cinco minutos por turno.
+         */
+        $business = $this->makeBusiness(['slot_granularity_min' => 15]);
+        $resource = $this->makeResource($business, start: '09:00:00', end: '11:00:00');
+        $service = $this->makeService($business, 40, [$resource]);
+
+        $slots = $this->availability->slotsForService($business, $service, $this->wednesday());
+
+        // Las 10:30 no salen: terminaria 11:10 y la jornada cierra a las 11.
+        $this->assertSame(['09:00', '09:45'], $this->startTimes($slots));
     }
 
     public function test_un_servicio_no_cabe_en_una_ventana_mas_corta_que_su_duracion(): void
@@ -65,9 +91,17 @@ class AvailabilityTest extends TestCase
 
         $slots = $this->availability->slotsForService($business, $service, $this->wednesday());
 
-        // El primer hueco arranca 09:00 ocupado, pero el servicio visible
-        // empieza 09:15. La ultima ventana de 60 min empieza 10:00 -> 10:15.
-        $this->assertSame(['09:15', '09:45', '10:15'], $this->startTimes($slots));
+        /*
+         * El primer hueco arranca 09:00 ocupado, pero el servicio visible
+         * empieza 09:15. Y el siguiente turno no es a las 09:45 sino a las
+         * 10:15: lo que avanza son los SESENTA minutos que el recurso queda
+         * ocupado, no los treinta que la clienta ve en su cita.
+         *
+         * Es la diferencia que importa para llenar el dia: ofrecer las 09:45
+         * seria ofrecer una hora en la que la manicurista todavia esta
+         * terminando la anterior.
+         */
+        $this->assertSame(['09:15', '10:15'], $this->startTimes($slots));
 
         // Y el fin visible respeta la duracion, no la ocupacion.
         $this->assertSame(

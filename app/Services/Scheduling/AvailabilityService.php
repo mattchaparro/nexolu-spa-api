@@ -72,6 +72,7 @@ class AvailabilityService
         foreach ($resources as $resource) {
             $occupiedMinutes = $service->occupiedMinutesFor($resource);
             $duration = $service->durationFor($resource);
+            $paso = $this->pasoEntreHoras($occupiedMinutes, $granularity);
 
             foreach ($this->freeWindowsFor($business, $resource, $date, $tz) as $window) {
                 $cursor = $this->ceilToGrid($window->start, $granularity);
@@ -88,7 +89,7 @@ class AvailabilityService
                         ];
                     }
 
-                    $cursor = $cursor->addMinutes($granularity);
+                    $cursor = $cursor->addMinutes($paso);
                 }
             }
         }
@@ -803,6 +804,35 @@ class AvailabilityService
         [$hour, $minute] = array_pad(explode(':', $time), 2, '0');
 
         return $date->setTimezone($tz)->setTime((int) $hour, (int) $minute);
+    }
+
+    /**
+     * Cuánto se avanza entre una hora ofrecida y la siguiente.
+     *
+     * Lo que dura el servicio, no la rejilla. Antes se avanzaba de quince en
+     * quince sin mirar la duración, y para un servicio de una hora eso
+     * ofrecía las 9:00, 9:15, 9:30 y 9:45: quien tomara las 9:45 dejaba
+     * cuarenta y cinco minutos al principio que ya no llenaba nada, y el día
+     * se fragmentaba solo. Con el paso igual a la duración, los turnos
+     * encajan uno tras otro y la jornada se llena completa -- que es lo que
+     * hacía el sistema viejo con sus bloques, pero calculado por lo que de
+     * verdad dura cada servicio.
+     *
+     * Se redondea hacia ARRIBA a la rejilla para que las horas salgan
+     * limpias: el catálogo tiene servicios de veinte y de cuarenta minutos, y
+     * avanzar de cuarenta en cuarenta ofrecería las 9:40 y las 10:20. Con la
+     * rejilla de quince, ese servicio avanza de cuarenta y cinco: se pierden
+     * cinco minutos por turno a cambio de horas que se leen de un vistazo.
+     */
+    private function pasoEntreHoras(int $occupiedMinutes, int $granularity): int
+    {
+        if ($granularity < 1) {
+            return max($occupiedMinutes, 1);
+        }
+
+        // Nunca menos que la rejilla: un servicio sin duración dejaría el
+        // cursor quieto y el bucle no terminaría nunca.
+        return max((int) ceil($occupiedMinutes / $granularity) * $granularity, $granularity);
     }
 
     /** Redondea hacia arriba hasta el siguiente punto de la rejilla del dia. */
