@@ -230,11 +230,62 @@ class PayrollService
                 ->whereNull('settlement_id')
                 ->update(['settlement_id' => $settlement->id]);
 
+            $this->carryOverDebt($business, $resource, $settlement, $actor);
+
             $expense = $this->recordExpense($business, $resource, $settlement, $actor, $paymentMethodId);
             $settlement->update(['expense_id' => $expense?->id]);
 
             return $settlement->fresh(['items', 'adjustments', 'resource']);
         });
+    }
+
+    /**
+     * Lo que quedo debiendo pasa al periodo siguiente.
+     *
+     * El caso: pidio $100.000 de anticipo y alcanzo a devengar $40.000. Se
+     * liquida en −$60.000 y no sale plata -- hasta ahi bien. El problema era
+     * lo que pasaba despues: los ajustes quedaban reclamados por esa
+     * liquidacion y el periodo siguiente arrancaba en cero. Esos $60.000 se
+     * evaporaban, y con ellos una plata que el negocio ya entrego y que nadie
+     * iba a volver a cobrar.
+     *
+     * Se anota como un descuento pendiente mas, con su fecha y su
+     * explicacion, para que quien liquide el mes entrante lo vea escrito y no
+     * tenga que acordarse. Si vuelve a no alcanzar, se vuelve a arrastrar: la
+     * deuda no se diluye sola.
+     */
+    private function carryOverDebt(
+        Business $business,
+        Resource $resource,
+        PayrollSettlement $settlement,
+        User $actor,
+    ): void {
+        $saldo = round((float) $settlement->net_total, 2);
+
+        if ($saldo >= 0) {
+            return;
+        }
+
+        PayrollAdjustment::create([
+            'business_id' => $business->id,
+            'resource_id' => $resource->id,
+            // Pendiente a proposito: es lo que lo hace entrar en la proxima.
+            'settlement_id' => null,
+            // De donde salio, para poder retirarlo si esa liquidacion se
+            // deshace. Sin esto, deshacer devolveria los anticipos a
+            // pendientes Y dejaria el arrastre: el mismo dinero dos veces.
+            'origin_settlement_id' => $settlement->id,
+            'date' => $settlement->period_end,
+            'kind' => PayrollAdjustment::KIND_DEDUCTION,
+            'category' => 'otro_descuento',
+            'amount' => abs($saldo),
+            'description' => sprintf(
+                'Saldo a favor del negocio de la liquidación del %s al %s.',
+                CarbonImmutable::parse($settlement->period_start)->toDateString(),
+                CarbonImmutable::parse($settlement->period_end)->toDateString(),
+            ),
+            'created_by_user_id' => $actor->id,
+        ]);
     }
 
     /**
@@ -257,6 +308,16 @@ class PayrollService
         }
 
         DB::transaction(function () use ($settlement) {
+            /*
+             * El saldo que esta liquidacion arrastro al periodo siguiente se
+             * retira PRIMERO. Si se quedara, al devolver los anticipos a
+             * pendientes el negocio le descontaria dos veces la misma plata.
+             */
+            PayrollAdjustment::withoutGlobalScope('business')
+                ->where('origin_settlement_id', $settlement->id)
+                ->whereNull('settlement_id')
+                ->delete();
+
             // Los ajustes vuelven a estar pendientes; las lineas se van con la
             // liquidacion (cascadeOnDelete).
             PayrollAdjustment::withoutGlobalScope('business')

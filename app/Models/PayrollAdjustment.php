@@ -21,7 +21,7 @@ class PayrollAdjustment extends Model
     public const KIND_BONUS = 'bonus';
 
     protected $fillable = [
-        'business_id', 'resource_id', 'settlement_id', 'date', 'kind',
+        'business_id', 'resource_id', 'settlement_id', 'origin_settlement_id', 'date', 'kind',
         'category', 'amount', 'description', 'created_by_user_id',
     ];
 

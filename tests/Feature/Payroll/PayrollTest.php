@@ -478,6 +478,67 @@ class PayrollTest extends TestCase
         $this->assertSame($antes, Expense::withoutGlobalScope('business')->count());
     }
 
+    public function test_lo_que_quedo_debiendo_no_se_evapora(): void
+    {
+        /*
+         * El caso: pidió $100.000 de anticipo y alcanzó a devengar $40.000.
+         * Se le liquida en −$60.000, no sale plata... ¿y esos $60.000?
+         *
+         * Si desaparecen, el negocio le adelantó una plata que nadie va a
+         * volver a cobrar: plata perdida, y perdida en silencio.
+         */
+        $this->cobrar(5);
+        $this->anticipo(4, 100000);
+
+        $this->postJson("/api/v1/payroll/resources/{$this->maria->id}/settle")->assertCreated();
+
+        $siguiente = $this->getJson("/api/v1/payroll/resources/{$this->maria->id}/preview")->assertOk();
+
+        // Lo que quedó debiendo tiene que seguir pendiente para el próximo.
+        $this->assertEqualsWithDelta(60000, $siguiente->json('deduction_total'), 0.01);
+        $this->assertEqualsWithDelta(-60000, $siguiente->json('net_total'), 0.01);
+    }
+
+    public function test_deshacer_retira_el_saldo_arrastrado(): void
+    {
+        /*
+         * El riesgo que introduce el arrastre: al deshacer, los anticipos
+         * vuelven a estar pendientes. Si el saldo arrastrado se quedara,
+         * el negocio le descontaría DOS VECES la misma plata.
+         */
+        $this->cobrar(5);
+        $this->anticipo(4, 100000);
+
+        $id = $this->postJson("/api/v1/payroll/resources/{$this->maria->id}/settle")
+            ->assertCreated()->json('id');
+
+        $this->deleteJson("/api/v1/payroll/settlements/{$id}")->assertOk();
+
+        $preview = $this->getJson("/api/v1/payroll/resources/{$this->maria->id}/preview")->assertOk();
+
+        // El anticipo original, y sólo él.
+        $this->assertEqualsWithDelta(100000, $preview->json('deduction_total'), 0.01);
+        $this->assertCount(1, $preview->json('adjustments'));
+    }
+
+    public function test_el_saldo_arrastrado_se_explica_solo(): void
+    {
+        /*
+         * Quien liquida el mes entrante no tiene por qué acordarse de por qué
+         * hay un descuento raro: el arrastre dice de qué período viene.
+         */
+        $this->cobrar(5);
+        $this->anticipo(4, 100000);
+
+        $this->postJson("/api/v1/payroll/resources/{$this->maria->id}/settle")->assertCreated();
+
+        $ajuste = $this->getJson("/api/v1/payroll/resources/{$this->maria->id}/preview")
+            ->assertOk()->json('adjustments.0');
+
+        $this->assertStringContainsString('Saldo a favor del negocio', $ajuste['description']);
+        $this->assertEqualsWithDelta(60000, $ajuste['amount'], 0.01);
+    }
+
     public function test_deshacer_devuelve_los_anticipos_a_pendientes(): void
     {
         $this->cobrar(5);
