@@ -109,6 +109,24 @@ final class Toques
             return null;
         }
 
+        /*
+         * Tocó «Muéstrame más servicios». Va ANTES de todo lo demás
+         * porque pasar la hoja no es responder nada: si se deja para el
+         * final, la pregunta que estuviera abierta se lo come primero y
+         * la clienta recibe «¿Para qué día?» cuando lo que pidió fue ver
+         * el resto del catálogo.
+         *
+         * Aquí solo entra el TOQUE de la fila (`esLaFila`); escrito a
+         * mano sigue cayendo al paso 4, después de las preguntas, para
+         * que «ver más días» no le mande servicios.
+         */
+        if (ServiciosPendientes::esLaFila($ultimaLinea) && ServiciosPendientes::ver($phone) !== []) {
+            return $this->respuestaDe(
+                $this->disponibilidad->execute($caller, ['servicio' => ServiciosPendientes::VER_MAS]),
+                'mas_servicios',
+            );
+        }
+
         // 0) Le preguntamos si movía su cita o agendaba otra.
         if (isset($pedido['decidir_mover'])) {
             foreach ($candidatos as $plano) {

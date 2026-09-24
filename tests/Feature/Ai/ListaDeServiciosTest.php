@@ -187,13 +187,41 @@ class ListaDeServiciosTest extends TestCase
     public function test_pedir_los_demas_sin_una_lista_antes_no_rompe_nada(): void
     {
         // Alguien que escribe "muéstrame más" de la nada: no hay nada
-        // guardado, así que se trata como cualquier otra palabra suya.
-        $this->invoke('disponibilidad', [
+        // guardado, y eso NO es el nombre de un servicio -- se le vuelve a
+        // preguntar qué quiere, en vez de buscarlo en el catálogo.
+        $respuesta = $this->invoke('disponibilidad', [
             'servicio' => 'Muéstrame más servicios',
             'fecha' => $this->manana(),
         ])->assertOk();
 
-        $this->assertTrue(true);
+        $this->assertSame([], $respuesta->json('data.horas'));
+        $this->assertNotEmpty($respuesta->json('data.falta_informacion'));
+    }
+
+    public function test_pasar_la_hoja_no_es_haber_elegido_servicio(): void
+    {
+        /*
+         * El fallo que dejó a seis de nueve clientas simuladas sin cita.
+         *
+         * Llega al menú SIN día -- que es como llega casi todo el mundo:
+         * "hola, quiero una cita" -- y toca «Muéstrame más servicios».
+         * Esto respondía «¿Para qué día?»: la pregunta del día estaba
+         * antes en el camino, así que se comía el toque. La clienta
+         * elegía día para un servicio que todavía no había escogido, y
+         * los servicios que pidió le llegaban tres turnos después.
+         */
+        $this->invoke('disponibilidad', ['servicio' => 'las manitos'])->assertOk();
+        $primeros = collect($this->ultimaLista())->pluck('title')->slice(0, 9);
+
+        $respuesta = $this->invoke('disponibilidad', ['servicio' => 'Muéstrame más servicios'])->assertOk();
+
+        // Lo que llega es la segunda tanda, no la pregunta del día.
+        $segundos = collect($this->ultimaLista())->pluck('title');
+
+        $this->assertCount(5, $segundos);
+        $this->assertTrue($segundos->intersect($primeros)->isEmpty());
+        $this->assertNull($respuesta->json('data.eligiendo_fecha'));
+        $this->assertNotEmpty($respuesta->json('data.eligiendo_servicio'));
     }
 
     public function test_al_tocar_un_servicio_no_hay_que_repetir_el_dia(): void

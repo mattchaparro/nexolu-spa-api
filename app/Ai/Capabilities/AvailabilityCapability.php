@@ -175,7 +175,77 @@ class AvailabilityCapability implements Capability
             ];
         }
 
+        /*
+         * «Muéstrame más servicios»: la fila que se gasta cuando el
+         * catálogo no cabe en una lista. De la fila tocada solo vuelve el
+         * TÍTULO -- WhatsApp no dice en qué página iba -- así que los que
+         * faltaban quedaron guardados al mandar la tanda anterior.
+         *
+         * Va ANTES del día a propósito: pedir la siguiente página no es
+         * pedir una cita, es pasar la hoja. Cuando esto estaba más abajo,
+         * la clienta tocaba «Muéstrame más servicios» y el bot le
+         * respondía «¿Para qué día?» -- los servicios que pidió le
+         * llegaban tres turnos después, cuando ya había elegido un día
+         * para un servicio que todavía no había escogido.
+         */
+        $nombres = $arguments['servicios'] ?? [$arguments['servicio']];
+
+        // También cuando el pedido guardado traía varios servicios: lo que
+        // acaba de decir manda sobre lo que se venía arrastrando.
+        $pidioVerMas = ServiciosPendientes::pideVerMas((string) ($arguments['servicio'] ?? ''))
+            || (count($nombres) === 1 && ServiciosPendientes::pideVerMas((string) $nombres[0]));
+
+        if ($pidioVerMas) {
+            $siguientes = $this->siguienteTanda($caller);
+
+            if ($siguientes !== null) {
+                return $siguientes;
+            }
+
+            /*
+             * Sin tanda guardada (se le venció la memoria, o lo escribió
+             * sin que hubiera lista antes) esto NO es el nombre de un
+             * servicio: buscarlo en el catálogo no encuentra nada y el
+             * error que sale no le dice nada a nadie.
+             */
+            unset($arguments['servicio'], $arguments['servicios']);
+
+            return [
+                'horas' => [],
+                'falta_informacion' => 'Pidió ver más servicios pero ya no queda ninguna lista pendiente.',
+                'instruccion' => 'Vuelve a preguntarle qué se quiere hacer y llámame con sus '
+                    .'palabras en `servicio`; NO le mandes «'.ServiciosPendientes::VER_MAS.'» como servicio.',
+            ];
+        }
+
         if (! isset($arguments['fecha'])) {
+            /*
+             * ¿QUÉ, antes que CUÁNDO? Si lo que dijo puede ser varios
+             * servicios ("hacerme las uñas"), elegir cuál va primero.
+             *
+             * No es orden estético: los días que se ofrecen salen de la
+             * duración del servicio, así que preguntar el día sin saberlo
+             * es preguntar sobre una agenda que todavía no se puede
+             * calcular. Y quien contestaba el día quedaba eligiendo fecha
+             * para un servicio que nunca escogió.
+             */
+            try {
+                $this->resolveServices($business->id, $nombres);
+            } catch (AiArgumentException $cualDeTodos) {
+                $elegir = $this->queEligaServicio($caller, $cualDeTodos->opciones);
+
+                if ($elegir !== null) {
+                    if ($phoneCtx !== null) {
+                        UltimoPedido::guardar($phoneCtx, [
+                            ...UltimoPedido::ver($phoneCtx),
+                            'opciones' => $cualDeTodos->opciones,
+                        ]);
+                    }
+
+                    return $elegir;
+                }
+            }
+
             /*
              * ¿Con alguien en particular? Antes del día: quien viene por su
              * manicurista de siempre no quiere elegir un día y descubrir
@@ -206,24 +276,6 @@ class AvailabilityCapability implements Capability
                 'instruccion' => 'Pregúntale qué día quiere (puedes decirle "hoy", "mañana" '
                     .'o un día de la semana) y vuelve a intentarlo.',
             ];
-        }
-
-        $nombres = $arguments['servicios'] ?? [$arguments['servicio']];
-
-        /*
-         * "No veo el mio": la fila que se gasta cuando los servicios de
-         * una categoria no caben en una lista. De la fila tocada solo
-         * vuelve el TITULO -- WhatsApp no dice en que pagina iba -- asi
-         * que los que faltaban quedaron guardados al mandar la primera
-         * tanda. Sin eso, esto volveria a buscar desde cero y le
-         * mostraria los mismos diez otra vez.
-         */
-        if (count($nombres) === 1 && ServiciosPendientes::pideVerMas((string) $nombres[0])) {
-            $siguientes = $this->siguienteTanda($caller);
-
-            if ($siguientes !== null) {
-                return $siguientes;
-            }
         }
 
         try {

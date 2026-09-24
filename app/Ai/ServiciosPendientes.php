@@ -85,6 +85,35 @@ final class ServiciosPendientes
         return false;
     }
 
+    /**
+     * ¿Es el TOQUE de la fila, y no una frase parecida?
+     *
+     * `pideVerMas` es a propósito holgado para lo escrito a mano, y por
+     * eso no sirve para decidir temprano: «ver más días» también lo
+     * cumple, y quien está eligiendo día no quiere servicios. Esto es lo
+     * contrario -- el título exacto, aguantando el recorte a 24 de
+     * WhatsApp -- y con eso sí se puede pasar por encima de lo que se
+     * haya preguntado: tocar la fila es inequívoco.
+     */
+    public static function esLaFila(string $dicho): bool
+    {
+        $limpio = self::plano($dicho);
+        $fila = self::plano(self::VER_MAS);
+
+        return $limpio !== '' && ($limpio === $fila || (mb_strlen($limpio) >= 15 && str_starts_with($fila, $limpio)));
+    }
+
+    private static function plano(string $texto): string
+    {
+        // Sin los puntos suspensivos que pone quien recorta el título.
+        $sin = preg_replace('/(\.{3}|…)\s*$/u', '', trim($texto)) ?? $texto;
+
+        return rtrim(strtr(
+            mb_strtolower(trim($sin)),
+            ['á' => 'a', 'é' => 'e', 'í' => 'i', 'ó' => 'o', 'ú' => 'u', 'ñ' => 'n'],
+        ));
+    }
+
     private static function clave(string $phone): string
     {
         return 'ia:servicios-pendientes:'.ltrim($phone, '+');

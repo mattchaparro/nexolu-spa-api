@@ -24,9 +24,10 @@ use Illuminate\Support\Facades\DB;
  * alguien se siente a teclear -- y el local nunca lo tecleó, todos los
  * `sort_order` están en cero.
  *
- * Si el negocio SÍ ordenó su catálogo, mandan sus números: ahí dijo a
- * propósito qué quiere empujar, y eso puede no ser lo más vendido (lo
- * nuevo, lo que deja más margen).
+ * Los servicios que el negocio SÍ numeró van primero, en su orden: ahí
+ * dijo a propósito qué quiere empujar, y eso puede no ser lo más vendido
+ * (lo nuevo, lo que deja más margen). Detrás de esos, los demás por
+ * demanda -- numerar tres no es haber ordenado los cuarenta.
  */
 final class LoQueMasPiden
 {
@@ -50,15 +51,27 @@ final class LoQueMasPiden
      */
     public static function ordenar(int $businessId, Collection $servicios): Collection
     {
-        // Si el local ordenó su catálogo, no se le pasa por encima.
-        if ($servicios->contains(fn (Service $s) => (int) $s->sort_order !== 0)) {
-            return $servicios->values();
-        }
-
         $cuantas = self::cuantasVeces($businessId);
 
+        /*
+         * Lo que el local ordenó a mano va primero, en su orden; el resto,
+         * por lo que se pide.
+         *
+         * Antes bastaba UN servicio con `sort_order` para que el catálogo
+         * entero volviera al alfabeto: con treinta y ocho en cero y dos
+         * con número, "el negocio ordenó su catálogo" era falso, y
+         * Tradicional -- el servicio más pedido del local -- quedaba en la
+         * cuarta página de la lista, a cuatro toques de distancia.
+         */
         return $servicios
-            ->sortByDesc(fn (Service $s) => $cuantas[$s->id] ?? 0)
+            ->sortBy(
+                fn (Service $s) => [
+                    (int) $s->sort_order === 0 ? 1 : 0,
+                    (int) $s->sort_order === 0 ? 0 : (int) $s->sort_order,
+                    -($cuantas[$s->id] ?? 0),
+                ],
+                SORT_REGULAR,
+            )
             ->values();
     }
 
