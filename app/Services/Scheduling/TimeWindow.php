@@ -56,6 +56,50 @@ final class TimeWindow
     }
 
     /**
+     * Junta las que se pisan o se tocan en una sola.
+     *
+     * Hace falta porque el horario de alguien puede venir partido en varias
+     * filas que se solapan -- Alejandra tenía el viernes cargado tres veces:
+     * 09:00-17:00, 09:00-15:00 y 15:00-17:00 --, y sin juntarlas cada una se
+     * recorta por su lado. El almuerzo restado a tres ventanas encimadas
+     * deja pedazos que no son la jornada de nadie, y la tarde se perdía.
+     *
+     * Se juntan también las que solo se TOCAN (09:00-15:00 con 15:00-17:00):
+     * para quien trabaja son un mismo turno seguido, y tratarlas aparte
+     * impide ofrecer un servicio que cruce las tres de la tarde.
+     *
+     * @param  list<self>  $windows
+     * @return list<self>
+     */
+    public static function mergeAll(array $windows): array
+    {
+        if ($windows === []) {
+            return [];
+        }
+
+        usort($windows, fn (self $a, self $b) => $a->start <=> $b->start);
+
+        $merged = [array_shift($windows)];
+
+        foreach ($windows as $window) {
+            $ultima = $merged[count($merged) - 1];
+
+            if ($window->start > $ultima->end) {
+                $merged[] = $window;
+
+                continue;
+            }
+
+            $merged[count($merged) - 1] = new self(
+                $ultima->start,
+                $window->end > $ultima->end ? $window->end : $ultima->end,
+            );
+        }
+
+        return $merged;
+    }
+
+    /**
      * @param  list<self>  $windows
      * @param  list<self>  $cuts
      * @return list<self>

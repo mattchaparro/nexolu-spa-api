@@ -736,7 +736,7 @@ class AvailabilityService
                 $this->atTime($date, (string) $schedule->end_time, $tz),
             ))
             ->values()
-            ->all();
+            ->pipe(fn ($windows) => TimeWindow::mergeAll($windows->all()));
     }
 
     /**
