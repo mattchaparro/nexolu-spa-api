@@ -177,6 +177,33 @@ class GuidedEntryTest extends TestCase
         $this->assertSame([GuidedEntry::BOOK, GuidedEntry::MY_APPOINTMENTS, GuidedEntry::OTHER], $this->ultimosBotones());
     }
 
+    public function test_quien_dejo_la_cita_a_medias_la_retoma_sin_el_menu(): void
+    {
+        /*
+         * Alejandro estaba agendando, se distrajo en el trabajo más de media
+         * hora y al volver le salió «¿Qué deseas hacer el día de hoy?» con
+         * su pedido tirado. Si dejó algo a medias, lo que escriba sigue la
+         * gestión: no es una visita nueva.
+         */
+        UltimoPedido::guardar($this->phone(), [
+            'servicios' => ['Semipermanente'],
+            'fecha' => 'mañana',
+        ]);
+
+        // El bot no ha hablado en más de media hora (nada en la
+        // conversación): antes esto bastaba para mandar el menú.
+        $this->assertNull($this->escribe('a las 3 me sirve'));
+    }
+
+    public function test_aun_con_algo_a_medias_un_saludo_abre_el_menu(): void
+    {
+        // «Hola» es pedir empezar, con o sin pedido guardado.
+        UltimoPedido::guardar($this->phone(), ['servicios' => ['Semipermanente']]);
+
+        $this->assertNotNull($this->escribe('Hola'));
+        $this->assertSame([GuidedEntry::BOOK, GuidedEntry::MY_APPOINTMENTS, GuidedEntry::OTHER], $this->ultimosBotones());
+    }
+
     public function test_en_plena_conversacion_una_pregunta_es_del_modelo(): void
     {
         $this->elBotAcabaDeHablar();

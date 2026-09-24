@@ -24,9 +24,13 @@ use Illuminate\Support\Facades\Cache;
  */
 final class ServiciosPendientes
 {
-    // Un cuarto de hora: lo que dura mirar una lista y decidir. Más que
-    // eso y la segunda tanda le llegaría a alguien que ya se olvidó.
-    private const TTL_SEGUNDOS = 900;
+    /*
+     * Lo mismo que el pedido (UltimoPedido): ocho horas. Era un cuarto de
+     * hora, y quien volvía de hacer otra cosa tocaba «Muéstrame más
+     * servicios» en una lista que el bot ya había olvidado. Si el pedido
+     * sigue vivo, la lista que lo acompaña también.
+     */
+    private const TTL_SEGUNDOS = 28800;
 
     /**
      * Lo que dice la fila que trae la siguiente tanda.

@@ -261,8 +261,18 @@ final class GuidedEntry
                 );
         }
 
-        // 3) El menú de inicio: con un saludo, o al empezar la conversación.
-        if (! $explicitOnly && ($this->isGreeting($texto) || $this->isNewSession($conversacion))) {
+        /*
+         * 3) El menú de inicio: con un saludo, o al empezar la conversación.
+         *
+         * Pero no es conversación nueva si dejó una cita a medias. Media hora
+         * sin que el bot escribiera bastaba para tratar lo siguiente como una
+         * visita nueva, y la clienta que se había distraído en el trabajo
+         * volvía a «¿Qué deseas hacer el día de hoy?» con su pedido tirado.
+         * Un saludo explícito sí abre el menú: ahí está pidiendo empezar.
+         */
+        $nueva = $this->isNewSession($conversacion) && UltimoPedido::ver($phone) === [];
+
+        if (! $explicitOnly && ($this->isGreeting($texto) || $nueva)) {
             return $this->showMenu($caller, $phone, 'root');
         }
 

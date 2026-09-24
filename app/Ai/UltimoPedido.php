@@ -22,12 +22,25 @@ use Illuminate\Support\Facades\Cache;
  * sobre algo que se ofreció, lo guardado manda por encima de lo que el
  * modelo diga: la clienta ya dijo el día; el "hoy" se lo inventó él.
  *
- * Vive media hora, en caché y no en la conversación, porque es de una
- * gestión: si vuelve mañana empieza de cero.
+ * Vive el resto del día --hasta ocho horas--, en caché y no en la
+ * conversación, porque es de una gestión: quien la deja a medias la retoma
+ * cuando puede, y si vuelve mañana empieza de cero.
  */
 final class UltimoPedido
 {
-    private const TTL_SEGUNDOS = 1800;
+    /*
+     * Ocho horas, y nunca más allá de la medianoche (ver `clave`).
+     *
+     * Eran treinta minutos, y la clienta que se distraía en el trabajo
+     * volvía a una conversación que ya no sabía de qué le hablaba: tocaba
+     * una hora de la lista y el bot la saludaba desde cero. Quien deja una
+     * cita a medias la retoma cuando puede, no a la media hora.
+     *
+     * Las horas que se le ofrecieron pueden haberse ocupado mientras tanto,
+     * pero eso ya está cubierto: al confirmar, la reserva vuelve a mirar la
+     * agenda y si la hora se fue lo dice y ofrece otras.
+     */
+    private const TTL_SEGUNDOS = 28800;
 
     /** Lo que se puede completar desde lo guardado. */
     private const CAMPOS = ['fecha', 'franja', 'juntas', 'empleado', 'sede', 'para_quien', 'nombres'];
@@ -207,8 +220,27 @@ final class UltimoPedido
         return trim(mb_strtolower(strtr($texto, ['á' => 'a', 'é' => 'e', 'í' => 'i', 'ó' => 'o', 'ú' => 'u', 'ñ' => 'n'])));
     }
 
+    /**
+     * Con el DÍA en la llave: un pedido de ayer no se ve hoy.
+     *
+     * El pedido guarda la fecha como la dijo la clienta -- «mañana», «hoy»
+     * -- y se resuelve al usarla. Con treinta minutos de vida eso casi nunca
+     * cruzaba la medianoche; con ocho horas sí: quien pidiera «mañana» a
+     * las once de la noche y volviera a la una recibiría horas del día
+     * equivocado. Cambiar de día es cambiar de llave, y lo de ayer
+     * simplemente no está.
+     *
+     * La zona es la del NEGOCIO por defecto, no la de la aplicación: la
+     * aplicación corre en UTC, y con ella la medianoche caía a las siete de
+     * la noche en Colombia -- el pedido se habría borrado todos los días en
+     * pleno horario del salón. No se usa la zona de cada negocio porque aquí
+     * no se sabe de cuál es el pedido; hoy todos son de Colombia, y si llega
+     * uno de otra zona esto hay que mirarlo.
+     */
     private static function clave(string $phone): string
     {
-        return 'ia:ultimo-pedido:'.ltrim($phone, '+');
+        $dia = now(config('spa.defaults.timezone', 'America/Bogota'))->toDateString();
+
+        return 'ia:ultimo-pedido:'.ltrim($phone, '+').':'.$dia;
     }
 }
