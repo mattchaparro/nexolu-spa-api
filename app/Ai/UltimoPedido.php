@@ -89,6 +89,25 @@ final class UltimoPedido
         }
 
         /*
+         * El servicio que la clienta ESCRIBIO, cuando es una version mas
+         * especifica del que eligio el modelo (ver ServicioEnTexto). Julian
+         * dijo «semipermanente» y enseguida «pero de hombre»; el modelo
+         * llamo con «semipermanente» a secas, y la cita iba a salir por el
+         * precio del de mujer.
+         */
+        $vigentes = ($pedido['servicios_dichos_hasta'] ?? 0) >= now()->getTimestamp()
+            ? ($pedido['servicios_dichos'] ?? [])
+            : [];
+
+        if (! $tocado && ! empty($arguments['servicio']) && $vigentes !== []) {
+            $precisado = ServicioEnTexto::masEspecifico((string) $arguments['servicio'], $vigentes);
+
+            if ($precisado !== null) {
+                $arguments['servicio'] = $precisado;
+            }
+        }
+
+        /*
          * Lo que la clienta ESCRIBIO en su ultimo mensaje ("mañana", "en
          * la tarde") manda sobre lo que el modelo haya puesto, mientras
          * dure la ventana (ver DateInText::remember). Valentina dijo

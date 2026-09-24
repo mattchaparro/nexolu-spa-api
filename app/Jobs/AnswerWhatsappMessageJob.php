@@ -6,6 +6,7 @@ use App\Ai\DateInText;
 use App\Ai\GuidedEntry;
 use App\Ai\OpcionesEnviadas;
 use App\Ai\Repetido;
+use App\Ai\ServicioEnTexto;
 use App\Ai\Toques;
 use App\Models\Message;
 use App\Models\WhatsappConversation;
@@ -131,6 +132,10 @@ class AnswerWhatsappMessageJob implements ShouldQueue
 
         if ($phoneCtx !== null) {
             DateInText::remember($phoneCtx, $pendientes);
+
+            // Y el servicio, por la misma razon: el modelo resume y al
+            // resumir se come el «de hombre». Ver ServicioEnTexto.
+            ServicioEnTexto::remember($phoneCtx, $pendientes, (int) $conversacion->business_id);
         }
 
         /*

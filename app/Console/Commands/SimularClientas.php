@@ -7,6 +7,7 @@ use App\Ai\EsUnaPrueba;
 use App\Ai\GuidedEntry;
 use App\Ai\NombreRaro;
 use App\Ai\Repetido;
+use App\Ai\ServicioEnTexto;
 use App\Ai\Toques;
 use App\Models\Business;
 use App\Models\Resource;
@@ -167,10 +168,9 @@ class SimularClientas extends Command
 
                 // Como el job: la fecha escrita manda, los toques y el
                 // arranque generico los atiende el codigo, el resto el modelo.
-                DateInText::remember(
-                    ChannelPhone::normalize($telefono, $business->country_code ?? 'CO') ?? $telefono,
-                    $mensaje,
-                );
+                $telNormal = ChannelPhone::normalize($telefono, $business->country_code ?? 'CO') ?? $telefono;
+                DateInText::remember($telNormal, $mensaje);
+                ServicioEnTexto::remember($telNormal, $mensaje, (int) $business->id);
                 $respuesta = app(Toques::class)->atender($sesion->conversacion, $mensaje)
                     ?? app(GuidedEntry::class)->attend($sesion->conversacion, $mensaje)
                     ?? $ia->ask($sesion->conversacion, $mensaje);

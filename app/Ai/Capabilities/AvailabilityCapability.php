@@ -249,9 +249,9 @@ class AvailabilityCapability implements Capability
             /*
              * ¿Con alguien en particular? Antes del día: quien viene por su
              * manicurista de siempre no quiere elegir un día y descubrir
-             * después que ella no trabaja. Solo en este camino -- quien ya
-             * dijo servicio Y día ("semi mañana") no quiere un paso más --
-             * una sola vez por pedido, y solo si hay entre quiénes elegir.
+             * después que ella no trabaja. Una sola vez por pedido, y solo
+             * si hay entre quiénes elegir. Quien ya dijo el día recibe la
+             * misma pregunta más abajo, ya con la fecha guardada.
              */
             $preferencia = $this->queEligaPersona($caller, $arguments);
 
@@ -309,6 +309,26 @@ class AvailabilityCapability implements Capability
                 .'servicio, llámame con ese nombre en `servicio` y NO le vuelvas a preguntar el día.';
 
             return $elegir;
+        }
+
+        /*
+         * ¿Con alguien en particular? También cuando ya dijo el día.
+         *
+         * Antes esto se saltaba: quien escribía «semi para mañana» recibía
+         * las horas de las dos manicuristas mezcladas, sin que nadie le
+         * preguntara con quién, y solo al confirmar se enteraba de a quién
+         * le había tocado. Con los botones sí se preguntaba, y escribir no
+         * puede dar una experiencia peor que tocar.
+         *
+         * El día NO se vuelve a preguntar: ya quedó guardado en el pedido, y
+         * al tocar a alguien se va derecho a las horas de ese día con ella.
+         * Y sigue siendo una sola vez por pedido: si ya se preguntó, o si
+         * solo hay una persona que lo hace, no hay pregunta.
+         */
+        $preferencia = $this->queEligaPersona($caller, $arguments);
+
+        if ($preferencia !== null) {
+            return $preferencia;
         }
 
         $sede = $this->resolveLocation($business->id, $arguments['sede'] ?? null);

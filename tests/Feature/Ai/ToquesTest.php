@@ -88,9 +88,27 @@ class ToquesTest extends TestCase
         ]);
     }
 
+    /**
+     * Si las pruebas que piden horas CON fecha arrancan como quien ya
+     * respondió «¿con quién?».
+     *
+     * Desde que la pregunta sale también cuando la clienta ya dijo el día,
+     * pedir «semipermanente mañana» con dos manicuristas devuelve la
+     * pregunta y no las horas. Casi todas las pruebas de este archivo son
+     * sobre lo que viene DESPUÉS --tocar una hora, confirmar, agendar--, así
+     * que arrancan con la pregunta ya respondida. Las que prueban la pregunta
+     * misma lo apagan.
+     */
+    private bool $yaEligioPersona = true;
+
     /** @param array<string, mixed> $arguments */
     private function invoke(string $tool, array $arguments, ?string $phone = null): TestResponse
     {
+        if ($this->yaEligioPersona && $tool === 'disponibilidad' && isset($arguments['fecha'])) {
+            $tel = (string) ChannelPhone::normalize($phone ?? self::PHONE);
+            UltimoPedido::guardar($tel, [...UltimoPedido::ver($tel), 'empleado_preguntado' => true]);
+        }
+
         return $this->withHeader('Authorization', 'Bearer '.self::KEY)
             ->postJson('/api/ai/tools/invoke', [
                 'tool' => $tool,
@@ -429,11 +447,33 @@ class ToquesTest extends TestCase
         $this->invoke('disponibilidad', ['servicio' => 'las manitos', 'fecha' => $this->manana()])->assertOk();
         $this->assertContains('Tradicional', array_column($this->ultimaLista(), 'title'));
 
-        $respuesta = $this->toques()->atender($this->conversacion, 'Tradicional');
+        $this->toques()->atender($this->conversacion, 'Tradicional');
 
-        // Las horas, sin que nadie repita el día.
+        // Con dos manicuristas se pregunta con quién, aunque ya dijo el día...
+        $this->assertContains(AvailabilityCapability::CUALQUIERA, array_column($this->ultimaLista(), 'title'));
+
+        $respuesta = $this->toques()->atender($this->conversacion, AvailabilityCapability::CUALQUIERA);
+
+        // ...y después van las horas de ESE día, sin que nadie lo repita.
         $this->assertSame('', $respuesta['text']);
         Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'Para *Tradicional*'));
+    }
+
+    public function test_quien_dice_servicio_y_dia_tambien_elige_con_quien(): void
+    {
+        /*
+         * «semi para mañana», escrito de una. Antes iban directo las horas
+         * de las dos mezcladas, y la clienta se enteraba al confirmar de a
+         * quién le había tocado. Con los botones sí se preguntaba: escribir
+         * no puede dar una experiencia peor que tocar.
+         */
+        $this->yaEligioPersona = false;
+
+        $respuesta = $this->invoke('disponibilidad', ['servicio' => 'Semipermanente', 'fecha' => $this->manana()])
+            ->assertOk();
+
+        $this->assertTrue((bool) $respuesta->json('data.eligiendo_empleado'));
+        $this->assertContains(AvailabilityCapability::CUALQUIERA, array_column($this->ultimaLista(), 'title'));
     }
 
     /**
