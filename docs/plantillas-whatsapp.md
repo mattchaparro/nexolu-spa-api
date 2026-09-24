@@ -45,7 +45,7 @@ alguien que no escribe hace un mes.
 ⏰ Hora: *{{2}}*
 💅 Servicio: *{{3}}*
 💵 Precio: *{{4}}*
-🙋‍♀️ Te atiende: *{{5}}*
+Te atiende: *{{5}}*
 
 Gracias por agendar en *{{6}}* 🌟
 ```
@@ -84,22 +84,23 @@ Nexolu y la comparten todos los negocios, así que no puede llevar el de uno).
 
 ### 2. `gracias_por_tu_visita` — categoría *utility*
 
+**Encabezado** (tipo texto): `Gracias por tu visita`.
+
 Sale cuando la manicurista termina (la cita pasa a «Lista y cobrada»). Casi
 nunca hay ventana abierta: la clienta **vino al salón**, no escribió por
 WhatsApp. Sin esta plantilla, el mensaje que más hace volver no se entrega.
 
 ```
-*Gracias por tu visita*
-
 👋 ¡Hola, {{1}}!
 Gracias por visitarnos 💅
 
 🧾 Servicio: *{{2}}*
 📅 Fecha: *{{3}}*
 
-*Info de tu tarjeta*
 🎯 ¡Ya tienes *{{4}} de {{5}}* sellos!
-🎁 Próximo: *{{6}}*
+🎁 Tu próximo premio es *{{6}}*
+
+¡Gracias por elegirnos, te esperamos pronto!
 ```
 
 `{{1}}` cliente · `{{2}}` servicio · `{{3}}` fecha · `{{4}}` sellos que lleva ·
@@ -119,7 +120,7 @@ otra forma — en el mostrador nadie se la dice.
 ### 3. `recordatorio_cita` — categoría *utility*
 
 ```
-Hola {{1}}, te recordamos tu cita en {{2}} el {{3}} a las {{4}}.
+Hola {{1}}, te recordamos tu cita en {{2}} el {{3}} a las {{4}}. Si no puedes venir, avísanos y la movemos 💅
 ```
 
 `{{1}}` cliente · `{{2}}` negocio · `{{3}}` fecha · `{{4}}` hora.
@@ -154,8 +155,7 @@ fuera de toda conversación, así que sin plantilla la clienta se aparece a una
 cita que ya no existe.
 
 ```
-Hola {{1}}, tu cita del {{2}} a las {{3}} en {{4}} quedó cancelada.
-Escríbenos y la reagendamos.
+Hola {{1}}, tu cita del {{2}} a las {{3}} en {{4}} quedó cancelada. Escríbenos y la reagendamos cuando quieras.
 ```
 
 `{{1}}` cliente · `{{2}}` fecha · `{{3}}` hora · `{{4}}` negocio.
@@ -170,8 +170,7 @@ primero, y llega días después de que la persona se apuntó, así que su ventan
 lleva rato cerrada.
 
 ```
-¡Hola {{1}}! Se liberó un cupo para {{2}}: {{3}} a las {{4}} en {{5}}.
-Es para quien lo tome primero.
+¡Hola {{1}}! Se liberó un cupo para {{2}} el {{3}} a las {{4}} en {{5}}. Es para quien lo tome primero.
 ```
 
 `{{1}}` cliente · `{{2}}` servicio · `{{3}}` fecha · `{{4}}` hora ·
@@ -193,12 +192,14 @@ así que sin plantilla no existen.
 `cita_nueva_equipo`:
 
 ```
-¡Hola, {{1}}! 💅 Te agendaron una cita.
+¡Hola, {{1}}! Te agendaron una cita 💅
 
-🙋‍♀️ Clienta: *{{2}}*
-💅 Servicio: *{{3}}*
-📅 {{4}}
-⏰ {{5}}
+Clienta: *{{2}}*
+Servicio: *{{3}}*
+Día: {{4}}
+Hora: {{5}}
+
+Revisa tu agenda para ver el detalle.
 ```
 
 `cita_cancelada_equipo`:
@@ -206,10 +207,12 @@ así que sin plantilla no existen.
 ```
 Hola, {{1}}: se canceló una cita y esa hora te queda libre.
 
-🙋‍♀️ Clienta: *{{2}}*
-💅 Servicio: *{{3}}*
-📅 {{4}}
-⏰ {{5}}
+Clienta: *{{2}}*
+Servicio: *{{3}}*
+Día: {{4}}
+Hora: {{5}}
+
+Revisa tu agenda para ver el detalle.
 ```
 
 `cita_movida_equipo`:
@@ -217,11 +220,12 @@ Hola, {{1}}: se canceló una cita y esa hora te queda libre.
 ```
 Hola, {{1}}: te movieron una cita.
 
-🙋‍♀️ Clienta: *{{2}}*
-💅 Servicio: *{{3}}*
+Clienta: *{{2}}*
+Servicio: *{{3}}*
 
-❌ Antes: {{4}}
-✅ Ahora: *{{5}}*
+Antes era el {{4}} y ahora es el *{{5}}*
+
+Revisa tu agenda para ver el detalle.
 ```
 
 Acá `{{4}}` y `{{5}}` llevan el día y la hora juntos ("Jueves 17 de
@@ -252,6 +256,44 @@ Las campañas usan **la plantilla que elija el negocio**, no una nuestra. Si en
 ManyChat hay difusiones que quieres conservar, cada una necesita su propia
 plantilla aprobada en esta WABA. Esas se eligen desde el panel al crear la
 difusión; no van en el código.
+
+## Las reglas de Meta que muerden
+
+No están en la pantalla donde se crea la plantilla: se descubren cuando la
+rechaza. Las nueve de arriba ya vienen ajustadas, pero el que escriba la
+décima las va a necesitar.
+
+- **Seis emoji** en una *utility*, diez en una *marketing*. `confirmacion_cita`
+  tenía siete y hubo que soltar uno.
+- **No puede empezar ni terminar en variable.** Ni con puntuación después: hay
+  que cerrar con palabras. Tres de las nuestras terminaban en `{{n}}`.
+- **Dos variables seguidas no pasan** si entre ellas solo hay espacios o
+  puntuación. `{{2}}: {{3}}` es rechazo; `{{2}} el {{3}}` pasa.
+- **Una variable por cada tres palabras**, como mucho. Un mensaje corto con
+  cuatro variables no cabe: hay que darle cuerpo al texto, no quitarle datos.
+- **Una línea en blanco entre párrafos.** Dos seguidas lo rechazan.
+- Una línea que sea **solo un emoji y una variable** (`📅 {{4}}`) cuenta como
+  variable suelta. Por eso los avisos al equipo llevan etiqueta: `Día: {{4}}`.
+
+## El día que se crearon
+
+Creadas el 24 de septiembre de 2026 en la cuenta **Luxury Nails Manychat**
+(`488443934352694`), del negocio **Luxury Nails** (`1270803786932050`), con
+nombres propios y no reusando las de ManyChat: las de ellos tienen otra
+cantidad de variables, y con nombres separados los dos sistemas pueden
+convivir sin pisarse mientras dure la migración.
+
+| Plantilla | Id |
+|---|---|
+| `confirmacion_cita` | 2525691254612397 |
+| `gracias_por_tu_visita` | 1631517198368395 |
+| `recordatorio_cita` | 2127771647815907 |
+| `retoque_recordatorio` | 1405239291731162 |
+| `cita_cancelada` | 4687308601558199 |
+| `cupo_disponible` | 2280638162713281 |
+| `cita_nueva_equipo` | 1632901281510100 |
+| `cita_cancelada_equipo` | 1121882530372976 |
+| `cita_movida_equipo` | 2211160589740512 |
 
 ## Lo que NO hay que hacer (y ManyChat obligaba)
 
