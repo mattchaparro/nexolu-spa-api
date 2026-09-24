@@ -5,6 +5,7 @@ namespace App\Services\Ratings;
 use App\Models\Appointment;
 use App\Models\AppointmentItem;
 use App\Models\ServiceRating;
+use App\Support\PublicProfile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -65,7 +66,7 @@ class SurveyService
                  * entera al negocio. Las notas bajas sirven para llamar a esa
                  * persona, no para esconderla.
                  */
-                'google_review_url' => \App\Support\PublicProfile::resolve($appointment->business)['google_review_url'] ?? null,
+                'google_review_url' => PublicProfile::resolve($appointment->business)['google_review_url'] ?? null,
             ],
             'date_label' => $appointment->starts_at
                 ->setTimezone($appointment->business->businessTimezone())

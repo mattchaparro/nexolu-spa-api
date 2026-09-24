@@ -7,7 +7,9 @@ use App\Models\PayrollSettlement;
 use App\Models\PayrollSettlementItem;
 use App\Support\Payroll\BasePeriod;
 use App\Support\Payroll\PayrollMode;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -185,14 +187,14 @@ class ImportaNomina extends Importador
      * filtro es lo que impide pagar dos veces cuando los periodos del sistema
      * viejo se pisan -- y se pisan.
      *
-     * @return \Illuminate\Support\Collection<int, object>
+     * @return Collection<int, object>
      */
-    private function lineasDe(int $recurso, string $desde, string $hasta): \Illuminate\Support\Collection
+    private function lineasDe(int $recurso, string $desde, string $hasta): Collection
     {
         $tz = $this->business->businessTimezone();
 
-        $inicio = \Carbon\CarbonImmutable::parse($desde, $tz)->startOfDay()->utc();
-        $fin = \Carbon\CarbonImmutable::parse($hasta, $tz)->endOfDay()->utc();
+        $inicio = CarbonImmutable::parse($desde, $tz)->startOfDay()->utc();
+        $fin = CarbonImmutable::parse($hasta, $tz)->endOfDay()->utc();
 
         return AppointmentItem::withoutGlobalScope('business')
             ->join('appointments', 'appointments.id', '=', 'appointment_items.appointment_id')

@@ -6,7 +6,6 @@ use App\Models\PlatformPaymentMethod;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
-use Illuminate\Validation\Rule;
 
 /**
  * El catalogo global de medios de pago.

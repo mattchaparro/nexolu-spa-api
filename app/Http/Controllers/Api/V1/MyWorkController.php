@@ -125,10 +125,10 @@ class MyWorkController
                 ->filter(fn (ServiceRating $r) => Comentario::esOpinion($r->comment))
                 ->take(15)
                 ->map(fn (ServiceRating $r) => [
-                'comment' => $r->comment,
-                'attention' => Nota::porcentaje($r->staff_rating, $r->staff_scale),
-                'date' => $r->created_at?->setTimezone($tz)->toDateString(),
-            ])->values()->all(),
+                    'comment' => $r->comment,
+                    'attention' => Nota::porcentaje($r->staff_rating, $r->staff_scale),
+                    'date' => $r->created_at?->setTimezone($tz)->toDateString(),
+                ])->values()->all(),
         ];
     }
 

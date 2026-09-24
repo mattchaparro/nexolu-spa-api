@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Traits\BelongsToBusiness;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -48,7 +49,7 @@ class RecurringExpense extends Model
      * Un dia 31 en febrero se recorta al ultimo dia del mes en vez de
      * saltarse: el arriendo de febrero existe aunque febrero no tenga 31.
      */
-    public function fechaEn(\Carbon\CarbonImmutable $mes): \Carbon\CarbonImmutable
+    public function fechaEn(CarbonImmutable $mes): CarbonImmutable
     {
         return $mes->startOfMonth()->setDay(
             min($this->day_of_month, $mes->daysInMonth),

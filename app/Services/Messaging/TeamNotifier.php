@@ -8,6 +8,7 @@ use App\Models\Message;
 use App\Models\Resource;
 use App\Support\NombreDePila;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Collection;
 
 /**
  * Avisarle por WhatsApp a quien atiende cuando le agendan o le cancelan.
@@ -224,9 +225,9 @@ class TeamNotifier
     /**
      * Cada persona UNA vez, aunque atienda dos servicios de la misma cita.
      *
-     * @return \Illuminate\Support\Collection<int, Resource>
+     * @return Collection<int, resource>
      */
-    private function quienesAtienden(Appointment $appointment): \Illuminate\Support\Collection
+    private function quienesAtienden(Appointment $appointment): Collection
     {
         return $appointment->loadMissing('items.resource')->items
             ->map(fn ($item) => $item->resource)

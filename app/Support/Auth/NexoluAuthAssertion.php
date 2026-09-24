@@ -39,8 +39,8 @@ final class NexoluAuthAssertion
     ) {}
 
     /**
-     * @throws SsoNotConfigured   cuando no hay llave publica configurada (503)
-     * @throws InvalidAssertion   cuando la asercion no es valida (401)
+     * @throws SsoNotConfigured cuando no hay llave publica configurada (503)
+     * @throws InvalidAssertion cuando la asercion no es valida (401)
      */
     public static function verify(string $assertion): self
     {

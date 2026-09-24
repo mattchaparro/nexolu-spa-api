@@ -28,6 +28,7 @@ use App\Http\Controllers\Api\V1\ClientLookupController;
 use App\Http\Controllers\Api\V1\ClientPortalController;
 use App\Http\Controllers\Api\V1\ClientProfileController;
 use App\Http\Controllers\Api\V1\DepositController;
+use App\Http\Controllers\Api\V1\EntregaDesdeLegacyController;
 use App\Http\Controllers\Api\V1\ExpenseController;
 use App\Http\Controllers\Api\V1\InstagramStoryController;
 use App\Http\Controllers\Api\V1\LoyaltyCardController;
@@ -72,6 +73,22 @@ Route::prefix('v1')->group(function () {
     // login de arriba.
     Route::post('/auth/sso/exchange', SsoExchangeController::class)
         ->name('auth.sso.exchange')
+        ->middleware('throttle:10,1');
+
+    /*
+     * El puente desde el sistema viejo mientras dure la convivencia.
+     *
+     * `emitir` lo llama el SERVIDOR viejo con la llave compartida; `canjear`
+     * lo llama el navegador con el pase que salio de ahi. Publicas las dos,
+     * porque cada una trae su propia credencial. Ver
+     * EntregaDesdeLegacyController.
+     */
+    Route::post('/auth/legacy/emitir', [EntregaDesdeLegacyController::class, 'emitir'])
+        ->name('auth.legacy.emitir')
+        ->middleware('throttle:30,1');
+
+    Route::post('/auth/legacy/canjear', [EntregaDesdeLegacyController::class, 'canjear'])
+        ->name('auth.legacy.canjear')
         ->middleware('throttle:10,1');
 
     Route::middleware(['auth:sanctum', 'sentry.context'])->group(function () {

@@ -77,7 +77,6 @@ class ClientResolver
 
         $parts = preg_split('/\s+/', trim($name), 2);
 
-
         return Client::create([
             'business_id' => $businessId,
             'name' => $parts[0],

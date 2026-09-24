@@ -45,9 +45,9 @@ final class CommissionResolver
 
     /**
      * @param  float|null  $agreement  Acuerdo puntual persona+servicio.
-     * @param  float|null  $person     Porcentaje general de la persona.
-     * @param  float|null  $service    Porcentaje del servicio.
-     * @param  float|null  $category   Porcentaje de la categoria del servicio.
+     * @param  float|null  $person  Porcentaje general de la persona.
+     * @param  float|null  $service  Porcentaje del servicio.
+     * @param  float|null  $category  Porcentaje de la categoria del servicio.
      * @return array{rate: float|null, source: string}
      */
     public static function resolve(

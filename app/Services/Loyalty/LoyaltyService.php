@@ -11,6 +11,7 @@ use App\Models\LoyaltyStamp;
 use App\Models\LoyaltyTier;
 use App\Support\Money\LoyaltyCalculator;
 use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -266,9 +267,9 @@ class LoyaltyService
     /**
      * Los premios que un cliente puede usar hoy.
      *
-     * @return \Illuminate\Support\Collection<int, LoyaltyReward>
+     * @return Collection<int, LoyaltyReward>
      */
-    public function availableRewards(Client $client): \Illuminate\Support\Collection
+    public function availableRewards(Client $client): Collection
     {
         return LoyaltyReward::withoutGlobalScope('business')
             ->where('business_id', $client->business_id)

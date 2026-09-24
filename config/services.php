@@ -92,4 +92,13 @@ return [
         'email_fallback' => env('NEXOLU_AUTH_EMAIL_FALLBACK', true),
     ],
 
+    /*
+     * La llave con la que el sistema viejo de Luxury entrega a alguien ya
+     * identificado. Se apaga sola: sin la variable, el endpoint responde
+     * 503 y nadie entra por ahi. Ver EntregaDesdeLegacyController.
+     */
+    'legacy_handoff' => [
+        'key' => env('LEGACY_HANDOFF_KEY'),
+    ],
+
 ];

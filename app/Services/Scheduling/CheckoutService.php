@@ -35,9 +35,9 @@ class CheckoutService
      * @param  bool  $transition  Falso solo cuando quien llama es la propia
      *                            maquina de estados (accion `mark_paid`).
      * @param  float|null  $commissionDiscount  Cuanto del descuento le baja la
-     *        comision a quien atendio. Null = todo, que es como se comportaba
-     *        el sistema antes de que el descuento pudiera venir de un premio
-     *        de fidelizacion.
+     *                                          comision a quien atendio. Null = todo, que es como se comportaba
+     *                                          el sistema antes de que el descuento pudiera venir de un premio
+     *                                          de fidelizacion.
      */
     public function checkout(
         Appointment $appointment,

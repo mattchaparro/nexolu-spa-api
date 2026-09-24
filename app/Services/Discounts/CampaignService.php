@@ -3,9 +3,9 @@
 namespace App\Services\Discounts;
 
 use App\Models\Appointment;
-use App\Models\AppointmentItem;
 use App\Models\Business;
 use App\Models\DiscountCampaign;
+use App\Models\Service;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 
@@ -96,7 +96,7 @@ class CampaignService
      * Para la pagina publica y la pantalla de agendar, que necesitan mostrar
      * el precio con promocion ANTES de que exista la cita.
      *
-     * @param  Collection<int, \App\Models\Service>  $services
+     * @param  Collection<int, Service>  $services
      * @return array{campaign: DiscountCampaign, amount: float}|null
      */
     public function bestForServices(Business $business, Collection $services, string $date): ?array

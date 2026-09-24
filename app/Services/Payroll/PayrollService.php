@@ -11,11 +11,11 @@ use App\Models\PayrollSettlement;
 use App\Models\PayrollSettlementItem;
 use App\Models\Resource;
 use App\Models\ServiceRating;
-use App\Support\Ratings\Comentario;
-use App\Support\Ratings\Nota;
 use App\Models\User;
 use App\Support\Payroll\AdjustmentCatalog;
 use App\Support\Payroll\PayrollCalculator;
+use App\Support\Ratings\Comentario;
+use App\Support\Ratings\Nota;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -564,10 +564,10 @@ class PayrollService
                 ->filter(fn (ServiceRating $r) => Comentario::esOpinion($r->comment))
                 ->take(10)
                 ->map(fn (ServiceRating $r) => [
-                'comment' => $r->comment,
-                'staff_rating' => Nota::sobreCinco(Nota::porcentaje($r->staff_rating, $r->staff_scale)),
-                'date' => $r->created_at?->setTimezone($tz)->toDateString(),
-            ])->values()->all(),
+                    'comment' => $r->comment,
+                    'staff_rating' => Nota::sobreCinco(Nota::porcentaje($r->staff_rating, $r->staff_scale)),
+                    'date' => $r->created_at?->setTimezone($tz)->toDateString(),
+                ])->values()->all(),
         ];
     }
 

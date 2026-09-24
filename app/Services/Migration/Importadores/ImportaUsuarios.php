@@ -5,8 +5,8 @@ namespace App\Services\Migration\Importadores;
 use App\Models\Resource;
 use App\Models\User;
 use App\Support\PermissionCatalog;
-use Spatie\Permission\Models\Role;
 use Illuminate\Support\Facades\DB;
+use Spatie\Permission\Models\Role;
 
 /**
  * Las cuentas para entrar al panel.

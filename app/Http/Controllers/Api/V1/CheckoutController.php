@@ -26,9 +26,9 @@ class CheckoutController
      * Que descuento se aplica: el que se escribio, o el del combo.
      *
      * @param  array<string, mixed>  $data
-     * @return array{0: float, 1: ?string, 2: string}  Monto, motivo y ORIGEN.
-     *         El origen decide si ese descuento le baja la comision a quien
-     *         atendio (ver CommissionPolicy).
+     * @return array{0: float, 1: ?string, 2: string} Monto, motivo y ORIGEN.
+     *                                                El origen decide si ese descuento le baja la comision a quien
+     *                                                atendio (ver CommissionPolicy).
      */
     private function discountFor(Appointment $appointment, array $data): array
     {
@@ -102,9 +102,9 @@ class CheckoutController
      * aplicarlo. Negarselo por haber reservado un combo seria cambiarle las
      * reglas en el mostrador.
      *
-     * @return array{0: float, 1: ?string, 2: float}  Total, motivo, y cuanto
-     *         puso el PREMIO -- que se mide aparte porque puede tener otra
-     *         regla de comision que el resto del descuento.
+     * @return array{0: float, 1: ?string, 2: float} Total, motivo, y cuanto
+     *                                               puso el PREMIO -- que se mide aparte porque puede tener otra
+     *                                               regla de comision que el resto del descuento.
      */
     private function withReward(
         Appointment $appointment,

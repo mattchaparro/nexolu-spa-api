@@ -20,7 +20,7 @@ final class DiscountAllocator
     /**
      * @param  list<float>  $prices  Precio de lista de cada linea.
      * @param  float  $discount  Descuento total a repartir.
-     * @return list<float>  Lo que efectivamente se cobra por cada linea.
+     * @return list<float> Lo que efectivamente se cobra por cada linea.
      */
     public static function allocate(array $prices, float $discount): array
     {

@@ -7,6 +7,7 @@ use App\Models\AppointmentWorkflow;
 use App\Models\AppointmentWorkflowStage;
 use App\Support\Scheduling\AppointmentStateMachine;
 use App\Support\Scheduling\StageActionCatalog;
+use App\Support\Scheduling\StageMessage;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -42,7 +43,7 @@ class WorkflowController
             ], Appointment::statuses()),
 
             'actions' => StageActionCatalog::all(),
-            'placeholders' => \App\Support\Scheduling\StageMessage::placeholders(),
+            'placeholders' => StageMessage::placeholders(),
         ]);
     }
 
