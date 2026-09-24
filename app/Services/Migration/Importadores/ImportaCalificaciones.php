@@ -181,6 +181,33 @@ class ImportaCalificaciones extends Importador
 
         $cita = DB::table('appointments')->where('id', $citaId)->first(['client_id']);
 
+        /*
+         * ¿Esa atención ya tiene opinión?
+         *
+         * Arriba se deduplica por la atención VIEJA, pero el índice único es
+         * sobre la NUEVA -- y no son lo mismo: varias líneas de servicio del
+         * sistema viejo se agrupan en una sola cita acá. Dos clientas que
+         * calificaron dos líneas de la misma visita llegaban aquí como dos
+         * opiniones distintas y chocaban contra el índice, tumbando el paso
+         * entero a media importación.
+         *
+         * Se conserva la que ya está: es la de la línea que se importó
+         * primero, y sobre el promedio de la manicurista cuentan igual.
+         */
+        $yaTiene = ServiceRating::withoutGlobalScope('business')
+            ->where('appointment_id', $citaId)
+            ->where('appointment_item_id', $linea?->id)
+            ->value('id');
+
+        if ($yaTiene !== null) {
+            // Se anota el mapeo igualmente: sin esto la próxima corrida vuelve
+            // a intentarlo, y a chocar, todos los días cada media hora.
+            $this->map->anotar('rating', $legacyId, (int) $yaTiene);
+            $this->reporte->saltado('Calificaciones');
+
+            return;
+        }
+
         $id = ServiceRating::create([
             'business_id' => $this->business->id,
             'appointment_id' => $citaId,
