@@ -21,12 +21,12 @@ use App\Http\Controllers\Api\V1\AvailabilityController;
 use App\Http\Controllers\Api\V1\BotKnowledgeController;
 use App\Http\Controllers\Api\V1\BroadcastController;
 use App\Http\Controllers\Api\V1\CashController;
-use App\Http\Controllers\Api\V1\ChatEmbebidoController;
 use App\Http\Controllers\Api\V1\CheckoutController;
 use App\Http\Controllers\Api\V1\ClientController;
 use App\Http\Controllers\Api\V1\ClientLookupController;
 use App\Http\Controllers\Api\V1\ClientPortalController;
 use App\Http\Controllers\Api\V1\ClientProfileController;
+use App\Http\Controllers\Api\V1\ConnectChatController;
 use App\Http\Controllers\Api\V1\DepositController;
 use App\Http\Controllers\Api\V1\EntregaDesdeLegacyController;
 use App\Http\Controllers\Api\V1\ExpenseController;
@@ -48,7 +48,6 @@ use App\Http\Controllers\Api\V1\SurveyController;
 use App\Http\Controllers\Api\V1\WaitlistAdminController;
 use App\Http\Controllers\Api\V1\WaitlistController;
 use App\Http\Controllers\Api\V1\WalkInController;
-use App\Http\Controllers\Api\V1\WhatsappInboxController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -508,14 +507,11 @@ Route::prefix('v1')->group(function () {
         | Recepcion y administracion si la tienen, que son quienes contestan.
         */
         /*
-        | La bandeja de Connect, mostrada dentro de este panel.
-        |
-        | Mismo permiso que la bandeja propia -- es la misma pantalla, con
-        | mas cosas -- y el negocio sale de la sesion, nunca del request:
-        | pedir el token de otro salon tiene que ser imposible de escribir,
-        | no algo que se valide.
+        | El chat de WhatsApp vive en Connect: esto entra a la persona ahi,
+        | como usuaria de SU salon, con un pase de un solo uso. El negocio
+        | sale de la sesion, nunca del request (ver ConnectChat).
         */
-        Route::get('whatsapp/chat-embebido/token', [ChatEmbebidoController::class, 'token'])
+        Route::post('whatsapp/connect-link', [ConnectChatController::class, 'link'])
             ->middleware('permission:clientes.ver');
 
         // Lo que el bot sabe decir del negocio (vive en el IA Core).
@@ -524,14 +520,6 @@ Route::prefix('v1')->group(function () {
             Route::post('/', [BotKnowledgeController::class, 'store']);
             Route::patch('/{entry}', [BotKnowledgeController::class, 'update']);
             Route::delete('/{entry}', [BotKnowledgeController::class, 'destroy']);
-        });
-
-        Route::prefix('whatsapp/inbox')->middleware('permission:clientes.ver')->group(function () {
-            Route::get('/', [WhatsappInboxController::class, 'index']);
-            Route::get('/{conversation}', [WhatsappInboxController::class, 'show']);
-            Route::post('/{conversation}/reply', [WhatsappInboxController::class, 'reply']);
-            Route::post('/{conversation}/resume-agent', [WhatsappInboxController::class, 'resume']);
-            Route::post('/{conversation}/toggle', [WhatsappInboxController::class, 'toggle']);
         });
 
         Route::prefix('messages')->middleware('permission:citas.ver')->group(function () {

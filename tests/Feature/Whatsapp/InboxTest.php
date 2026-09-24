@@ -9,10 +9,8 @@ use App\Models\User;
 use App\Models\WhatsappConversation;
 use App\Support\PermissionCatalog;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Testing\TestResponse;
-use Laravel\Sanctum\Sanctum;
 use Tests\Feature\Scheduling\SchedulingScenario;
 use Tests\TestCase;
 
@@ -157,18 +155,6 @@ class InboxTest extends TestCase
     |--------------------------------------------------------------------------
     */
 
-    public function test_si_una_persona_contesta_el_agente_se_calla(): void
-    {
-        $this->entra('Hola')->assertOk();
-        $conv = $this->conversacion();
-
-        Sanctum::actingAs($this->admin->fresh());
-        $this->postJson("/api/v1/whatsapp/inbox/{$conv->id}/reply", ['body' => 'Hola Ana, sí tenemos.'])
-            ->assertCreated();
-
-        $this->assertTrue($conv->fresh()->agentIsPaused());
-    }
-
     public function test_con_el_agente_relevado_el_webhook_no_lo_despierta(): void
     {
         /*
@@ -210,63 +196,11 @@ class InboxTest extends TestCase
         $this->assertFalse($conv->fresh()->agentIsPaused());
     }
 
-    public function test_se_le_puede_devolver_la_conversacion_al_agente(): void
-    {
-        $this->entra('Hola')->assertOk();
-        $conv = $this->conversacion();
-        $conv->pauseAgent();
-
-        Sanctum::actingAs($this->admin->fresh());
-        $this->postJson("/api/v1/whatsapp/inbox/{$conv->id}/resume-agent")->assertOk();
-
-        $this->assertFalse($conv->fresh()->agentIsPaused());
-    }
-
     /*
     |--------------------------------------------------------------------------
     | La ventana de 24 horas de Meta
     |--------------------------------------------------------------------------
     */
-
-    public function test_fuera_de_las_24_horas_no_se_deja_escribir(): void
-    {
-        /*
-         * Meta no rechaza el mensaje con un error: lo acepta y no lo entrega.
-         * Si no se corta acá, quien atiende cree que contestó y la clienta
-         * nunca recibe nada.
-         */
-        $this->entra('Hola')->assertOk();
-        $conv = $this->conversacion();
-
-        $this->travel(25)->hours();
-
-        Sanctum::actingAs($this->admin->fresh());
-        $r = $this->postJson("/api/v1/whatsapp/inbox/{$conv->id}/reply", ['body' => 'Perdón la demora'])
-            ->assertStatus(422);
-
-        $this->assertFalse($r->json('window_open'));
-        $this->assertStringContainsString('24 horas', $r->json('message'));
-    }
-
-    public function test_contestar_nosotros_no_reabre_la_ventana(): void
-    {
-        /*
-         * La ventana la abre EL MENSAJE DE ELLA. Si nuestra respuesta la
-         * reabriera, bastaría con escribirle cada 23 horas para tenerla
-         * abierta para siempre -- y Meta no funciona así.
-         */
-        $this->entra('Hola')->assertOk();
-        $conv = $this->conversacion();
-
-        $this->travel(20)->hours();
-
-        Sanctum::actingAs($this->admin->fresh());
-        $this->postJson("/api/v1/whatsapp/inbox/{$conv->id}/reply", ['body' => 'Ya te confirmo'])->assertCreated();
-
-        $this->travel(5)->hours();
-
-        $this->assertFalse($conv->fresh()->windowIsOpen());
-    }
 
     public function test_cuando_ella_vuelve_a_escribir_la_ventana_se_reabre(): void
     {
@@ -286,18 +220,6 @@ class InboxTest extends TestCase
     |--------------------------------------------------------------------------
     */
 
-    public function test_abrir_el_hilo_lo_marca_leido(): void
-    {
-        // Un botón de "marcar leído" aparte es un botón que nadie oprime.
-        $this->entra('Hola')->assertOk();
-        $conv = $this->conversacion();
-
-        Sanctum::actingAs($this->admin->fresh());
-        $this->getJson("/api/v1/whatsapp/inbox/{$conv->id}")->assertOk();
-
-        $this->assertFalse($conv->fresh()->isUnread());
-    }
-
     public function test_una_conversacion_cerrada_se_reabre_si_vuelve_a_escribir(): void
     {
         /*
@@ -307,93 +229,11 @@ class InboxTest extends TestCase
         $this->entra('Hola')->assertOk();
         $conv = $this->conversacion();
 
-        Sanctum::actingAs($this->admin->fresh());
-        $this->postJson("/api/v1/whatsapp/inbox/{$conv->id}/toggle")->assertOk();
-        $this->assertSame(WhatsappConversation::STATUS_CLOSED, $conv->fresh()->status);
+        $conv->update(['status' => WhatsappConversation::STATUS_CLOSED]);
 
         $this->entra('Una cosa más')->assertOk();
 
         $this->assertSame(WhatsappConversation::STATUS_OPEN, $conv->fresh()->status);
-    }
-
-    public function test_la_conversacion_de_otro_negocio_no_existe(): void
-    {
-        /*
-         * El límite duro del multi-tenant: una conversación trae el teléfono y
-         * el nombre de una clienta. Ver la del local de al lado sería
-         * exactamente la fuga de datos que el dueño no quiere.
-         */
-        $otro = $this->makeBusiness();
-
-        $ajenaId = DB::table('whatsapp_conversations')->insertGetId([
-            'business_id' => $otro->id, 'phone' => '573009998877',
-            'status' => WhatsappConversation::STATUS_OPEN,
-            'created_at' => now(), 'updated_at' => now(),
-        ]);
-
-        Sanctum::actingAs($this->admin->fresh());
-
-        $this->getJson("/api/v1/whatsapp/inbox/{$ajenaId}")->assertNotFound();
-        $this->postJson("/api/v1/whatsapp/inbox/{$ajenaId}/reply", ['body' => 'hola'])->assertNotFound();
-        $this->postJson("/api/v1/whatsapp/inbox/{$ajenaId}/toggle")->assertNotFound();
-    }
-
-    public function test_la_bandeja_pone_arriba_lo_que_falta_contestar(): void
-    {
-        // La bandeja se mira para saber a quién contestar, no para repasar lo
-        // ya resuelto.
-        $this->entra('Primera', '573001111111')->assertOk();
-        $this->travel(1)->minute();
-        $this->entra('Segunda', '573002222222')->assertOk();
-
-        $vieja = WhatsappConversation::withoutGlobalScope('business')
-            ->where('phone', '573001111111')->first();
-
-        Sanctum::actingAs($this->admin->fresh());
-
-        // Se lee la más nueva: la vieja queda como la única sin leer.
-        $nueva = WhatsappConversation::withoutGlobalScope('business')
-            ->where('phone', '573002222222')->first();
-        $this->getJson("/api/v1/whatsapp/inbox/{$nueva->id}")->assertOk();
-
-        $lista = $this->getJson('/api/v1/whatsapp/inbox')->assertOk()->json();
-
-        $this->assertSame($vieja->id, $lista['data'][0]['id']);
-        $this->assertSame(1, $lista['unread']);
-    }
-
-    public function test_la_bandeja_dice_si_se_puede_escribir_y_hasta_cuando(): void
-    {
-        /*
-         * Tres datos separados y no un booleano: la pantalla necesita explicar
-         * POR QUÉ no se puede escribir, y "fuera de la ventana" y "el agente
-         * está atendiendo" se arreglan de formas distintas.
-         */
-        $this->entra('Hola')->assertOk();
-        $conv = $this->conversacion();
-
-        Sanctum::actingAs($this->admin->fresh());
-        $r = $this->getJson("/api/v1/whatsapp/inbox/{$conv->id}")->assertOk()->json('conversation');
-
-        $this->assertTrue($r['window_open']);
-        $this->assertNotNull($r['window_closes_at']);
-        $this->assertFalse($r['agent_paused']);
-    }
-
-    public function test_el_hilo_mezcla_lo_que_entra_y_lo_que_sale_en_orden(): void
-    {
-        $this->entra('Hola')->assertOk();
-        $conv = $this->conversacion();
-
-        Sanctum::actingAs($this->admin->fresh());
-        $this->postJson("/api/v1/whatsapp/inbox/{$conv->id}/reply", ['body' => 'Hola, ¿en qué te ayudo?'])
-            ->assertCreated();
-
-        $hilo = $this->getJson("/api/v1/whatsapp/inbox/{$conv->id}")->assertOk()->json('messages');
-
-        $this->assertCount(2, $hilo);
-        $this->assertSame(Message::DIRECTION_IN, $hilo[0]['direction']);
-        $this->assertSame(Message::DIRECTION_OUT, $hilo[1]['direction']);
     }
 
     public function test_la_conversacion_queda_ligada_a_la_clienta_si_se_reconoce(): void

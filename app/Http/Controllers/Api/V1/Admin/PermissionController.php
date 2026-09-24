@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1\Admin;
 
+use App\Jobs\RevokeConnectChatAccessJob;
 use App\Models\Location;
 use App\Models\User;
 use App\Support\PermissionCatalog;
@@ -96,6 +97,12 @@ class PermissionController
         $user->syncPermissions($data['permissions']);
 
         $user = $user->fresh();
+
+        // Sin `clientes.ver` ya no atiende el chat: Connect le cierra la
+        // sesion y deja de avisarle al celular.
+        if (! $user->hasBusinessPermission('clientes.ver')) {
+            RevokeConnectChatAccessJob::dispatch($user->id);
+        }
 
         return response()->json([
             'id' => $user->id,

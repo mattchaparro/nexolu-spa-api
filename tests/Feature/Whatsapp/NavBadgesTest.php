@@ -5,11 +5,10 @@ namespace Tests\Feature\Whatsapp;
 use App\Models\Business;
 use App\Models\Message;
 use App\Models\User;
-use App\Models\WhatsappConversation;
 use App\Support\PermissionCatalog;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Http;
 use Laravel\Sanctum\Sanctum;
 use Tests\Feature\Scheduling\SchedulingScenario;
 use Tests\TestCase;
@@ -51,18 +50,6 @@ class NavBadgesTest extends TestCase
         Sanctum::actingAs($this->admin->fresh());
     }
 
-    /** Una conversación con lo que haga falta. */
-    private function conversacion(array $overrides = []): WhatsappConversation
-    {
-        return WhatsappConversation::create(array_merge([
-            'business_id' => $this->business->id,
-            'phone' => '5730011122'.random_int(10, 99),
-            'status' => WhatsappConversation::STATUS_OPEN,
-            'last_message_at' => now(),
-            'last_inbound_at' => now(),
-        ], $overrides));
-    }
-
     private function badges(): array
     {
         return $this->getJson('/api/v1/nav-badges')->assertOk()->json();
@@ -76,62 +63,53 @@ class NavBadgesTest extends TestCase
         $this->assertSame(0, $this->badges()['outbox_pending']);
     }
 
-    public function test_una_conversacion_sin_leer_cuenta(): void
-    {
-        $this->conversacion(['read_at' => null]);
-
-        $this->assertSame(1, $this->badges()['inbox_unread']);
-    }
-
-    public function test_una_conversacion_leida_no_cuenta(): void
-    {
-        $this->conversacion(['read_at' => now()->addSecond()]);
-
-        $this->assertSame(0, $this->badges()['inbox_unread']);
-    }
-
-    public function test_un_mensaje_nuevo_despues_de_leerla_la_vuelve_a_contar(): void
+    public function test_las_conversaciones_sin_leer_las_cuenta_connect(): void
     {
         /*
-         * El caso que un booleano de "leído" no cubre: alguien abrió la
-         * conversación en la mañana y la clienta volvió a escribir a mediodía.
-         * Por eso se comparan las dos fechas y no se guarda una marca.
+         * El chat vive en Connect: leer una conversacion alla es lo unico que
+         * la saca del conteo, asi que el numero sale de alla. Y del negocio
+         * de la sesion, nunca de otro.
          */
-        $conv = $this->conversacion(['read_at' => now()]);
+        $this->conConnect();
+        Http::fake(['connect.test/v1/app-users/unread*' => Http::response(['unread' => 3])]);
 
-        $this->assertSame(0, $this->badges()['inbox_unread']);
+        $this->assertSame(3, $this->badges()['inbox_unread']);
 
-        $conv->update(['last_inbound_at' => now()->addHour()]);
-
-        $this->assertSame(1, $this->badges()['inbox_unread']);
+        Http::assertSent(fn ($request) => str_contains($request->url(), 'business_id='.$this->business->id)
+            && $request->hasHeader('Authorization', 'Bearer llave-del-spa'));
     }
 
-    public function test_una_conversacion_cerrada_no_cuenta(): void
+    public function test_si_connect_no_responde_el_menu_sigue(): void
     {
-        // Cerrarla es decir "esto ya se resolvió". Si siguiera contando, el
-        // numerito no bajaría nunca y nadie lo miraría más.
-        $this->conversacion(['status' => WhatsappConversation::STATUS_CLOSED, 'read_at' => null]);
+        // Un contador que falla no puede tumbar el menu de toda la app.
+        $this->conConnect();
+        Http::fake(['connect.test/*' => Http::response('caido', 502)]);
 
         $this->assertSame(0, $this->badges()['inbox_unread']);
     }
 
-    public function test_la_conversacion_de_otro_negocio_no_cuenta(): void
+    public function test_a_quien_no_abre_el_chat_no_se_le_pregunta_a_connect(): void
     {
-        /*
-         * El límite duro del multi-tenant, también acá: un numerito que suma
-         * las conversaciones del local de al lado le está contando a un dueño
-         * cuánto trabajo tiene el otro.
-         */
-        $otro = $this->makeBusiness();
+        $this->conConnect();
+        Http::fake();
 
-        DB::table('whatsapp_conversations')->insert([
-            'business_id' => $otro->id, 'phone' => '573009998877',
-            'status' => WhatsappConversation::STATUS_OPEN,
-            'last_inbound_at' => now(), 'read_at' => null,
-            'created_at' => now(), 'updated_at' => now(),
+        $manicurista = User::create([
+            'business_id' => $this->business->id, 'name' => 'Manicurista',
+            'email' => 'mani@prueba.test', 'password' => Hash::make('password123'), 'is_active' => true,
         ]);
+        PermissionCatalog::applyRole($manicurista, PermissionCatalog::ROLE_STAFF);
+        Sanctum::actingAs($manicurista->fresh());
 
         $this->assertSame(0, $this->badges()['inbox_unread']);
+        Http::assertNothingSent();
+    }
+
+    private function conConnect(): void
+    {
+        config([
+            'services.comms_core.base_url' => 'https://connect.test',
+            'services.comms_core.api_key' => 'llave-del-spa',
+        ]);
     }
 
     public function test_solo_cuenta_lo_que_espera_que_alguien_lo_mande(): void

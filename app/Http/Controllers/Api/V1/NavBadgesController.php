@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Models\Message;
-use App\Models\WhatsappConversation;
+use App\Services\WhatsApp\ConnectChat;
 use App\Support\LocationScope;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -23,24 +23,21 @@ use Illuminate\Http\Request;
  */
 class NavBadgesController
 {
-    public function __invoke(Request $request): JsonResponse
+    public function __invoke(Request $request, ConnectChat $connect): JsonResponse
     {
         $user = $request->user();
         $scope = LocationScope::for($user);
 
         return response()->json([
             /*
-             * Sin leer = nunca se abrio, o llego algo despues de la ultima
-             * vez que se abrio. Comparar las dos columnas y no confiar en un
-             * contador guardado: un contador hay que mantenerlo sincronizado
-             * y se desincroniza.
+             * Las conversaciones que esperan respuesta. El chat vive en
+             * Connect, asi que el conteo tambien: leer desde alla es lo unico
+             * que lo pone en cero. Solo para quien puede abrir el chat -- a
+             * los demas no se les pregunta a Connect por nada.
              */
-            'inbox_unread' => WhatsappConversation::query()
-                ->where('status', WhatsappConversation::STATUS_OPEN)
-                ->where(fn ($q) => $q
-                    ->whereNull('read_at')
-                    ->orWhereColumn('last_inbound_at', '>', 'read_at'))
-                ->count(),
+            'inbox_unread' => $user->hasBusinessPermission('clientes.ver')
+                ? $connect->unreadCount((int) $user->business_id)
+                : 0,
 
             /*
              * Lo que espera que una persona lo mande. `pendiente` a secas no

@@ -4,13 +4,12 @@ namespace Tests\Feature\Admin;
 
 use App\Models\Business;
 use App\Models\Client;
+use App\Models\Location;
 use App\Models\Resource;
 use App\Models\ResourceSchedule;
 use App\Models\Service;
 use App\Models\User;
-use App\Services\Scheduling\BookingService;
 use App\Support\PermissionCatalog;
-use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Laravel\Sanctum\Sanctum;
@@ -252,7 +251,7 @@ class PermissionsTest extends TestCase
          */
         Sanctum::actingAs($this->manicurista->fresh());
 
-        $this->getJson('/api/v1/whatsapp/inbox')->assertForbidden();
+        $this->postJson('/api/v1/whatsapp/connect-link')->assertForbidden();
     }
 
     public function test_una_manicurista_si_puede_leer_las_sedes(): void
@@ -269,7 +268,7 @@ class PermissionsTest extends TestCase
 
         $this->getJson('/api/v1/locations')->assertOk();
 
-        $sede = \App\Models\Location::withoutGlobalScope('business')
+        $sede = Location::withoutGlobalScope('business')
             ->where('business_id', $this->business->id)->firstOrFail();
 
         $this->postJson("/api/v1/locations/{$sede->id}", ['name' => 'Otra'])->assertForbidden();

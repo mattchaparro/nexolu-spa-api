@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Jobs\RevokeConnectChatAccessJob;
 use App\Support\LocationScope;
 use App\Support\PermissionCatalog;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -34,6 +35,22 @@ class User extends Authenticatable
             'is_active' => 'boolean',
             'is_owner' => 'boolean',
         ];
+    }
+
+    /**
+     * Quien deja de poder atender el chat (la desactivan o la borran) pierde
+     * tambien el de Connect y los avisos a su celular: si no, le seguirian
+     * llegando los mensajes de las clientas.
+     */
+    protected static function booted(): void
+    {
+        static::updated(function (User $user) {
+            if ($user->wasChanged('is_active') && ! $user->is_active) {
+                RevokeConnectChatAccessJob::dispatch($user->id);
+            }
+        });
+
+        static::deleted(fn (User $user) => RevokeConnectChatAccessJob::dispatch($user->id));
     }
 
     public function business(): BelongsTo
