@@ -13,9 +13,11 @@ use App\Services\Loyalty\LoyaltyService;
 use App\Services\Ratings\SurveyService;
 use App\Services\Scheduling\StageTransitionService;
 use App\Support\ChannelPhone;
+use App\Support\NombreDePila;
 use App\Support\Scheduling\ThankYouMessage;
 use App\Support\TituloCorto;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 
 /**
  * La conversación inicial obligatoria: todo empieza tocando.
@@ -128,6 +130,9 @@ final class GuidedEntry
 
     public const NO_LONGER_CLIENT = 'Ya no voy, gracias';
 
+    /** Marca en caché: le preguntamos el nombre y falta la respuesta. */
+    private const ASKING_NAME = 'pide_nombre:';
+
     /** Sin mensajes del bot en este lapso, lo siguiente es una conversación nueva. */
     private const NEW_SESSION_MINUTES = 30;
 
@@ -179,8 +184,10 @@ final class GuidedEntry
             return $retoque;
         }
 
-        // 0.4) Los del aviso de cambio de número: sigue viniendo, o ya no.
-        $cambio = $this->fromNumberChange($caller, $phone, $texto);
+        // 0.4) Los del aviso de cambio de número: sigue viniendo, o ya no
+        // (y, si no teníamos su nombre, la respuesta a "¿cómo te llamas?").
+        $cambio = $this->fromNumberChange($caller, $phone, $texto)
+            ?? $this->fromNamePrompt($caller, $phone, $texto);
 
         if ($cambio !== null) {
             return $cambio;
@@ -932,16 +939,114 @@ final class GuidedEntry
         if ($tocado === $this->plain(self::STILL_CLIENT)) {
             $this->noteOnClient($caller, 'Confirmó que sigue siendo clienta (aviso de cambio de número).');
 
-            $texto = '¡Qué alegría! 💅 Ya quedaste con nuestro número nuevo.'
-                ."\n\nRecuerda que por hacerte cualquier servicio te llevas un granizado gratis 🍧 ¿Te agendamos tu próxima cita?";
+            if ($caller->client === null) {
+                return $this->welcomeBack($caller, $phone, null);
+            }
 
-            // Los mismos dos botones del menú de agendar, y ese menú queda
-            // guardado: el toque siguiente se enruta como si viniera de ahí.
-            return $this->send($caller, $phone, $texto, [self::HERE, self::WEB], ['menu' => 'agendar'], 'sigue_siendo_clienta', fresh: true)
-                ?? $this->reply($phone, $texto, 'sigue_siendo_clienta');
+            /*
+             * Se aprovecha que acaba de contestar para confirmar su nombre:
+             * muchas fichas vinieron de ManyChat con "?", "." o un apodo
+             * (35 de las 161 del aviso), y las demás pueden estar a medias.
+             * Si ya tenemos uno usable se le muestra, y un "sí" lo confirma.
+             * La respuesta siguiente la atiende fromNamePrompt.
+             */
+            Cache::put(self::ASKING_NAME.$phone, true, now()->addHours(8));
+
+            $actual = trim($caller->client->name.' '.$caller->client->last_name);
+            $pregunta = NombreDePila::deSaludo($caller->client->name) === null
+                ? '¿Nos confirmas tu nombre completo? ✍️'
+                : "Te tenemos como *{$actual}*. ¿Nos confirmas tu nombre completo? ✍️";
+
+            return $this->reply(
+                $phone,
+                "¡Qué alegría! 💅 Ya quedaste con nuestro número nuevo.\n\nPara tenerte bien guardada: {$pregunta}",
+                'pedir_nombre',
+            );
         }
 
         return null;
+    }
+
+    /**
+     * La respuesta a "¿cómo te llamas?".
+     *
+     * Solo si parece un nombre: si en vez de eso escribe "quiero una cita
+     * mañana", no se guarda nada y el bot la atiende como siempre -- un
+     * nombre mal guardado es peor que ninguno, porque con él se la saluda.
+     *
+     * @return array{text: string, conversation_id: null, tools_used: list<string>}|null
+     */
+    private function fromNamePrompt(AiCaller $caller, string $phone, string $texto): ?array
+    {
+        if (! Cache::pull(self::ASKING_NAME.$phone)) {
+            return null;
+        }
+
+        $client = $caller->client;
+
+        if ($client === null) {
+            return null;
+        }
+
+        // "Sí", "correcto", "así es": confirma el que ya tenemos.
+        $pilaActual = NombreDePila::deSaludo($client->name);
+        $dicho = trim((string) preg_replace('/[\s,]+/u', ' ', $this->plain($texto)));
+        if ($pilaActual !== null && preg_match('/^(si|sip|correcto|asi es|exacto|ok|listo|ese|ese es|si senora|si senor)( es| asi| correcto| gracias)*$/u', $dicho)) {
+            $this->noteOnClient($caller, 'Confirmó su nombre.');
+
+            return $this->welcomeBack($caller, $phone, $pilaActual);
+        }
+
+        $nombre = $this->nameFrom($texto);
+
+        if ($nombre === null) {
+            return null;
+        }
+
+        // Lo que escribió es su nombre completo: reemplaza nombre y apellido
+        // guardados, para no terminar con "Ana María Gómez Gómez".
+        $this->noteOnClient($caller, 'Nos dio su nombre al confirmar que sigue siendo clienta.', ['name' => $nombre, 'last_name' => null]);
+
+        return $this->welcomeBack($caller, $phone, NombreDePila::deSaludo($nombre));
+    }
+
+    /** "me llamo ana maría" -> "Ana María"; null si no parece un nombre. */
+    private function nameFrom(string $texto): ?string
+    {
+        $t = trim((string) preg_replace('/^(hola[,! ]*)?(me llamo|mi nombre es|soy)\s+/iu', '', trim($texto)));
+        $t = trim($t, " \t\n\r.,!¡?¿");
+
+        if ($t === '' || mb_strlen($t) > 40 || count(preg_split('/\s+/u', $t)) > 4) {
+            return null;
+        }
+
+        $normal = $this->plain($t);
+        foreach (['cita', 'agendar', 'quiero', 'gracias', 'buenas', 'precio', 'cuanto', 'manana', 'hoy', 'servicio', 'unas'] as $palabra) {
+            if (preg_match('/\b'.$palabra.'\b/u', $normal)) {
+                return null;
+            }
+        }
+
+        if (NombreDePila::deSaludo($t) === null) {
+            return null;
+        }
+
+        return mb_convert_case(mb_strtolower($t), MB_CASE_TITLE);
+    }
+
+    /**
+     * El cierre de "sí, sigo viniendo": el granizado y los dos botones del
+     * menú de agendar, con ese menú guardado para el toque siguiente.
+     *
+     * @return array{text: string, conversation_id: null, tools_used: list<string>}
+     */
+    private function welcomeBack(AiCaller $caller, string $phone, ?string $pila): array
+    {
+        $texto = '¡Qué alegría'.($pila ? ", {$pila}" : '').'! 💅 Ya quedaste con nuestro número nuevo.'
+            ."\n\nRecuerda que por hacerte cualquier servicio te llevas un granizado gratis 🍧 ¿Te agendamos tu próxima cita?";
+
+        return $this->send($caller, $phone, $texto, [self::HERE, self::WEB], ['menu' => 'agendar'], 'sigue_siendo_clienta', fresh: true)
+            ?? $this->reply($phone, $texto, 'sigue_siendo_clienta');
     }
 
     /**
