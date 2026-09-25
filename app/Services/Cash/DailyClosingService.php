@@ -218,12 +218,26 @@ class DailyClosingService
      * Solo cuenta los que tuvieron movimiento: marcar como pendiente un lunes
      * en que el spa no abrio genera una lista que nadie mira.
      *
+     * Y solo DESPUES del ultimo cierre. Luxury llevaba semanas sin cerrar
+     * caja en la app nueva y la pantalla le mostraba treinta dias de deuda
+     * que nadie iba a cuadrar: el cierre empieza a contar el dia en que se
+     * empieza a cerrar. Lo de antes del ultimo cierre ya no se persigue.
+     *
+     * Sin ningun cierre todavia, solo el dia mas reciente con movimiento:
+     * es el que se cierra para arrancar la cadena.
+     *
      * @return list<string>
      */
     public function pendingDates(Business $business, int $lookbackDays = 30, ?int $locationId = null): array
     {
         $tz = $business->businessTimezone();
         $today = CarbonImmutable::now($tz)->startOfDay();
+
+        $ultimo = CashClosing::where('business_id', $business->id)
+            ->when($locationId !== null, fn ($q) => $q->where('location_id', $locationId))
+            ->orderByDesc('date')
+            ->value('date');
+        $ultimo = $ultimo === null ? null : CarbonImmutable::parse($ultimo, $tz)->startOfDay();
 
         $closed = CashClosing::where('business_id', $business->id)
             ->when($locationId !== null, fn ($q) => $q->where('location_id', $locationId))
@@ -238,12 +252,20 @@ class DailyClosingService
             $day = $today->subDays($i);
             $iso = $day->toDateString();
 
+            if ($ultimo !== null && $day->lte($ultimo)) {
+                break;
+            }
+
             if (in_array($iso, $closed, true)) {
                 continue;
             }
 
             if ($this->totals->forDate($business->id, $day, 0, $this->scope($locationId))['appointments'] > 0) {
                 $pending[] = $iso;
+
+                if ($ultimo === null) {
+                    break;
+                }
             }
         }
 

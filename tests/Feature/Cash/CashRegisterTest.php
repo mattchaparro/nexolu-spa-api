@@ -303,6 +303,47 @@ class CashRegisterTest extends TestCase
         $this->assertSame([], $this->getJson('/api/v1/cash/closing/preview')->json('pending_dates'));
     }
 
+    /** Un cobro hecho hace `$dias` días, a las diez. */
+    private function cobradoHace(int $dias): string
+    {
+        $ahora = CarbonImmutable::now('America/Bogota');
+        $this->travelTo($ahora->subDays($dias));
+        $this->cobrar('10:00', $this->efectivo);
+        $this->travelTo($ahora);
+
+        return $ahora->subDays($dias)->toDateString();
+    }
+
+    public function test_sin_ningun_cierre_solo_pide_el_dia_mas_reciente(): void
+    {
+        /*
+         * Luxury llevaba semanas sin cerrar en la app nueva y la pantalla le
+         * mostraba todos esos días como deuda. Nadie los va a cuadrar: se
+         * empieza por el último día trabajado.
+         */
+        $this->cobradoHace(5);
+        $ayerTrabajado = $this->cobradoHace(2);
+
+        $this->assertSame(
+            [$ayerTrabajado],
+            $this->getJson('/api/v1/cash/closing/preview')->json('pending_dates'),
+        );
+    }
+
+    public function test_lo_de_antes_del_ultimo_cierre_ya_no_se_persigue(): void
+    {
+        $this->cobradoHace(6);
+        $cerrado = $this->cobradoHace(4);
+        $pendiente = $this->cobradoHace(2);
+
+        $this->postJson('/api/v1/cash/closing', ['date' => $cerrado, 'actual_cash' => 0])->assertCreated();
+
+        $this->assertSame(
+            [$pendiente],
+            $this->getJson('/api/v1/cash/closing/preview')->json('pending_dates'),
+        );
+    }
+
     public function test_el_resumen_del_dia_reparte_por_profesional(): void
     {
         $fecha = $this->laboral()->toDateString();
