@@ -375,7 +375,9 @@ class AiToolInvokeTest extends TestCase
             // servicio y con quién van debajo, sin competirle al dato.
             // Y repartidas, no cuatro cuartos de hora seguidos: quien no
             // puede a las diez tampoco puede a las diez y cuarto.
-            return count($titulos) === 4
+            // Cuatro horas y, al final, la salida «Otro día».
+            return count($titulos) === 5
+                && end($titulos) === 'Otro día'
                 && $titulos[0] !== $titulos[1]
                 && preg_match('/^\d{1,2}(:\d{2})? (am|pm)$/', $titulos[0]) === 1
                 && str_contains($descripciones[0], 'Manicure clasico')

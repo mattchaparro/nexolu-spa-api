@@ -58,6 +58,11 @@ class AvailabilityCapability implements Capability
     private const MAX_FILAS = 10;
 
     /** Quien no tiene preferencia de profesional. */
+    /** Las salidas al final de la lista de horas. */
+    public const OTRO_DIA = 'Otro día';
+
+    public const OTRA_PERSONA = 'Con otra persona';
+
     public const CUALQUIERA = 'Cualquiera';
 
     public function __construct(
@@ -425,7 +430,7 @@ class AvailabilityCapability implements Capability
             ];
         }
 
-        $mostrado = $this->mostrar($caller, $nombreServicios, $fecha, $ofrecidas);
+        $mostrado = $this->mostrar($caller, $nombreServicios, $fecha, $ofrecidas, ! empty($arguments['empleado']));
 
         // Lo que se acaba de entender queda guardado: la siguiente llamada
         // -- "6 pm" tocado, sin mas -- ya sabe de que servicio y de que dia.
@@ -927,7 +932,7 @@ class AvailabilityCapability implements Capability
      * @param  list<string>  $servicios
      * @param  list<array{hora: string, hora_24: string, con?: string}>  $horas
      */
-    private function mostrar(AiCaller $caller, array $servicios, CarbonImmutable $fecha, array $horas): bool
+    private function mostrar(AiCaller $caller, array $servicios, CarbonImmutable $fecha, array $horas, bool $conPersona = false): bool
     {
         $phone = ChannelPhone::normalize((string) $caller->phone, $caller->business->country_code ?? 'CO');
 
@@ -981,6 +986,21 @@ class AvailabilityCapability implements Capability
             )
             : sprintf('Para *%s* el *%s* tengo estas horas 👇', $queServicio, $dia);
 
+        /*
+         * Las salidas, al final de la lista: si ninguna hora le sirve, que
+         * pueda mirar otro día o a otra persona sin tener que escribirlo.
+         * Laura eligió a Alejandra, no le servían sus horas del viernes y
+         * la lista no le daba por dónde seguir.
+         */
+        $salidas = [['id' => 'otro_dia', 'title' => self::OTRO_DIA, 'description' => 'Ver otras fechas']];
+
+        if ($conPersona) {
+            $salidas[] = ['id' => 'otra_persona', 'title' => self::OTRA_PERSONA, 'description' => 'Ver las horas de las demás'];
+        }
+
+        // WhatsApp deja diez filas: las horas ceden lugar a las salidas.
+        $horas = array_slice($horas, 0, 10 - count($salidas));
+
         // EnvioDirecto y no el canal a secas: sin rastro en el hilo, el
         // turno siguiente cree que el mensaje anterior sigue sin responder
         // y el manejador de toques recibe dos mensajes pegados. Asi murio
@@ -988,7 +1008,7 @@ class AvailabilityCapability implements Capability
         return app(EnvioDirecto::class)->opciones(
             $caller,
             $texto,
-            array_map(fn (array $h, int $i) => array_filter([
+            [...array_map(fn (array $h, int $i) => array_filter([
                 'id' => 'h'.$i,
                 /*
                  * La HORA es el titulo, sola. Es lo unico que la clienta
@@ -1003,7 +1023,7 @@ class AvailabilityCapability implements Capability
                     0,
                     72,
                 ),
-            ]), $horas, array_keys($horas)),
+            ]), $horas, array_keys($horas)), ...$salidas],
             'Ver horas',
         );
     }

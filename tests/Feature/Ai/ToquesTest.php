@@ -167,6 +167,36 @@ class ToquesTest extends TestCase
             && str_contains($r->data()['text'] ?? '', $horas[0]['hora']));
     }
 
+    public function test_si_ninguna_hora_le_sirve_puede_pedir_otra_persona_u_otro_dia(): void
+    {
+        /*
+         * Laura eligió a Alejandra, ninguna de sus horas del viernes le
+         * servía y la lista no le daba por dónde seguir.
+         */
+        $tel = (string) ChannelPhone::normalize(self::PHONE);
+        $this->invoke('disponibilidad', ['servicio' => 'Semipermanente', 'fecha' => $this->manana(), 'empleado' => 'Maria']);
+
+        $titulos = array_column($this->ultimaLista(), 'title');
+        $this->assertSame(['Otro día', 'Con otra persona'], array_slice($titulos, -2));
+        $this->assertLessThanOrEqual(10, count($titulos));
+
+        // Con otra persona: vuelve a preguntar con quién.
+        $this->toques()->atender($this->conversacion, 'Con otra persona');
+        $this->assertContains('Cualquiera', array_column($this->ultimaLista(), 'title'));
+        $this->assertArrayNotHasKey('empleado', UltimoPedido::ver($tel));
+    }
+
+    public function test_otro_dia_desde_la_lista_de_horas_ofrece_los_dias_siguientes(): void
+    {
+        $this->invoke('disponibilidad', ['servicio' => 'Semipermanente', 'fecha' => $this->manana()]);
+
+        $respuesta = $this->toques()->atender($this->conversacion, 'Otro día');
+
+        $this->assertNotNull($respuesta);
+        $this->assertNotContains('Otro día', array_column($this->ultimaLista(), 'title'));
+        $this->assertNotEmpty(UltimoPedido::ver((string) ChannelPhone::normalize(self::PHONE))['fechas'] ?? []);
+    }
+
     public function test_tocar_si_agenda_exactamente_lo_confirmado(): void
     {
         $horas = $this->invoke('disponibilidad', ['servicio' => 'Semipermanente', 'fecha' => $this->manana()])
@@ -416,7 +446,11 @@ class ToquesTest extends TestCase
         $this->assertSame(['Hoy', 'Mañana', 'Otro día'], array_column($this->ultimaLista(), 'title'));
 
         $this->toques()->atender($this->conversacion, 'Mañana');
-        $horas = array_column($this->ultimaLista(), 'description');
+        // Solo las filas de horas: «Otro día» y «Con otra persona» son salidas.
+        $horas = array_column(array_filter(
+            $this->ultimaLista(),
+            fn (array $f) => str_starts_with((string) $f['id'], 'h'),
+        ), 'description');
 
         $this->assertNotEmpty($horas);
         foreach ($horas as $con) {

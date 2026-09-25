@@ -209,7 +209,26 @@ final class Toques
             return null;
         }
 
-        // 2) Tocó una hora de las que se le mostraron.
+        // 2) Ninguna hora le sirvió: otro día u otra persona.
+        if (! empty($pedido['horas'])) {
+            foreach ($candidatos as $plano) {
+                if ($plano === $this->plano(AvailabilityCapability::OTRO_DIA)) {
+                    unset($pedido['horas']);
+
+                    return $this->losProximosDias($conversacion, $phone, $pedido);
+                }
+
+                if ($plano === $this->plano(AvailabilityCapability::OTRA_PERSONA)) {
+                    // Se vuelve a preguntar con quién, sin la de antes fijada.
+                    unset($pedido['horas'], $pedido['empleado'], $pedido['empleado_preguntado']);
+                    UltimoPedido::guardar($phone, $pedido);
+
+                    return $this->respuestaDe($this->disponibilidad->execute($caller, []), 'otra_persona');
+                }
+            }
+        }
+
+        // 2.1) Tocó una hora de las que se le mostraron.
         foreach ($candidatos as $plano) {
             if (! empty($pedido['horas']) && isset($pedido['horas'][$plano])) {
                 return $this->confirmar($conversacion, $phone, $pedido, $pedido['horas'][$plano]);
