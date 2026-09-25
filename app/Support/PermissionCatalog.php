@@ -105,6 +105,7 @@ class PermissionCatalog
 
             // IA
             ['name' => 'ia.usar', 'category' => 'ia', 'label' => 'Usar el asistente', 'description' => 'Conversar con el asistente de IA.'],
+            ['name' => 'ia.asistente', 'category' => 'ia', 'label' => 'Usar el asistente', 'description' => 'Preguntarle al asistente del panel por ventas, agenda y clientas, y pedirle bloqueos de horario.'],
             ['name' => 'ia.conocimiento', 'category' => 'ia', 'label' => 'Enseñarle al bot', 'description' => 'Escribir las preguntas frecuentes que el bot de WhatsApp responde (garantías, parqueadero, políticas).'],
 
             // Administracion

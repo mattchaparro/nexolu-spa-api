@@ -34,6 +34,7 @@ use App\Http\Controllers\Api\V1\InstagramStoryController;
 use App\Http\Controllers\Api\V1\LoyaltyCardController;
 use App\Http\Controllers\Api\V1\MessageController;
 use App\Http\Controllers\Api\V1\MyWorkController;
+use App\Http\Controllers\Api\V1\PanelAssistantController;
 use App\Http\Controllers\Api\V1\NavBadgesController;
 use App\Http\Controllers\Api\V1\PayrollController;
 use App\Http\Controllers\Api\V1\ProductController;
@@ -284,6 +285,17 @@ Route::prefix('v1')->group(function () {
         // Lo que ve una profesional de si misma: su agenda del dia, lo que
         // lleva ganado y lo que le falta cobrar.
         Route::get('/my-work', [MyWorkController::class, 'summary']);
+
+        /*
+         * El asistente del panel: se le pregunta en palabras por ventas,
+         * agenda y clientas, y propone bloqueos que se confirman en una
+         * tarjeta. Las herramientas revisan su propio permiso al correr.
+         */
+        Route::prefix('assistant')->middleware('permission:ia.asistente')->group(function () {
+            Route::post('/chat', [PanelAssistantController::class, 'chat']);
+            Route::post('/drafts/{draft}/confirm', [PanelAssistantController::class, 'confirm']);
+            Route::post('/drafts/{draft}/discard', [PanelAssistantController::class, 'discard']);
+        });
 
         // Alguien que llega sin cita: registrar y cobrar en un paso.
         // Permiso propio, no el de agendar: registrar lo que YA se hizo no es

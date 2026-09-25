@@ -8,6 +8,11 @@ use App\Ai\Capabilities\CreateAppointmentCapability;
 use App\Ai\Capabilities\HandoffCapability;
 use App\Ai\Capabilities\MyAppointmentsCapability;
 use App\Ai\Capabilities\OfferOptionsCapability;
+use App\Ai\Capabilities\Panel\AgendaCapability;
+use App\Ai\Capabilities\Panel\BlockHoursCapability;
+use App\Ai\Capabilities\Panel\ChattyNonBookersCapability;
+use App\Ai\Capabilities\Panel\DailySummaryCapability;
+use App\Ai\Capabilities\Panel\SalesCapability;
 use App\Ai\Capabilities\RescheduleAppointmentCapability;
 use App\Ai\Capabilities\SaveContactCapability;
 use App\Ai\Capabilities\ServicesCapability;
@@ -37,6 +42,13 @@ class Registry
         'reagendar_cita' => RescheduleAppointmentCapability::class,
         'hablar_con_persona' => HandoffCapability::class,
         'ofrecer_opciones' => OfferOptionsCapability::class,
+
+        // Las del panel: de quien administra, nunca de la clienta.
+        'resumen_del_dia' => DailySummaryCapability::class,
+        'ventas' => SalesCapability::class,
+        'agenda' => AgendaCapability::class,
+        'clientas_sin_agendar' => ChattyNonBookersCapability::class,
+        'bloquear_horario' => BlockHoursCapability::class,
     ];
 
     public function resolve(string $name): ?Capability
