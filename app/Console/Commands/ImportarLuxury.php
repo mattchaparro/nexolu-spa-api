@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\Business;
+use App\Services\Messaging\MessageDispatcher;
 use App\Services\Migration\Importadores\ImportaCalificaciones;
 use App\Services\Migration\Importadores\ImportaCatalogo;
 use App\Services\Migration\Importadores\ImportaCitasFuturas;
@@ -93,7 +94,9 @@ class ImportarLuxury extends Command
             $this->line("  → {$paso->nombre()}...");
 
             try {
-                $paso->correr();
+                // Callado: traer datos no es el negocio hablando con nadie
+                // (ver MessageDispatcher::silently).
+                MessageDispatcher::silently(fn () => $paso->correr());
             } catch (Throwable $e) {
                 $this->newLine();
                 $this->error("  {$paso->nombre()} se detuvo: {$e->getMessage()}");

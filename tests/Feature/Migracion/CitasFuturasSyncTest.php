@@ -4,6 +4,7 @@ namespace Tests\Feature\Migracion;
 
 use App\Models\Appointment;
 use App\Models\AppointmentItem;
+use App\Models\Message;
 use App\Models\Business;
 use App\Models\Resource;
 use App\Models\ResourceOccupancy;
@@ -284,5 +285,30 @@ class CitasFuturasSyncTest extends TestCase
         $this->correr();
 
         $this->assertSame('completed', $this->laCita()->fresh()->status);
+    }
+
+    public function test_traer_y_cancelar_desde_el_sistema_viejo_no_le_escribe_a_nadie(): void
+    {
+        /*
+         * Lo que pasó el 24 de septiembre: una cita que en el sistema viejo
+         * habían borrado se canceló aquí a medianoche, y a la clienta le
+         * llegó «tu cita de hoy quedó cancelada» y a la manicurista que se le
+         * liberó la hora. Nadie había cancelado nada: se estaban trayendo
+         * datos.
+         */
+        $this->business->update([
+            'messaging_mode' => 'auto',
+            'scheduling_settings' => [...(array) $this->business->scheduling_settings, 'notify_team_whatsapp' => true],
+        ]);
+        $this->maria->update(['phone' => '3142305988']);
+        $this->agendaEnElLegacy(1, '10:00:00');
+        $this->legacy('employee_services')->where('id', 1)->update(['client_cellphone' => '3154017414']);
+        $this->correr();
+
+        $this->legacy('employee_services')->where('id', 1)->update(['deleted_at' => now()]);
+        $this->correr();
+
+        $this->assertSame('cancelled', $this->laCita()->status);
+        $this->assertSame(0, Message::withoutGlobalScopes()->count());
     }
 }

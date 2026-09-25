@@ -7,6 +7,7 @@ use App\Models\Client;
 use App\Models\Resource;
 use App\Models\Service;
 use App\Models\ServicePackage;
+use App\Services\Messaging\MessageDispatcher;
 use App\Services\Scheduling\BookingService;
 use App\Services\Scheduling\Exceptions\SlotUnavailableException;
 use Illuminate\Support\Facades\DB;
@@ -62,7 +63,18 @@ class ImportaCitasFuturas extends Importador
         return 'Citas futuras';
     }
 
+    /**
+     * Callado: crea, mueve y cancela por los mismos caminos que el panel
+     * --son los que reclaman y liberan el horario--, y esos caminos avisan
+     * a la clienta y al equipo. Traer la agenda del sistema viejo no es el
+     * negocio hablando con nadie (ver MessageDispatcher::silently).
+     */
     public function correr(): void
+    {
+        MessageDispatcher::silently(fn () => $this->sincronizar());
+    }
+
+    private function sincronizar(): void
     {
         $booking = app(BookingService::class);
 

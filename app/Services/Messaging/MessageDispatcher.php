@@ -38,7 +38,40 @@ use Illuminate\Support\Facades\Log;
  */
 class MessageDispatcher
 {
+    /**
+     * Mientras corre algo que no es el negocio hablando: traer datos del
+     * sistema viejo.
+     *
+     * La importación entra por los mismos caminos que el panel --`book()`,
+     * `cancel()`-- porque son los que reclaman y liberan el horario. Pero
+     * esos caminos avisan: a medianoche del 24 de septiembre, al cancelar
+     * aquí una cita que en el sistema viejo habían borrado por error, a la
+     * clienta le llegó «tu cita de hoy a las 3:00 quedó cancelada» y a
+     * Alejandra que se le liberó la hora. Nadie había cancelado nada.
+     */
+    private static bool $silenced = false;
+
     public function __construct(private readonly MessagingChannel $channel) {}
+
+    /**
+     * Corre `$callback` sin que nada de lo que haga le escriba a nadie.
+     *
+     * @template T
+     *
+     * @param  callable(): T  $callback
+     * @return T
+     */
+    public static function silently(callable $callback): mixed
+    {
+        $antes = self::$silenced;
+        self::$silenced = true;
+
+        try {
+            return $callback();
+        } finally {
+            self::$silenced = $antes;
+        }
+    }
 
     /**
      * Deja un mensaje listo para salir, y lo manda si corresponde.
@@ -65,6 +98,11 @@ class MessageDispatcher
          */
         ?WhatsappConversation $conversation = null,
     ): ?Message {
+        // Callado: ni se envía ni queda en la bandeja para mandarlo a mano.
+        if (self::$silenced) {
+            return null;
+        }
+
         $phone = $to === null ? null : ChannelPhone::normalize($to, $business->country_code);
 
         if ($phone === null || trim($body) === '') {
