@@ -132,6 +132,13 @@ final class GuidedEntry
 
     public const CANT_WRITE = 'No puedo escribirles';
 
+    /**
+     * El botón del aviso `nuevo_numero_agendar`. Lleva directo al agendar
+     * por botones: quien venía hablando con el número cuando era un
+     * WhatsApp normal puede tocar pero no escribir, y así agenda igual.
+     */
+    public const BOOK_APPOINTMENT = 'Agendar cita';
+
     /** Marca en caché: le preguntamos el nombre y falta la respuesta. */
     private const ASKING_NAME = 'pide_nombre:';
 
@@ -933,6 +940,12 @@ final class GuidedEntry
          * en el orden que importa: guardar ANTES de borrar, o pierde el
          * número junto con el chat.
          */
+        if ($tocado === $this->plain(self::BOOK_APPOINTMENT)) {
+            $this->noteOnClient($caller, 'Tocó «Agendar cita» en el aviso del número nuevo.');
+
+            return $this->bookHere($caller, $phone);
+        }
+
         if ($tocado === $this->plain(self::CANT_WRITE)) {
             return $this->reply(
                 $phone,

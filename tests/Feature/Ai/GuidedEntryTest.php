@@ -795,6 +795,15 @@ class GuidedEntryTest extends TestCase
         $this->assertTrue((bool) $this->conversacion->client->fresh()->accepts_marketing);
     }
 
+    public function test_agendar_cita_del_aviso_entra_directo_al_agendar_por_botones(): void
+    {
+        $respuesta = $this->escribe(GuidedEntry::BOOK_APPOINTMENT);
+
+        // Lo mismo que «Agendar aquí»: los servicios, sin pasar por el menú de inicio.
+        $this->assertContains($respuesta['tools_used'][0] ?? null, ['menu_inicial', 'agendar']);
+        $this->assertStringContainsString('Agendar cita', (string) $this->conversacion->client->fresh()->notes);
+    }
+
     public function test_no_puedo_escribirles_le_da_los_pasos_en_orden(): void
     {
         $respuesta = $this->escribe(GuidedEntry::CANT_WRITE);
