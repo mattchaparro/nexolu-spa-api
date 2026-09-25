@@ -2,12 +2,16 @@
 
 namespace Tests\Feature\Whatsapp;
 
+use App\Jobs\PushClientNameToConnectJob;
 use App\Models\Business;
+use App\Models\Client;
 use App\Models\Message;
 use App\Models\WhatsappConversation;
+use App\Services\WhatsApp\ConnectChat;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Testing\TestResponse;
 use Tests\Feature\Scheduling\SchedulingScenario;
 use Tests\TestCase;
@@ -365,5 +369,81 @@ class ConnectIntegrationTest extends TestCase
             'fecha' => 'el proximo viernes',
         ])->assertOk()->assertJsonPath('hay', false)
             ->assertJsonPath('resumen', 'Fecha inválida: usa AAAA-MM-DD (o «hoy» / «mañana»).');
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | El nombre de la clienta, igual en los dos lados
+    |--------------------------------------------------------------------------
+    */
+
+    private function clienta(string $nombre = '.', ?string $apellido = null): Client
+    {
+        return Client::withoutGlobalScope('business')->create([
+            'business_id' => $this->luxury->id, 'name' => $nombre, 'last_name' => $apellido,
+            'phone' => '573001112233', 'is_active' => true,
+        ]);
+    }
+
+    public function test_el_nombre_corregido_en_connect_llega_a_la_ficha_sin_eco(): void
+    {
+        $clienta = $this->clienta('.', 'X');
+        Queue::fake();
+
+        $this->firmado([
+            'object' => 'nexolu-comms',
+            'event' => 'contact_updated',
+            'business_id' => (string) $this->luxury->id,
+            'contact' => ['phone' => '573001112233', 'name' => 'Valentina Ruiz'],
+        ])->assertOk()->assertJsonPath('updated', 1);
+
+        $clienta->refresh();
+        $this->assertSame('Valentina Ruiz', $clienta->name);
+        $this->assertNull($clienta->last_name);
+        // Vino de Connect: no se le devuelve.
+        Queue::assertNotPushed(PushClientNameToConnectJob::class);
+    }
+
+    public function test_el_nombre_de_otro_salon_no_se_toca(): void
+    {
+        $clienta = $this->clienta('Ana');
+        $otro = $this->makeBusiness();
+
+        $this->firmado([
+            'object' => 'nexolu-comms',
+            'event' => 'contact_updated',
+            'business_id' => (string) $otro->id,
+            'contact' => ['phone' => '573001112233', 'name' => 'Intrusa'],
+        ])->assertOk()->assertJsonPath('updated', 0);
+
+        $this->assertSame('Ana', $clienta->fresh()->name);
+    }
+
+    public function test_cambiar_el_nombre_aca_se_lo_lleva_a_connect(): void
+    {
+        $clienta = $this->clienta('.');
+        Queue::fake();
+
+        $clienta->update(['notes' => 'nada que ver']);
+        Queue::assertNotPushed(PushClientNameToConnectJob::class);
+
+        $clienta->update(['name' => 'Valentina', 'last_name' => 'Ruiz']);
+        Queue::assertPushed(PushClientNameToConnectJob::class, fn ($job) => $job->clientId === $clienta->id);
+    }
+
+    public function test_el_job_manda_el_nombre_completo_a_connect(): void
+    {
+        config()->set('services.comms_core.api_key', 'llave-del-spa');
+        config()->set('services.comms_core.base_url', 'https://connect.test');
+        Http::fake(['connect.test/*' => Http::response(['updated' => 1])]);
+        $clienta = $this->clienta('Valentina', 'Ruiz');
+
+        (new PushClientNameToConnectJob($clienta->id))->handle(app(ConnectChat::class));
+
+        Http::assertSent(fn ($r) => $r->method() === 'PATCH'
+            && $r->url() === 'https://connect.test/v1/contacts'
+            && $r['name'] === 'Valentina Ruiz'
+            && $r['business_id'] === (string) $this->luxury->id
+            && $r['phone'] === '573001112233');
     }
 }

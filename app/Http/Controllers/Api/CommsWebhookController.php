@@ -7,6 +7,7 @@ use App\Jobs\AnswerWhatsappMessageJob;
 use App\Jobs\ProcessBookingFormJob;
 use App\Jobs\SendMessageJob;
 use App\Models\Business;
+use App\Models\Client;
 use App\Models\Message;
 use App\Models\WhatsappConversation;
 use App\Services\Messaging\Contracts\MessagingChannel;
@@ -63,6 +64,12 @@ class CommsWebhookController
                  * contestando encima de la persona que esta atendiendo.
                  */
                 'human_reply' => $this->humanReply($payload),
+                /*
+                 * Alguien corrigió el nombre del contacto en el chat de
+                 * Connect: la ficha de la clienta es de acá, así que se
+                 * pone al día aquí también.
+                 */
+                'contact_updated' => $this->contactUpdated($payload),
                 default => response()->json(['ok' => true, 'handled' => false]),
             };
         }
@@ -291,6 +298,43 @@ class CommsWebhookController
      *
      * @param  array<string, mixed>  $payload
      */
+    /**
+     * El nombre que alguien escribió en el chat de Connect, en la ficha.
+     *
+     * Con saveQuietly: guardar desde acá NO debe volver a mandárselo a
+     * Connect (de allá vino), o cada corrección sería un ida y vuelta.
+     * El nombre llega completo en un solo campo, así que reemplaza nombre
+     * y apellido.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    private function contactUpdated(array $payload): JsonResponse
+    {
+        $phone = ChannelPhone::normalize((string) ($payload['contact']['phone'] ?? ''));
+        $nombre = trim((string) ($payload['contact']['name'] ?? ''));
+        $business = Business::find((int) ($payload['business_id'] ?? 0));
+
+        if ($phone === null || $nombre === '' || $business === null) {
+            return response()->json(['ok' => true, 'handled' => false]);
+        }
+
+        $clientas = Client::withoutGlobalScope('business')
+            ->where('business_id', $business->id)
+            ->where('phone', $phone)
+            ->get();
+
+        foreach ($clientas as $clienta) {
+            $clienta->forceFill(['name' => $nombre, 'last_name' => null])->saveQuietly();
+        }
+
+        return response()->json([
+            'ok' => true,
+            'handled' => true,
+            'event' => 'contact_updated',
+            'updated' => $clientas->count(),
+        ]);
+    }
+
     private function humanReply(array $payload): JsonResponse
     {
         $conversacion = $this->conversacionDe($payload);

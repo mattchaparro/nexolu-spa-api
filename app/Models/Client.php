@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Jobs\PushClientNameToConnectJob;
 use App\Traits\BelongsToBusiness;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -27,6 +28,21 @@ class Client extends Model
      * citas de esa persona, asi que vale tanto como una contrasena.
      */
     protected $hidden = ['portal_token'];
+
+    /**
+     * El chat de Connect muestra a quien le escribe: si aquí cambia su
+     * nombre (lo corrigen en la ficha, o ella lo confirma por WhatsApp),
+     * allá también. Un cambio que VIENE de Connect se guarda con
+     * saveQuietly y no dispara esto.
+     */
+    protected static function booted(): void
+    {
+        static::updated(function (Client $client) {
+            if ($client->wasChanged(['name', 'last_name']) && ! empty($client->phone)) {
+                PushClientNameToConnectJob::dispatch($client->id);
+            }
+        });
+    }
 
     protected function casts(): array
     {

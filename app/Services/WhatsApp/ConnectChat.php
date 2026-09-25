@@ -2,6 +2,7 @@
 
 namespace App\Services\WhatsApp;
 
+use App\Models\Client;
 use App\Models\User;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Cache;
@@ -85,6 +86,25 @@ class ConnectChat
         }
 
         $this->http()->delete('/v1/app-users/'.$userId)->throw();
+    }
+
+    /**
+     * El nombre de la clienta, para que el chat de Connect la muestre como
+     * la conocemos acá y no como su perfil de WhatsApp ("." o un emoji).
+     * Si Connect no la conoce (nunca escribió), no pasa nada. Lanza si
+     * falla, para que el job reintente.
+     */
+    public function renameContact(Client $client): void
+    {
+        if (! $this->isConfigured() || empty($client->phone)) {
+            return;
+        }
+
+        $this->http()->patch('/v1/contacts', [
+            'phone' => (string) $client->phone,
+            'business_id' => (string) $client->business_id,
+            'name' => trim($client->name.' '.($client->last_name ?? '')),
+        ])->throw();
     }
 
     /**
