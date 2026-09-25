@@ -58,6 +58,13 @@ class AvailabilityCapability implements Capability
     private const MAX_FILAS = 10;
 
     /** Quien no tiene preferencia de profesional. */
+    /*
+     * La salida al final del catálogo. Claus pasó tres veces por «Muéstrame
+     * más servicios» y la última página terminaba en tres nombres, sin
+     * decirle qué hacer si el suyo no estaba. Se fue.
+     */
+    public const NO_LO_ENCUENTRO = 'No encuentro el mío';
+
     /** Las salidas al final de la lista de horas. */
     public const OTRO_DIA = 'Otro día';
 
@@ -384,6 +391,12 @@ class AvailabilityCapability implements Capability
                 ]);
             }
 
+            $salidas = $this->sinHoras($caller, $nombreServicios, $fecha, $arguments);
+
+            if ($salidas !== null) {
+                return $salidas;
+            }
+
             return [
                 'servicios' => $nombreServicios,
                 'fecha' => $fecha->format('Y-m-d'),
@@ -698,6 +711,75 @@ class AvailabilityCapability implements Capability
     }
 
     /**
+     * "No me quedan horas", con por dónde seguir.
+     *
+     * Antes era una pregunta al aire: «¿Te sirve otro día?». Claus
+     * escribió «Hoy», eso llegó al modelo sin nada tocado, y el modelo
+     * la saludó de nuevo y le preguntó qué servicio quería -- después de
+     * tres páginas de catálogo. Con botones, el día que toque vuelve a la
+     * agenda con el mismo servicio y la misma persona (ver Toques, 1.5).
+     *
+     * @param  list<string>  $servicios
+     * @param  array<string, mixed>  $arguments
+     * @return array<string, mixed>|null
+     */
+    private function sinHoras(AiCaller $caller, array $servicios, CarbonImmutable $fecha, array $arguments): ?array
+    {
+        $phone = ChannelPhone::normalize((string) $caller->phone, $caller->business->country_code ?? 'CO');
+
+        if ($phone === null || $caller->isStaff()) {
+            return null;
+        }
+
+        $tz = $caller->business->businessTimezone();
+        $hoy = CarbonImmutable::now($tz)->startOfDay();
+        $dia = $fecha->locale('es')->isoFormat('dddd D [de] MMMM');
+        $con = $arguments['empleado'] ?? null;
+
+        $filas = [];
+        if (! $fecha->isSameDay($hoy)) {
+            $filas[] = ['id' => 'hoy', 'title' => 'Hoy'];
+        }
+        if (! $fecha->isSameDay($hoy->addDay())) {
+            $filas[] = ['id' => 'manana', 'title' => 'Mañana'];
+        }
+        $filas[] = ['id' => 'otro_dia', 'title' => self::OTRO_DIA];
+        if (! empty($con)) {
+            $filas[] = ['id' => 'otra_persona', 'title' => self::OTRA_PERSONA];
+        }
+        $filas[] = ['id' => 'consultar', 'title' => \App\Ai\Toques::CONSULTAR];
+
+        $texto = sprintf(
+            'Para *%s* el *%s*%s no me quedan horas 😕 ¿Buscamos otro día?',
+            implode(' y ', $servicios),
+            $dia,
+            empty($con) ? '' : ' con '.$con,
+        );
+
+        if (! app(EnvioDirecto::class)->opciones($caller, $texto, $filas, 'Ver opciones')) {
+            return null;
+        }
+
+        UltimoPedido::guardar($phone, [
+            ...UltimoPedido::ver($phone),
+            'servicios' => $servicios,
+            'eligiendo_fecha' => true,
+            'sin_horas' => ['servicio' => implode(' y ', $servicios), 'dia' => $dia, 'con' => $con],
+        ]);
+
+        return [
+            'servicios' => $servicios,
+            'fecha' => $fecha->format('Y-m-d'),
+            'dia' => $dia,
+            'horas' => [],
+            'eligiendo_fecha' => true,
+            'instruccion' => 'No hay horas ese día y YA se lo dije, con botones para elegir otro día, '
+                .'otra persona o consultar al equipo. SOLO POR ESTA VEZ responde con una cadena vacía. '
+                .'Si después escribe un día, vuelve a llamarme con esa `fecha` (recuerdo el servicio).',
+        ];
+    }
+
+    /**
      * ¿El mensaje ya nombra un servicio o una categoría del catálogo?
      *
      * OJO: las palabras de agendar se quitan ANTES de preguntar, porque
@@ -825,7 +907,19 @@ class AvailabilityCapability implements Capability
                 'title' => ServiciosPendientes::VER_MAS,
                 'description' => 'Quedan '.count($faltan).' más',
             ];
+        } elseif (count($filas) < self::MAX_FILAS) {
+            $filas[] = [
+                'id' => 'no_esta',
+                'title' => self::NO_LO_ENCUENTRO,
+                'description' => 'Cuéntame qué te quieres hacer',
+            ];
         }
+
+        /*
+         * Y siempre la otra puerta: escribirlo. Claus pasó tres páginas
+         * buscando «Press-On» sin saber que podía decirlo con sus palabras.
+         */
+        $titulo .= "\n\nSi no lo ves, también puedes escribirme qué te quieres hacer y te ayudo 😊";
 
         if (! app(EnvioDirecto::class)->opciones($caller, $titulo, $filas, 'Ver servicios')) {
             return null;

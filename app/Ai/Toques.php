@@ -224,6 +224,33 @@ final class Toques
                 if (in_array($plano, ['otro dia', 'otro'], true)) {
                     return $this->losProximosDias($conversacion, $phone, $pedido);
                 }
+
+                // Salidas del "no me quedan horas" (AvailabilityCapability::sinHoras).
+                if (! empty($pedido['sin_horas']) && $plano === $this->plano(AvailabilityCapability::OTRA_PERSONA)) {
+                    unset($pedido['eligiendo_fecha'], $pedido['sin_horas'], $pedido['empleado'], $pedido['empleado_preguntado']);
+                    UltimoPedido::guardar($phone, $pedido);
+
+                    return $this->respuestaDe($this->disponibilidad->execute($caller, []), 'otra_persona');
+                }
+
+                if (! empty($pedido['sin_horas']) && $plano === $this->plano(self::CONSULTAR)) {
+                    $sin = $pedido['sin_horas'];
+                    unset($pedido['eligiendo_fecha'], $pedido['sin_horas']);
+                    UltimoPedido::guardar($phone, $pedido);
+
+                    AlEquipo::pasar($conversacion, sprintf(
+                        'Quiere %s el %s%s y no hay horas. ¿Se le puede abrir un espacio?',
+                        $sin['servicio'] ?? 'una cita',
+                        $sin['dia'] ?? '',
+                        empty($sin['con']) ? '' : ' con '.$sin['con'],
+                    ));
+
+                    return [
+                        'text' => '¡Listo! 🙏 Le pregunto al equipo si te pueden abrir un espacio y te confirmamos por aquí enseguida.',
+                        'conversation_id' => null,
+                        'tools_used' => ['consultar_sin_horas'],
+                    ];
+                }
             }
 
             // Escribió el día con sus palabras ("el viernes"): del modelo,
@@ -291,6 +318,25 @@ final class Toques
             }
         }
 
+        // 2.9) No encuentra su servicio en el catálogo: que lo diga con sus
+        // palabras. El modelo sabe traducir «manos y pies en semi» a los
+        // nombres del catálogo; ella no tiene por qué saber cómo se llaman.
+        foreach ($candidatos as $plano) {
+            if ($plano === $this->plano(AvailabilityCapability::NO_LO_ENCUENTRO)) {
+                ServiciosPendientes::olvidar($phone);
+                unset($pedido['opciones']);
+                UltimoPedido::guardar($phone, $pedido);
+
+                return [
+                    'text' => '¡Claro! 😊 Cuéntame con tus palabras qué te quieres hacer '
+                        .'(por ejemplo «manos y pies en semi» o «quitarme el acrílico y ponerme semi») '
+                        .'y te ayudo a encontrarlo.',
+                    'conversation_id' => null,
+                    'tools_used' => ['no_encuentra_servicio'],
+                ];
+            }
+        }
+
         // 3) Tocó un servicio de una lista de servicios. El toque llega
         // RECORTADO (WhatsApp corta los títulos a 24): se busca la opción
         // completa y es esa la que se consulta, no el pedazo.
@@ -344,7 +390,7 @@ final class Toques
      */
     private function conElDia(AiCaller $caller, string $phone, array $pedido, string $fecha): ?array
     {
-        unset($pedido['eligiendo_fecha'], $pedido['fechas']);
+        unset($pedido['eligiendo_fecha'], $pedido['fechas'], $pedido['sin_horas']);
         UltimoPedido::guardar($phone, [...$pedido, 'fecha' => $fecha]);
         // Un boton tocado es palabra suya: manda sobre el modelo.
         DateInText::pin($phone, ['fecha']);

@@ -158,7 +158,10 @@ class ListaDeServiciosTest extends TestCase
 
         $segundos = collect($this->ultimaLista())->pluck('title');
 
-        $this->assertCount(5, $segundos);
+        // Los cinco que faltaban y, al final, la salida para escribirlo.
+        $this->assertCount(6, $segundos);
+        $this->assertSame('No encuentro el mío', $segundos->last());
+        $segundos = $segundos->slice(0, 5);
         // Los de la segunda tanda no se repiten con los de la primera:
         // volver a ver lo mismo se lee como que el bot no entendió.
         $this->assertTrue($segundos->intersect($primeros)->isEmpty());
@@ -180,7 +183,9 @@ class ListaDeServiciosTest extends TestCase
 
         $filas = collect($this->ultimaLista())->pluck('title');
 
-        $this->assertCount(3, $filas);
+        // Los tres, sin «Muéstrame más», y la salida por si no está el suyo.
+        $this->assertCount(4, $filas);
+        $this->assertSame('No encuentro el mío', $filas->last());
         $this->assertFalse($filas->contains('Muéstrame más servicios'));
     }
 
@@ -216,7 +221,7 @@ class ListaDeServiciosTest extends TestCase
         $respuesta = $this->invoke('disponibilidad', ['servicio' => 'Muéstrame más servicios'])->assertOk();
 
         // Lo que llega es la segunda tanda, no la pregunta del día.
-        $segundos = collect($this->ultimaLista())->pluck('title');
+        $segundos = collect($this->ultimaLista())->pluck('title')->slice(0, 5);
 
         $this->assertCount(5, $segundos);
         $this->assertTrue($segundos->intersect($primeros)->isEmpty());
