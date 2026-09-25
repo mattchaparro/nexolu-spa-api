@@ -28,6 +28,24 @@ class DailyDigestService
     /** @return list<string> */
     public function recipients(Business $business): array
     {
+        /*
+         * A dónde quiere el negocio los avisos, si lo dijo.
+         *
+         * El usuario dueño de Luxury es admin@luxurynails.com.co --su
+         * cuenta para entrar-- pero Alejandro lee mattchaparrof@gmail.com,
+         * que ya es su usuario de plataforma y no puede repetirse. Los
+         * avisos van a donde se leen, no a donde se inicia sesión.
+         */
+        $propios = collect((array) $business->schedulingSetting('notification_emails'))
+            ->map(fn ($e) => trim((string) $e))
+            ->filter(fn (string $e) => filter_var($e, FILTER_VALIDATE_EMAIL) !== false)
+            ->values()
+            ->all();
+
+        if ($propios !== []) {
+            return $propios;
+        }
+
         return User::withoutGlobalScope('business')
             ->where('business_id', $business->id)
             ->where('is_active', true)

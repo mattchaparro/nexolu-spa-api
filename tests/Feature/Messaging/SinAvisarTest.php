@@ -114,6 +114,19 @@ class SinAvisarTest extends TestCase
         $this->assertStringContainsString('Servicio: Semipermanente con Maria', $correos[0]['text']);
     }
 
+    public function test_si_el_negocio_eligio_su_correo_de_avisos_va_ahi(): void
+    {
+        // La cuenta para entrar no es necesariamente el buzón que se lee.
+        $this->business->update(['scheduling_settings' => [
+            ...(array) $this->business->scheduling_settings,
+            'notification_emails' => ['duenio@correo.test'],
+        ]]);
+
+        $this->agendar();
+
+        $this->assertSame(['duenio@correo.test'], array_column(array_column($this->correos(), 'to'), 'email'));
+    }
+
     public function test_sin_avisar_tampoco_sale_el_correo(): void
     {
         $this->agendar(['silent' => true]);
