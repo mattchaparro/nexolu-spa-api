@@ -821,12 +821,19 @@ class GuidedEntryTest extends TestCase
         $this->assertTrue((bool) $this->conversacion->client->fresh()->accepts_marketing);
     }
 
-    public function test_agendar_cita_del_aviso_entra_directo_al_agendar_por_botones(): void
+    public function test_agendar_cita_del_aviso_abre_el_mensaje_de_inicio(): void
     {
         $respuesta = $this->escribe(GuidedEntry::BOOK_APPOINTMENT);
 
-        // Lo mismo que «Agendar aquí»: los servicios, sin pasar por el menú de inicio.
-        $this->assertContains($respuesta['tools_used'][0] ?? null, ['menu_inicial', 'agendar']);
+        // El mensaje con que empieza toda conversación, con sus tres botones
+        // y la nota de "reiniciar".
+        $this->assertSame(['menu_root'], $respuesta['tools_used']);
+        $this->assertSame([GuidedEntry::BOOK, GuidedEntry::MY_APPOINTMENTS, GuidedEntry::OTHER], $this->ultimosBotones());
+        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'reiniciar'));
+
+        // Y el toque siguiente se enruta desde ese menú: «Agendar» ofrece aquí o en la web.
+        $this->escribe(GuidedEntry::BOOK);
+        $this->assertSame([GuidedEntry::HERE, GuidedEntry::WEB], $this->ultimosBotones());
         $this->assertStringContainsString('Agendar cita', (string) $this->conversacion->client->fresh()->notes);
     }
 

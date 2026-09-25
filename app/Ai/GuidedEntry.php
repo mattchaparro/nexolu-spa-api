@@ -961,7 +961,11 @@ final class GuidedEntry
         if ($tocado === $this->plain(self::BOOK_APPOINTMENT)) {
             $this->noteOnClient($caller, 'Tocó «Agendar cita» en el aviso del número nuevo.');
 
-            return $this->bookHere($caller, $phone);
+            // El mismo mensaje con que empieza toda conversación: agendar
+            // (aquí o en la web), mis citas, otra consulta, y la nota de
+            // "reiniciar". Así conoce el bot del número nuevo desde el
+            // principio, no a mitad de un flujo.
+            return $this->showMenu($caller, $phone, 'root');
         }
 
         if ($tocado === $this->plain(self::CANT_WRITE)) {
