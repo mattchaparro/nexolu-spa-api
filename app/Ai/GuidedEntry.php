@@ -950,7 +950,13 @@ final class GuidedEntry
              * Si ya tenemos uno usable se le muestra, y un "sí" lo confirma.
              * La respuesta siguiente la atiende fromNamePrompt.
              */
-            Cache::put(self::ASKING_NAME.$phone, true, now()->addHours(8));
+            /*
+             * Tres días y no unas horas: quien venía hablando con este número
+             * cuando era un WhatsApp normal puede tocar los botones pero no
+             * escribir ("no tiene WhatsApp") hasta que borra el chat y lo
+             * abre de nuevo -- y eso puede ser mañana.
+             */
+            Cache::put(self::ASKING_NAME.$phone, true, now()->addDays(3));
 
             $actual = trim($caller->client->name.' '.$caller->client->last_name);
             $pregunta = NombreDePila::deSaludo($caller->client->name) === null
@@ -959,7 +965,8 @@ final class GuidedEntry
 
             return $this->reply(
                 $phone,
-                "¡Qué alegría! 💅 Ya quedaste con nuestro número nuevo.\n\nPara tenerte bien guardada: {$pregunta}",
+                "¡Qué alegría! 💅 Ya quedaste con nuestro número nuevo.\n\nPara tenerte bien guardada: {$pregunta}"
+                    ."\n\n_Si no te deja escribirnos aquí, guarda el número, borra este chat y escríbenos desde tus contactos 💛_",
                 'pedir_nombre',
             );
         }
