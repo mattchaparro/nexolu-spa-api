@@ -103,6 +103,14 @@ class MessageDispatcher
          * hilo llenaria la bandeja de cosas que nadie tiene que contestar.
          */
         ?WhatsappConversation $conversation = null,
+        /*
+         * Un botón que abre un enlace debajo del texto: el «Seguir en
+         * Instagram» de la confirmación. Solo con la ventana abierta y sin
+         * plantilla; si el canal no sabe mandarlo, va pegado al texto.
+         *
+         * @var array{url: string, title: string}|null
+         */
+        ?array $link = null,
     ): ?Message {
         // Callado: ni se envía ni queda en la bandeja para mandarlo a mano.
         if (self::$silenced) {
@@ -137,6 +145,8 @@ class MessageDispatcher
                 'template_name' => $template?->name,
                 'template_language' => $template?->language,
                 'template_params' => $template?->params,
+                'link_url' => $link['url'] ?? null,
+                'link_title' => $link['title'] ?? null,
                 /*
                  * De que difusion salio. Existe por el indice unico
                  * (broadcast_id, client_id): si el comando corre dos veces, o
@@ -231,13 +241,7 @@ class MessageDispatcher
                     $message->kind,
                     $idempotencyKey,
                 )
-                : $this->channel->sendText(
-                    $message->to,
-                    $message->body,
-                    $message->business_id,
-                    $message->kind,
-                    $idempotencyKey,
-                );
+                : $this->sendTextOrLink($message, $idempotencyKey);
 
             if (! $ok) {
                 $error = 'El canal rechazó el envío.';
@@ -280,6 +284,36 @@ class MessageDispatcher
         ])->save();
 
         return $ok;
+    }
+
+    /**
+     * El texto, con su botón de enlace si lo trae.
+     *
+     * Si el canal no sabe mandar botones de enlace (el de pruebas, uno
+     * futuro), el enlace va pegado al final del texto: nunca se pierde.
+     */
+    private function sendTextOrLink(Message $message, string $idempotencyKey): bool
+    {
+        if ($message->link_url === null) {
+            return $this->channel->sendText(
+                $message->to, $message->body, $message->business_id, $message->kind, $idempotencyKey,
+            );
+        }
+
+        if (method_exists($this->channel, 'sendLink')) {
+            return $this->channel->sendLink(
+                $message->to,
+                $message->body,
+                $message->link_url,
+                (string) ($message->link_title ?: 'Abrir'),
+                $message->business_id,
+                $idempotencyKey,
+            );
+        }
+
+        return $this->channel->sendText(
+            $message->to, $message->body."\n".$message->link_url, $message->business_id, $message->kind, $idempotencyKey,
+        );
     }
 
     /**

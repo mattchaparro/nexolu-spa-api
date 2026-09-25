@@ -83,6 +83,36 @@ class FakeMessagingChannel implements MessagingChannel
         return true;
     }
 
+    /** Texto con botón de enlace: se registra como texto, con su enlace. */
+    public function sendLink(
+        string $to,
+        string $body,
+        string $url,
+        string $title,
+        ?int $businessId = null,
+        ?string $idempotencyKey = null,
+    ): bool {
+        if ($this->throws !== null) {
+            throw new \RuntimeException($this->throws);
+        }
+
+        if ($this->rejects) {
+            return false;
+        }
+
+        $this->sent[] = [
+            'to' => $to,
+            'body' => $body,
+            'type' => 'enlace',
+            'template' => null,
+            'params' => [],
+            'idempotency_key' => $idempotencyKey,
+            'link' => ['url' => $url, 'title' => $title],
+        ];
+
+        return true;
+    }
+
     public function sendTemplate(
         string $to,
         string $name,

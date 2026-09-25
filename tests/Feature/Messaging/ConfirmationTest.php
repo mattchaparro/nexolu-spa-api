@@ -345,6 +345,23 @@ class ConfirmationTest extends TestCase
         $this->assertSame(['Recomendaciones', 'Garantías'], $this->botonesOfrecidos());
     }
 
+    public function test_la_confirmacion_del_panel_trae_instagram_como_boton(): void
+    {
+        /*
+         * La de la web y la del panel llegaban con la URL de Instagram
+         * pegada al final; la del bot ya traía el botón. Ahora las tres.
+         */
+        $this->business->forceFill(['public_profile' => ['instagram' => '@luxurynails']])->save();
+        $this->escribioHace(1);
+
+        app(ConfirmacionDelPanel::class)->enviar($this->cita()->fresh('business'));
+
+        $enviado = $this->canal->sent[0];
+        $this->assertSame(['url' => 'https://instagram.com/luxurynails', 'title' => 'Seguir en Instagram'], $enviado['link']);
+        $this->assertStringNotContainsString('instagram.com', $enviado['body']);
+        $this->assertStringContainsString('¡Tu cita quedó confirmada!', $enviado['body']);
+    }
+
     public function test_la_confirmacion_del_panel_fuera_de_la_ventana_no_manda_un_segundo_mensaje(): void
     {
         // Sale como plantilla, que ya lleva los botones adentro.

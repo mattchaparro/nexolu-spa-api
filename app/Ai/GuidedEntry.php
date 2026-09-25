@@ -1084,7 +1084,18 @@ final class GuidedEntry
         }
 
         $normal = $this->plain($t);
-        foreach (['cita', 'agendar', 'quiero', 'gracias', 'buenas', 'precio', 'cuanto', 'manana', 'hoy', 'servicio', 'unas'] as $palabra) {
+        /*
+         * Lo que es una orden o un botón, no un nombre. Alejandra contestó
+         * «Reiniciar» cuando se le preguntó el nombre y quedó guardada así:
+         * el bot le decía «¡Hola, Reiniciar!» y a su manicurista le llegó
+         * «Clienta: Reiniciar».
+         */
+        foreach ([
+            'cita', 'citas', 'agendar', 'quiero', 'gracias', 'buenas', 'precio', 'cuanto', 'manana', 'hoy',
+            'servicio', 'unas', 'reiniciar', 'reinicio', 'empezar', 'menu', 'volver', 'inicio', 'cancelar',
+            'salir', 'ayuda', 'consulta', 'hola', 'no', 'web', 'aqui', 'tarjeta', 'calificar', 'garantia',
+            'garantias', 'ubicacion', 'promociones', 'baja', 'stop', 'otra', 'otro', 'ver',
+        ] as $palabra) {
             if (preg_match('/\b'.$palabra.'\b/u', $normal)) {
                 return null;
             }

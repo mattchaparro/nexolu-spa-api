@@ -117,7 +117,7 @@ class Message extends Model
     protected $fillable = [
         'business_id', 'location_id', 'kind', 'direction', 'to', 'client_id',
         'conversation_id', 'appointment_id',
-        'body', 'template_name', 'template_language', 'template_params', 'broadcast_id',
+        'body', 'template_name', 'template_language', 'template_params', 'link_url', 'link_title', 'broadcast_id',
         'status', 'attempts', 'sent_at', 'failed_at', 'error', 'sent_by_user_id',
         'provider_message_id', 'delivered_at', 'read_at',
     ];

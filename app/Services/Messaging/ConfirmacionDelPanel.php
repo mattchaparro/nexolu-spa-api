@@ -53,14 +53,22 @@ final class ConfirmacionDelPanel
         }
 
         try {
+            /*
+             * El Instagram como BOTÓN «Seguir en Instagram», igual que en la
+             * confirmación del bot. Pegado al texto era una URL larga que
+             * nadie tocaba (Alejandro lo vio en la reserva web de Aleja).
+             */
+            $instagram = ConfirmationMessage::instagram($appointment);
+
             $message = $this->dispatcher->queue(
                 $appointment->business,
                 Message::KIND_CONFIRMATION,
                 $phone,
-                ConfirmationMessage::text($appointment),
+                ConfirmationMessage::text($appointment, conInstagram: $instagram === null),
                 $appointment,
                 $appointment->client,
                 ConfirmationMessage::template($appointment),
+                link: $instagram === null ? null : ['url' => $instagram, 'title' => 'Seguir en Instagram'],
             );
         } catch (Throwable $e) {
             /*

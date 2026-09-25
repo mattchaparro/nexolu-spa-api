@@ -917,6 +917,17 @@ class GuidedEntryTest extends TestCase
         $this->assertNull($clienta->last_name);
     }
 
+    public function test_una_orden_no_se_guarda_como_nombre(): void
+    {
+        // Alejandra contestó «Reiniciar» y quedó guardada con ese nombre.
+        $this->conversacion->client->forceFill(['name' => '.'])->save();
+        $this->escribe(GuidedEntry::STILL_CLIENT);
+
+        $this->escribe('Reiniciar');
+
+        $this->assertSame('.', $this->conversacion->client->fresh()->name);
+    }
+
     public function test_si_no_teniamos_su_nombre_se_lo_pregunta_y_lo_guarda(): void
     {
         // 35 de las 161 del aviso se llaman "?", "." o "Cc".
