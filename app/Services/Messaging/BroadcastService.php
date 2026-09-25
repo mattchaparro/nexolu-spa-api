@@ -44,6 +44,15 @@ class BroadcastService
             ->where('is_active', true)
             ->where('accepts_marketing', true)
             ->whereNotNull('phone')
+            /*
+             * Una lista puntual de clientas: reintentar a las que Meta frenó
+             * ayer, por ejemplo. Las demás reglas siguen aplicando: si una
+             * se dio de baja entre tanto, no le llega.
+             */
+            ->when(
+                ! empty($filtros['client_ids']),
+                fn ($q) => $q->whereIn('id', array_map('intval', (array) $filtros['client_ids'])),
+            )
             ->when(
                 ! empty($filtros['location_id']),
                 fn ($q) => $q->whereHas(

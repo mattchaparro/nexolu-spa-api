@@ -147,6 +147,19 @@ class BroadcastTest extends TestCase
         $this->assertSame('Carolina', Message::withoutGlobalScopes()->first()->client->name);
     }
 
+    public function test_una_lista_puntual_solo_le_llega_a_esas_y_respeta_las_bajas(): void
+    {
+        // Reintentar a las que Meta frenó: solo ellas, y nunca a quien se dio de baja.
+        $carolina = $this->clienta('Carolina');
+        $this->clienta('Lucia');
+        $baja = $this->clienta('Ana', acepta: false);
+
+        $enviados = $this->service()->dispatch($this->difusion(['audience' => ['client_ids' => [$carolina->id, $baja->id]]]));
+
+        $this->assertSame(1, $enviados);
+        $this->assertSame('Carolina', Message::withoutGlobalScopes()->sole()->client->name);
+    }
+
     public function test_no_le_llega_a_una_ficha_inactiva(): void
     {
         $this->clienta('Carolina');
