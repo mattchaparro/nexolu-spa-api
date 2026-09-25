@@ -44,6 +44,16 @@ Schedule::command('retoques:recordar')
     ->runInBackground();
 
 /*
+ * «¿Te ayudo?» a quien dejó un agendamiento a medias hace 15 minutos.
+ * Cada cinco minutos: la pregunta tiene que llegar mientras todavía se
+ * acuerda de qué estaba haciendo (ver NudgeAbandonedBookings).
+ */
+Schedule::command('bot:nudge-abandoned')
+    ->everyFiveMinutes()
+    ->withoutOverlapping()
+    ->runInBackground();
+
+/*
  * Difusiones programadas.
  *
  * Cada cinco minutos, no cada quince: que una promocion salga cuatro minutos
