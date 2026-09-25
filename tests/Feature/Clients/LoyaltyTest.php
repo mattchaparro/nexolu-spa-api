@@ -208,6 +208,28 @@ class LoyaltyTest extends TestCase
         $this->assertSame(2, $this->getJson("/api/v1/clients/{$cliente}/loyalty")->json('stamps'));
     }
 
+    public function test_un_retiro_no_suma_sello(): void
+    {
+        /*
+         * El retiro es el paso previo al servicio, no la visita que el salón
+         * premia. Y si ese día después viene el servicio de verdad, ese sí
+         * suma: el retiro no le quita el sello del día.
+         */
+        $this->crearPrograma(['stamps_required' => 5]);
+        $servicio = $this->service;
+        $retiro = $this->makeService($this->business, 30, [$this->maria], name: 'Retiro Semipermanente');
+        $retiro->update(['earns_stamps' => false]);
+
+        $this->service = $retiro;
+        $this->visita('09:00');
+        $cliente = $this->clienteId();
+        $this->assertSame(0, $this->getJson("/api/v1/clients/{$cliente}/loyalty")->assertOk()->json('stamps'));
+
+        $this->service = $servicio;
+        $this->visita('10:00', $cliente, mismoDia: true);
+        $this->assertSame(1, $this->getJson("/api/v1/clients/{$cliente}/loyalty")->json('stamps'));
+    }
+
     public function test_una_cita_no_puede_dar_dos_sellos(): void
     {
         /*

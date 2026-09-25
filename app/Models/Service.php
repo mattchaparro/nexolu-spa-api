@@ -18,13 +18,14 @@ class Service extends Model
     protected $fillable = [
         'business_id', 'name', 'slug', 'description', 'image_path', 'service_category_id',
         'duration_min', 'retouch_days', 'buffer_before_min', 'buffer_after_min',
-        'price', 'commission_rate', 'is_bookable_online', 'is_active', 'sort_order',
+        'price', 'commission_rate', 'is_bookable_online', 'earns_stamps', 'is_active', 'sort_order',
     ];
 
     protected function casts(): array
     {
         return [
             'duration_min' => 'integer',
+            'earns_stamps' => 'boolean',
             'retouch_days' => 'integer',
             'buffer_before_min' => 'integer',
             'buffer_after_min' => 'integer',

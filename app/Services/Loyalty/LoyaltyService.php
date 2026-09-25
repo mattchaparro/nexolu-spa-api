@@ -66,6 +66,19 @@ class LoyaltyService
             return null;
         }
 
+        /*
+         * Solo si algo de la visita suma sello. Un retiro solo --quitarse
+         * el esmalte-- no es la visita que el salón premia; cada negocio
+         * marca en el servicio si suma (ver `services.earns_stamps`).
+         */
+        $sumaAlgo = $appointment->items()
+            ->whereHas('service', fn ($q) => $q->withoutGlobalScopes()->where('earns_stamps', true))
+            ->exists();
+
+        if (! $sumaAlgo) {
+            return null;
+        }
+
         $total = (float) ($appointment->total ?? 0);
 
         if (! LoyaltyCalculator::earnsStamp($total, (float) $program->min_ticket)) {

@@ -96,6 +96,8 @@ class ServiceAdminController
             // Se guarda como fraccion (0.30), pero el formulario pide 30.
             'commission_rate' => ['nullable', 'numeric', 'min:0', 'max:1'],
             'is_bookable_online' => ['nullable', 'boolean'],
+            // Un retiro no suma sello: es el paso previo al servicio.
+            'earns_stamps' => ['nullable', 'boolean'],
             'is_active' => ['nullable', 'boolean'],
             'sort_order' => ['nullable', 'integer', 'min:0'],
             'image' => ImageStorage::rules(),

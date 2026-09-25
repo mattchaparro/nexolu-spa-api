@@ -34,6 +34,7 @@ class ServiceResource extends JsonResource
             'retouch_days' => $this->retouch_days === null ? null : (int) $this->retouch_days,
             'price' => (float) $this->price,
             'is_bookable_online' => (bool) $this->is_bookable_online,
+            'earns_stamps' => $this->earns_stamps === null ? true : (bool) $this->earns_stamps,
             'is_active' => (bool) $this->is_active,
             'category' => $this->whenLoaded('category', fn () => [
                 'id' => $this->category->id,
