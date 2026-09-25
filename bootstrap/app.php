@@ -7,6 +7,7 @@ use App\Http\Middleware\EnsureSuperAdmin;
 use App\Http\Middleware\EnsureValidConnectKey;
 use App\Http\Middleware\EnsureValidIaCoreKey;
 use App\Http\Middleware\SentryBusinessContext;
+use App\Http\Middleware\SilenceWhenAsked;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -32,6 +33,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'ia-core.key' => EnsureValidIaCoreKey::class,
             'connect.key' => EnsureValidConnectKey::class,
             'permission' => EnsureBusinessPermission::class,
+            'silenciable' => SilenceWhenAsked::class,
             'business-admin' => EnsureBusinessAdmin::class,
             'sentry.context' => SentryBusinessContext::class,
         ]);

@@ -7,6 +7,7 @@ use App\Models\Appointment;
 use App\Models\ServicePackage;
 use App\Services\ClientResolver;
 use App\Services\Messaging\ConfirmacionDelPanel;
+use App\Services\Messaging\MessageDispatcher;
 use App\Services\Scheduling\BookingService;
 use App\Services\Scheduling\Exceptions\SlotUnavailableException;
 use App\Support\AgendaScope;
@@ -258,6 +259,45 @@ class AppointmentController
             new AppointmentResource($appointment->load('items.service', 'items.resource')),
             201,
         );
+    }
+
+    /**
+     * Borrar una cita cargada por error.
+     *
+     * Cancelar es un hecho del negocio -- la clienta no viene -- y avisa.
+     * Esto es corregir el sistema: una cita repetida, de prueba, a la persona
+     * equivocada. Se cancela en silencio (para liberar el horario por el
+     * mismo camino de siempre y dejar quién y por qué en el historial) y
+     * después se borra, así que desaparece de la agenda y de los reportes.
+     *
+     * Una cita cobrada no se borra: esa plata ya está en la caja y en la
+     * comisión de alguien. Primero se deshace el cobro, a la vista.
+     */
+    public function destroy(Request $request, Appointment $appointment): JsonResponse
+    {
+        $data = $request->validate([
+            'reason' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        if ($appointment->checked_out_at !== null) {
+            return response()->json([
+                'message' => 'Esta cita ya está cobrada. Deshaz el cobro antes de eliminarla.',
+            ], 422);
+        }
+
+        $motivo = trim('Eliminada: '.($data['reason'] ?? 'cargada por error'));
+
+        MessageDispatcher::silently(function () use ($appointment, $request, $motivo): void {
+            if ($appointment->status !== Appointment::STATUS_CANCELLED) {
+                $this->booking->cancel($appointment, $request->user()->id, $motivo);
+            } else {
+                $appointment->update(['cancellation_reason' => $motivo]);
+            }
+
+            $appointment->delete();
+        });
+
+        return response()->json(null, 204);
     }
 
     public function cancel(Request $request, Appointment $appointment): AppointmentResource

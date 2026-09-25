@@ -110,6 +110,16 @@ class PermissionCatalog
             // Administracion
             ['name' => 'permisos.gestionar', 'category' => 'administracion', 'label' => 'Gestionar permisos', 'description' => 'Definir que puede hacer cada miembro del equipo.', 'feature' => 'permissions_management'],
             ['name' => 'auditoria.ver', 'category' => 'administracion', 'label' => 'Ver auditoria', 'description' => 'Consultar el registro de acciones.', 'feature' => 'audit_logs'],
+            /*
+             * Los dos permisos de la administración que no se ve.
+             *
+             * Callar los avisos y borrar una cita cargada por error son
+             * trabajo de oficina, no de mostrador: quien los usa está
+             * corrigiendo el sistema, no atendiendo a nadie. Por eso nacen
+             * solo con el rol admin.
+             */
+            ['name' => 'avisos.silenciar', 'category' => 'administracion', 'label' => 'Hacer cambios sin avisar', 'description' => 'Agendar, cobrar, cancelar o mover una cita sin que le llegue mensaje a la clienta ni al equipo.'],
+            ['name' => 'citas.eliminar', 'category' => 'administracion', 'label' => 'Eliminar citas', 'description' => 'Borrar una cita cargada por error. No le avisa a nadie.'],
             ['name' => 'negocio.configurar', 'category' => 'administracion', 'label' => 'Configurar el negocio', 'description' => 'Cambiar datos, horarios y politicas del negocio.'],
         ];
     }

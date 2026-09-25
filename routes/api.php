@@ -199,9 +199,16 @@ Route::prefix('v1')->group(function () {
              */
             Route::get('/{appointment}', [AppointmentController::class, 'show'])
                 ->middleware('permission:citas.ver');
-            Route::post('/', [AppointmentController::class, 'store'])->middleware('permission:citas.crear');
-            Route::patch('/{appointment}/reschedule', [AppointmentController::class, 'reschedule'])->middleware('permission:citas.editar');
-            Route::post('/{appointment}/cancel', [AppointmentController::class, 'cancel'])->middleware('permission:citas.cancelar');
+            Route::post('/', [AppointmentController::class, 'store'])->middleware(['permission:citas.crear', 'silenciable']);
+            Route::patch('/{appointment}/reschedule', [AppointmentController::class, 'reschedule'])->middleware(['permission:citas.editar', 'silenciable']);
+            Route::post('/{appointment}/cancel', [AppointmentController::class, 'cancel'])->middleware(['permission:citas.cancelar', 'silenciable']);
+
+            /*
+             * Borrar una cita cargada por error: repetida, a la persona
+             * equivocada, de prueba. No es cancelar -- nadie canceló nada --
+             * así que no avisa a nadie y la cita desaparece de la agenda.
+             */
+            Route::delete('/{appointment}', [AppointmentController::class, 'destroy'])->middleware('permission:citas.eliminar');
             /*
              * Decir de QUIEN es una cita que se agendo sin ficha.
              *
@@ -212,8 +219,8 @@ Route::prefix('v1')->group(function () {
             Route::patch('/{appointment}/client', [ClientLookupController::class, 'attach'])
                 ->middleware('permission:clientes.identificar');
 
-            Route::post('/{appointment}/checkout', [CheckoutController::class, 'store'])->middleware('permission:caja.cobrar');
-            Route::delete('/{appointment}/checkout', [CheckoutController::class, 'destroy'])->middleware('permission:caja.cobrar');
+            Route::post('/{appointment}/checkout', [CheckoutController::class, 'store'])->middleware(['permission:caja.cobrar', 'silenciable']);
+            Route::delete('/{appointment}/checkout', [CheckoutController::class, 'destroy'])->middleware(['permission:caja.cobrar', 'silenciable']);
 
             // El abono con que el cliente separo. Mismo permiso que cobrar:
             // es plata que entra y tiene que quedar en una cuenta.
@@ -229,7 +236,7 @@ Route::prefix('v1')->group(function () {
             Route::get('/{appointment}/stages', [StageController::class, 'options'])
                 ->middleware('permission:citas.ver');
             Route::post('/{appointment}/stage', [StageController::class, 'move'])
-                ->middleware('permission:citas.editar');
+                ->middleware(['permission:citas.editar', 'silenciable']);
             Route::get('/{appointment}/history', [StageController::class, 'history'])
                 ->middleware('permission:citas.ver');
         });
@@ -282,7 +289,7 @@ Route::prefix('v1')->group(function () {
         // Permiso propio, no el de agendar: registrar lo que YA se hizo no es
         // tocar la agenda. Quien puede agendar tambien puede registrar.
         Route::post('/walk-in', [WalkInController::class, 'store'])
-            ->middleware('permission:servicios.registrar,citas.crear');
+            ->middleware(['permission:servicios.registrar,citas.crear', 'silenciable']);
 
         /*
         |----------------------------------------------------------------------
