@@ -130,6 +130,8 @@ final class GuidedEntry
 
     public const NO_LONGER_CLIENT = 'Ya no voy, gracias';
 
+    public const CANT_WRITE = 'No puedo escribirles';
+
     /** Marca en caché: le preguntamos el nombre y falta la respuesta. */
     private const ASKING_NAME = 'pide_nombre:';
 
@@ -923,6 +925,25 @@ final class GuidedEntry
     private function fromNumberChange(AiCaller $caller, string $phone, string $texto): ?array
     {
         $tocado = $this->plain($texto);
+
+        /*
+         * «No puedo escribirles»: quien venía hablando con este número
+         * cuando era un WhatsApp normal puede tocar botones pero no
+         * escribir, hasta que borra el chat y lo abre de nuevo. Los pasos,
+         * en el orden que importa: guardar ANTES de borrar, o pierde el
+         * número junto con el chat.
+         */
+        if ($tocado === $this->plain(self::CANT_WRITE)) {
+            return $this->reply(
+                $phone,
+                "¡Tranquila, es por el cambio de número y tiene arreglo! 🙏 Haz esto:\n\n"
+                    ."1️⃣ Guarda este número: *304 112 8994* (Luxury Nails)\n"
+                    ."2️⃣ Borra este chat\n"
+                    ."3️⃣ Búscanos en tus contactos y escríbenos\n\n"
+                    .'Así ya te deja escribirnos y agendar 💛',
+                'no_puede_escribir',
+            );
+        }
 
         if ($tocado === $this->plain(self::NO_LONGER_CLIENT)) {
             // La misma llave que ya frena difusiones y retoques: una sola.

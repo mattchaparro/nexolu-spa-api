@@ -795,6 +795,19 @@ class GuidedEntryTest extends TestCase
         $this->assertTrue((bool) $this->conversacion->client->fresh()->accepts_marketing);
     }
 
+    public function test_no_puedo_escribirles_le_da_los_pasos_en_orden(): void
+    {
+        $respuesta = $this->escribe(GuidedEntry::CANT_WRITE);
+
+        $this->assertSame(['no_puede_escribir'], $respuesta['tools_used']);
+        // Guardar ANTES de borrar: si borra primero, pierde el número.
+        $this->assertLessThan(
+            strpos($respuesta['text'], 'Borra este chat'),
+            strpos($respuesta['text'], 'Guarda este número'),
+        );
+        $this->assertStringContainsString('304 112 8994', $respuesta['text']);
+    }
+
     public function test_ya_no_voy_la_saca_de_las_promociones_y_queda_anotado(): void
     {
         /*
