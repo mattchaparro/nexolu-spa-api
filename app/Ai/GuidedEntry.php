@@ -968,7 +968,7 @@ final class GuidedEntry
             return $this->reply(
                 $phone,
                 "¡Tranquila, es por el cambio de número y tiene arreglo! 🙏 Haz esto:\n\n"
-                    ."1️⃣ Guarda este número: *304 112 8994* (Luxury Nails)\n"
+                    ."1️⃣ Guarda este número: *301 948 9912* (Luxury Nails)\n"
                     ."2️⃣ Borra este chat\n"
                     ."3️⃣ Búscanos en tus contactos y escríbenos\n\n"
                     .'Así ya te deja escribirnos y agendar 💛',

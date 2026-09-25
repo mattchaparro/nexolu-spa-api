@@ -840,7 +840,7 @@ class GuidedEntryTest extends TestCase
             strpos($respuesta['text'], 'Borra este chat'),
             strpos($respuesta['text'], 'Guarda este número'),
         );
-        $this->assertStringContainsString('304 112 8994', $respuesta['text']);
+        $this->assertStringContainsString('301 948 9912', $respuesta['text']);
     }
 
     public function test_ya_no_voy_la_saca_de_las_promociones_y_queda_anotado(): void
