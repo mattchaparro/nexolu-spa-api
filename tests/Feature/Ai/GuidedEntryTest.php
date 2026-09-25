@@ -655,6 +655,29 @@ class GuidedEntryTest extends TestCase
         $this->assertNotNull($cita->fresh()->survey_sent_at);
     }
 
+    public function test_con_el_formulario_publicado_calificar_abre_la_encuesta_en_el_chat(): void
+    {
+        /*
+         * El enlace no lo abre nadie (Alejandro, 25-sep): con el Flow
+         * publicado, la encuesta se abre dentro del mismo chat.
+         */
+        config()->set('spa.whatsapp_survey_flow_id', '9988776655');
+        $cita = $this->visitaPasada(1);
+
+        $respuesta = $this->escribe(GuidedEntry::RATE);
+
+        $this->assertSame('', $respuesta['text']);
+        Http::assertSent(function ($request) use ($cita) {
+            $flow = $request->data()['whatsapp_flow'] ?? null;
+
+            return $flow !== null
+                && $flow['flow_id'] === '9988776655'
+                && $flow['screen'] === 'ENCUESTA'
+                && $flow['data']['token'] === $cita->fresh()->survey_token
+                && str_contains($flow['data']['resumen'], 'Semipermanente');
+        });
+    }
+
     public function test_mi_tarjeta_dice_cuantos_sellos_lleva(): void
     {
         /*

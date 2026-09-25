@@ -4,7 +4,9 @@ namespace App\Http\Controllers\Api;
 
 use App\Ai\BookingForm;
 use App\Jobs\AnswerWhatsappMessageJob;
+use App\Ai\SurveyForm;
 use App\Jobs\ProcessBookingFormJob;
+use App\Jobs\ProcessSurveyFormJob;
 use App\Jobs\SendMessageJob;
 use App\Models\Business;
 use App\Models\Client;
@@ -664,9 +666,20 @@ class CommsWebhookController
         }
 
         // El hilo lo cuenta: la clienta ENVIÓ algo, aunque no sea texto.
-        $this->guardarEntrante($conversacion, ($respuesta['pedido'] ?? null) === 'fecha'
-            ? '📅 Eligió en el calendario: '.($respuesta['fecha'] ?? '?')
-            : '📋 Envió el formulario de la cita', $phoneNumberId);
+        $this->guardarEntrante($conversacion, match ($respuesta['pedido'] ?? null) {
+            'fecha' => '📅 Eligió en el calendario: '.($respuesta['fecha'] ?? '?'),
+            'encuesta' => '⭐ Respondió la encuesta: atención '.($respuesta['atencion'] ?? '?')
+                .', servicio '.($respuesta['resultado'] ?? '?')
+                .', puntualidad '.($respuesta['puntualidad'] ?? '?')
+                .(trim((string) ($respuesta['comentario'] ?? '')) !== '' ? ' — «'.trim((string) $respuesta['comentario']).'»' : ''),
+            default => '📋 Envió el formulario de la cita',
+        }, $phoneNumberId);
+
+        if (SurveyForm::isOurs($respuesta)) {
+            ProcessSurveyFormJob::dispatch($conversacion->id, $respuesta);
+
+            return response()->json(['ok' => true, 'handled' => true, 'agent' => 'survey']);
+        }
 
         if (! BookingForm::isOurs($respuesta)) {
             // Un Flow de otro dueño (una encuesta de Connect, por ejemplo):

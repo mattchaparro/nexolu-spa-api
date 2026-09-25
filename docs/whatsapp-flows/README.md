@@ -5,7 +5,14 @@ Dos formularios:
 | Archivo | Para qué | Variable | Estado |
 |---|---|---|---|
 | [confirmar-cita.json](confirmar-cita.json) | Confirmar la cita: hora entre las libres, nombre | `WHATSAPP_BOOKING_FLOW_ID` | **apagado** |
-| [elegir-fecha.json](elegir-fecha.json) | Calendario nativo al tocar «Otro día» | `WHATSAPP_DATE_FLOW_ID` | activo |
+| [elegir-fecha.json](elegir-fecha.json) | Calendario nativo al tocar «Otro día» | `WHATSAPP_DATE_FLOW_ID` | activo (1534622275364453) |
+| [encuesta.json](encuesta.json) | La encuesta al tocar «Calificar servicio»: atención, resultado, puntualidad y comentario | `WHATSAPP_SURVEY_FLOW_ID` | activo (2512441159235696) |
+
+> **Los Flows son de la cuenta de WhatsApp (WABA), no del número.** Al pasar
+> Luxury a la cuenta nueva (1794741854890193) el calendario siguió apuntando
+> al Flow de la cuenta vieja y dejó de abrirse: el bot caía a la lista de 7
+> días. Los dos se publicaron de nuevo en la cuenta nueva el 25-sep-2026
+> (Graph `POST /{waba}/flows` con `publish=true`).
 
 > **Por qué el de confirmar está apagado** (decisión de Alejandro tras
 > probarlo): el desplegable de horas llega con una hora YA seleccionada, y

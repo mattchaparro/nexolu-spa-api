@@ -10,6 +10,8 @@ use App\Models\Appointment;
 use App\Models\Business;
 use App\Models\Client;
 use App\Models\Message;
+use App\Models\ServiceRating;
+use App\Services\Scheduling\BookingService;
 use App\Models\WhatsappConversation;
 use App\Support\ChannelPhone;
 use App\Support\PermissionCatalog;
@@ -109,6 +111,47 @@ class BookingFormTest extends TestCase
             'HTTP_X_NEXOLU_TIMESTAMP' => $timestamp,
             'HTTP_X_NEXOLU_SIGNATURE' => hash_hmac('sha256', $timestamp.'.'.$body, self::SECRET),
         ], $body);
+    }
+
+    public function test_la_encuesta_del_formulario_queda_guardada_y_se_agradece(): void
+    {
+        $maria = $this->luxury->resources()->where('name', 'Maria')->first();
+        $servicio = $this->luxury->services()->where('name', 'Semipermanente')->first();
+        $cita = app(BookingService::class)->book(
+            $this->luxury,
+            [['service_id' => $servicio->id, 'resource_id' => $maria->id, 'starts_at' => CarbonImmutable::now('America/Bogota')->setTime(10, 0)]],
+            $this->conversacion->client, 'Carolina', self::PHONE, Appointment::SOURCE_ADMIN, null, false,
+        );
+        $cita->forceFill(['survey_token' => 'token-de-la-visita', 'survey_sent_at' => now()])->save();
+
+        $this->formulario([
+            'pedido' => 'encuesta',
+            'token' => 'token-de-la-visita',
+            'atencion' => '5',
+            'resultado' => '4',
+            'puntualidad' => '3',
+            'comentario' => 'Me encantó',
+        ], 'wamid.encuesta')->assertOk()->assertJsonPath('agent', 'survey');
+
+        $nota = ServiceRating::withoutGlobalScopes()->where('appointment_id', $cita->id)->sole();
+        $this->assertSame(5, $nota->staff_rating);
+        $this->assertSame(4, $nota->service_rating);
+        $this->assertSame(3, $nota->punctuality_rating);
+        $this->assertSame('Me encantó', $nota->comment);
+        $this->assertSame($maria->id, $nota->resource_id);
+        $this->assertNotNull($cita->fresh()->survey_answered_at);
+
+        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', '¡Gracias por contarnos!'));
+    }
+
+    public function test_una_encuesta_de_otro_negocio_no_se_guarda(): void
+    {
+        $this->formulario([
+            'pedido' => 'encuesta', 'token' => 'no-existe', 'atencion' => '1',
+            'resultado' => '1', 'puntualidad' => '1',
+        ], 'wamid.encuesta-ajena')->assertOk();
+
+        $this->assertSame(0, ServiceRating::withoutGlobalScopes()->count());
     }
 
     private function manana(): CarbonImmutable

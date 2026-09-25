@@ -37,6 +37,12 @@ return [
     */
     'whatsapp_date_flow_id' => env('WHATSAPP_DATE_FLOW_ID'),
 
+    /*
+    | El Flow de la encuesta (docs/whatsapp-flows/encuesta.json) que se abre
+    | al tocar «Calificar servicio». Vacio = el enlace a la encuesta web.
+    */
+    'whatsapp_survey_flow_id' => env('WHATSAPP_SURVEY_FLOW_ID'),
+
     'defaults' => [
         // Granularidad de la rejilla de disponibilidad, en minutos.
         'slot_granularity_min' => 15,

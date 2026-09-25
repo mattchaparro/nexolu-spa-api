@@ -1,0 +1,95 @@
+{
+  "version": "7.2",
+  "screens": [
+    {
+      "id": "ENCUESTA",
+      "title": "¿Cómo te fue?",
+      "terminal": true,
+      "data": {
+        "resumen": {
+          "type": "string",
+          "__example__": "Tu visita del jueves 24 de septiembre: Semi + Rubber con Marcela"
+        },
+        "token": {
+          "type": "string",
+          "__example__": "lhjzduyRYZeaSg4TFLpIL"
+        },
+        "notas": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "title": { "type": "string" }
+            }
+          },
+          "__example__": [
+            { "id": "5", "title": "⭐⭐⭐⭐⭐ Excelente" },
+            { "id": "4", "title": "⭐⭐⭐⭐ Muy bien" },
+            { "id": "3", "title": "⭐⭐⭐ Bien" },
+            { "id": "2", "title": "⭐⭐ Regular" },
+            { "id": "1", "title": "⭐ Mal" }
+          ]
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "Form",
+            "name": "encuesta",
+            "children": [
+              {
+                "type": "TextBody",
+                "text": "${data.resumen}"
+              },
+              {
+                "type": "RadioButtonsGroup",
+                "name": "atencion",
+                "label": "¿Cómo te atendieron?",
+                "required": true,
+                "data-source": "${data.notas}"
+              },
+              {
+                "type": "RadioButtonsGroup",
+                "name": "resultado",
+                "label": "¿Cómo quedó tu servicio?",
+                "required": true,
+                "data-source": "${data.notas}"
+              },
+              {
+                "type": "RadioButtonsGroup",
+                "name": "puntualidad",
+                "label": "¿Te atendimos a tiempo?",
+                "required": true,
+                "data-source": "${data.notas}"
+              },
+              {
+                "type": "TextArea",
+                "name": "comentario",
+                "label": "Cuéntanos más",
+                "required": false,
+                "helper-text": "Opcional: lo que te gustó o qué mejorar"
+              },
+              {
+                "type": "Footer",
+                "label": "Enviar",
+                "on-click-action": {
+                  "name": "complete",
+                  "payload": {
+                    "pedido": "encuesta",
+                    "token": "${data.token}",
+                    "atencion": "${form.atencion}",
+                    "resultado": "${form.resultado}",
+                    "puntualidad": "${form.puntualidad}",
+                    "comentario": "${form.comentario}"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

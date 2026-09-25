@@ -909,6 +909,13 @@ final class GuidedEntry
         }
 
         app(SurveyService::class)->markSent($ultima);
+
+        // El formulario dentro del chat, si está publicado: el enlace no lo
+        // abre nadie. Si no sale, el enlace de siempre.
+        if (app(SurveyForm::class)->send($caller, $ultima->fresh())) {
+            return $this->reply($phone, '', 'calificar');
+        }
+
         $enlace = rtrim((string) config('app.frontend_url', ''), '/').'/encuesta/'.$ultima->fresh()->survey_token;
 
         return $this->reply(
