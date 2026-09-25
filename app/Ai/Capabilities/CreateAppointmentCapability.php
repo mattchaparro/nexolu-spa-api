@@ -10,6 +10,7 @@ use App\Ai\EsUnaPrueba;
 use App\Ai\FechaDicha;
 use App\Ai\HoraLegible;
 use App\Ai\InfoPostCita;
+use App\Ai\InstagramOfrecido;
 use App\Ai\Resolves;
 use App\Ai\UltimoPedido;
 use App\Models\Appointment;
@@ -539,6 +540,11 @@ class CreateAppointmentCapability implements Capability
                 'Seguir en Instagram',
                 $instagram,
             );
+
+        // Ya lo recibió: tocar después «Garantías» no se lo repite.
+        if ($enviada && $instagram !== null) {
+            InstagramOfrecido::marcar((string) $caller->phone);
+        }
 
         /*
          * Y, aparte, lo que el negocio tenga escrito para después de la

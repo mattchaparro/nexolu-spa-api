@@ -250,6 +250,32 @@ class ToquesTest extends TestCase
         $this->assertSame('Cubrimos 5 días el semipermanente.', $respuesta['text']);
     }
 
+    public function test_el_primer_tema_tocado_trae_el_boton_de_instagram_una_vez(): void
+    {
+        /*
+         * La plantilla de confirmación no puede llevar el Instagram (Meta
+         * la volvería publicidad). Se ofrece al tocar el primer botón, que
+         * es cuando la ventana se abre, y una sola vez.
+         */
+        $this->business->forceFill(['public_profile' => ['instagram' => '@luxurynails']])->save();
+        config()->set('services.ia_core.base_url', 'http://ia-core.test');
+        Http::fake([
+            'comms.test/*' => Http::response(['results' => [['channel' => 'whatsapp', 'status' => 'sent']]]),
+            'ia-core.test/*' => Http::response([
+                ['id' => 'k1', 'topic' => 'Garantías', 'answer' => 'Cubrimos 5 días.', 'is_active' => true, 'updated_at' => '2026-09-22T10:00:00'],
+                ['id' => 'k2', 'topic' => 'Cancelaciones', 'answer' => 'Con 3 horas.', 'is_active' => true, 'updated_at' => '2026-09-22T10:00:00'],
+            ]),
+        ]);
+
+        $primera = $this->toques()->atender($this->conversacion, 'Info de garantías');
+        $this->assertSame('', $primera['text']);
+        Http::assertSent(fn ($r) => ($r->data()['text'] ?? '') === 'Cubrimos 5 días.'
+            && ($r->data()['whatsapp_cta']['title'] ?? null) === 'Seguir en Instagram');
+
+        $segunda = $this->toques()->atender($this->conversacion, 'Cancelaciones');
+        $this->assertSame('Con 3 horas.', $segunda['text']);
+    }
+
     public function test_la_lista_trae_la_ubicacion_del_salon(): void
     {
         /*

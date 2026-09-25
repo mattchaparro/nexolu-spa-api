@@ -4,6 +4,7 @@ namespace App\Services\Messaging;
 
 use App\Ai\AiCaller;
 use App\Ai\InfoPostCita;
+use App\Ai\InstagramOfrecido;
 use App\Models\Appointment;
 use App\Models\Message;
 use App\Support\Scheduling\ConfirmationMessage;
@@ -87,6 +88,12 @@ final class ConfirmacionDelPanel
         }
 
         if ($message?->status === Message::STATUS_SENT) {
+            // Salió como texto con el botón: ya se le ofreció el Instagram.
+            if ($message->link_url !== null && $message->template_name !== null
+                && $this->dispatcher->windowIsOpenFor($appointment->business, $phone)) {
+                InstagramOfrecido::marcar($message->to);
+            }
+
             $this->ofrecerInfo($appointment, $phone);
         }
 

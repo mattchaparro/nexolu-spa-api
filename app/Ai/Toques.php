@@ -10,6 +10,7 @@ use App\Models\ResourceSchedule;
 use App\Models\WhatsappConversation;
 use App\Services\WhatsApp\NexoluCommsChannel;
 use App\Support\ChannelPhone;
+use App\Support\PublicProfile;
 use Carbon\CarbonImmutable;
 
 /**
@@ -100,6 +101,13 @@ final class Toques
         $info = app(InfoPostCita::class)->respuestaA($phone, $this->plano($ultimaLinea), $caller);
 
         if ($info !== null) {
+            // La primera vez en el día, con el botón de Instagram debajo:
+            // la plantilla de confirmación no puede llevarlo (ver
+            // InstagramOfrecido).
+            if ($this->conInstagram($caller, $phone, $info)) {
+                return ['text' => '', 'conversation_id' => null, 'tools_used' => ['info_post_cita']];
+            }
+
             return ['text' => $info, 'conversation_id' => null, 'tools_used' => ['info_post_cita']];
         }
 
@@ -320,6 +328,24 @@ final class Toques
         $this->anotar($conversacion, $phone, $texto."\n\n".implode("\n", array_map(fn ($f) => '▸ '.$f['title'], $filas)));
 
         return ['text' => '', 'conversation_id' => null, 'tools_used' => ['elegir_dia']];
+    }
+
+    /** La respuesta con «Seguir en Instagram», si hoy no se le ofreció. */
+    private function conInstagram(AiCaller $caller, string $phone, string $texto): bool
+    {
+        $instagram = PublicProfile::resolve($caller->business)['instagram'] ?? null;
+
+        if (empty($instagram) || ! InstagramOfrecido::reservar($phone)) {
+            return false;
+        }
+
+        if (app(EnvioDirecto::class)->conEnlace($caller, $texto, 'Seguir en Instagram', (string) $instagram)) {
+            return true;
+        }
+
+        InstagramOfrecido::soltar($phone);
+
+        return false;
     }
 
     /**
