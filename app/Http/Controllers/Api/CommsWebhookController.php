@@ -136,7 +136,7 @@ class CommsWebhookController
          * Va antes de la cola a proposito: si el agente falla, el mensaje de
          * la clienta ya esta escrito y alguien puede responderlo.
          */
-        $entrante = $this->guardarEntrante($conversacion, $texto);
+        $entrante = $this->guardarEntrante($conversacion, $texto, $phoneNumberId);
 
         /*
          * Si un flujo de Connect ya atendio este mensaje (avanzo botones,
@@ -363,7 +363,7 @@ class CommsWebhookController
      *
      * Y `read_at` vuelve a nulo: llego algo nuevo que nadie ha visto.
      */
-    private function guardarEntrante(WhatsappConversation $conversacion, string $texto): Message
+    private function guardarEntrante(WhatsappConversation $conversacion, string $texto, ?string $phoneNumberId = null): Message
     {
         $mensaje = Message::create([
             'business_id' => $conversacion->business_id,
@@ -385,6 +385,12 @@ class CommsWebhookController
         $conversacion->update([
             'last_message_at' => now(),
             'last_inbound_at' => now(),
+            /*
+             * Por qué número llegó: la ventana de 24 horas es con ESE número
+             * (ver WhatsappConversation::windowIsOpen). Si el mensaje no lo
+             * trae, se deja el que había y no se borra.
+             */
+            ...($phoneNumberId !== null ? ['last_inbound_phone_number_id' => $phoneNumberId] : []),
             'read_at' => null,
             // Una conversacion cerrada que recibe un mensaje y sigue
             // escondida es una clienta a la que nadie contesta.
@@ -472,7 +478,7 @@ class CommsWebhookController
         // El hilo lo cuenta: la clienta ENVIÓ algo, aunque no sea texto.
         $this->guardarEntrante($conversacion, ($respuesta['pedido'] ?? null) === 'fecha'
             ? '📅 Eligió en el calendario: '.($respuesta['fecha'] ?? '?')
-            : '📋 Envió el formulario de la cita');
+            : '📋 Envió el formulario de la cita', $phoneNumberId);
 
         if (! BookingForm::isOurs($respuesta)) {
             // Un Flow de otro dueño (una encuesta de Connect, por ejemplo):

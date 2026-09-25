@@ -38,7 +38,7 @@ class WhatsappConversation extends Model
     protected $fillable = [
         'business_id', 'phone', 'ia_conversation_id', 'client_id',
         'agent_paused_until', 'assigned_user_id',
-        'last_message_at', 'last_inbound_at', 'read_at', 'status',
+        'last_message_at', 'last_inbound_at', 'last_inbound_phone_number_id', 'read_at', 'status',
     ];
 
     protected function casts(): array
@@ -111,8 +111,33 @@ class WhatsappConversation extends Model
      */
     public function windowIsOpen(): bool
     {
-        return $this->last_inbound_at !== null
-            && $this->last_inbound_at->gt(CarbonImmutable::now()->subHours(self::VENTANA_HORAS));
+        if ($this->last_inbound_at === null
+            || ! $this->last_inbound_at->gt(CarbonImmutable::now()->subHours(self::VENTANA_HORAS))) {
+            return false;
+        }
+
+        /*
+         * Y tiene que haber escrito al número que el salón usa AHORA.
+         *
+         * La ventana es entre la persona y un número, no entre la persona y
+         * el negocio. Marcela le escribió al número de la mañana; el aviso de
+         * su cita salió como texto desde el de la tarde, con el que nunca
+         * había hablado, y Meta lo rechazó. Si no se sabe por qué número
+         * escribió -- las filas de antes de guardarlo --, se da por cerrada:
+         * sale la plantilla, que llega siempre. Mandar texto a ciegas es lo
+         * que no llega.
+         *
+         * Solo cuenta para el negocio con número propio. El que usa el
+         * número compartido no cambia de número, y ahí la cuenta vieja sigue
+         * siendo cierta.
+         */
+        $actual = $this->business?->whatsapp_phone_number_id;
+
+        if ($actual === null) {
+            return true;
+        }
+
+        return $this->last_inbound_phone_number_id === $actual;
     }
 
     /** Cuando se cierra la ventana, o null si ya esta cerrada. */
