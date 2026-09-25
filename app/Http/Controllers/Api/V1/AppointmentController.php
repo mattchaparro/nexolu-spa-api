@@ -6,6 +6,7 @@ use App\Http\Resources\AppointmentResource;
 use App\Models\Appointment;
 use App\Models\ServicePackage;
 use App\Services\ClientResolver;
+use App\Services\Messaging\AvisoCitaNueva;
 use App\Services\Messaging\ConfirmacionDelPanel;
 use App\Services\Messaging\MessageDispatcher;
 use App\Services\Scheduling\BookingService;
@@ -254,6 +255,9 @@ class AppointmentController
         // cita no la mueve de etapa, así que ningún aviso de etapa la cubre
         // (ver ConfirmacionDelPanel).
         app(ConfirmacionDelPanel::class)->enviar($appointment->loadMissing('business', 'client', 'items.service', 'items.resource'));
+
+        // El correo a los dueños, diciendo quién la agendó en el panel.
+        app(AvisoCitaNueva::class)->avisar($appointment, $request->user());
 
         return response()->json(
             new AppointmentResource($appointment->load('items.service', 'items.resource')),

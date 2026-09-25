@@ -19,6 +19,7 @@ use App\Models\Location;
 use App\Models\Service;
 use App\Services\ClientPortalService;
 use App\Services\ClientResolver;
+use App\Services\Messaging\AvisoCitaNueva;
 use App\Services\Scheduling\AvailabilityService;
 use App\Services\Scheduling\BookingService;
 use App\Services\Scheduling\CitasSimultaneas;
@@ -230,6 +231,9 @@ class CreateAppointmentCapability implements Capability
          */
         $confirmada = $this->confirmarALaClienta($caller, $cita);
 
+        // El correo a los dueños: entró una cita por WhatsApp.
+        app(AvisoCitaNueva::class)->avisar($cita);
+
         return [
             'confirmacion_enviada' => $confirmada,
             'instruccion' => $confirmada
@@ -330,6 +334,10 @@ class CreateAppointmentCapability implements Capability
          * quedo callado: solo la ruta de una cita mandaba confirmacion.
          */
         $confirmada = $this->confirmarJuntas($caller, $inicio, $detalle);
+
+        foreach ($citas as $creada) {
+            app(AvisoCitaNueva::class)->avisar($creada);
+        }
 
         return [
             'confirmacion_enviada' => $confirmada,

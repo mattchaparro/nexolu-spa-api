@@ -61,6 +61,12 @@ class MessageDispatcher
      * @param  callable(): T  $callback
      * @return T
      */
+    /** ¿Se está trabajando sin avisar? Para avisos que no pasan por `queue`. */
+    public static function isSilenced(): bool
+    {
+        return self::$silenced;
+    }
+
     public static function silently(callable $callback): mixed
     {
         $antes = self::$silenced;

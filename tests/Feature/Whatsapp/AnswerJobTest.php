@@ -189,7 +189,8 @@ class AnswerJobTest extends TestCase
         // El toque, segundos después: el link TIENE que salir.
         $this->escribe(GuidedEntry::WEB);
 
-        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'https://agenda.test/reservar/luxury'));
+        // Como botón que abre la página (ya no pegado al texto).
+        Http::assertSent(fn ($r) => str_contains($r->data()['whatsapp_cta']['url'] ?? '', 'https://agenda.test/reservar/luxury'));
         Http::assertNotSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'RESPUESTA DEL MODELO'));
     }
 

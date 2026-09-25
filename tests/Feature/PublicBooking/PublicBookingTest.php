@@ -263,6 +263,26 @@ class PublicBookingTest extends TestCase
         $this->assertSame('confirmacion_cita', $mensaje->template_name);
     }
 
+    public function test_la_reserva_de_la_pagina_le_avisa_por_correo_a_la_duena(): void
+    {
+        User::create([
+            'business_id' => $this->business->id, 'name' => 'Dueña',
+            'email' => 'duena@prueba.test', 'password' => Hash::make('password123'),
+            'is_active' => true, 'is_owner' => true,
+        ]);
+        config()->set('services.comms_core.api_key', 'llave-comms');
+        config()->set('services.comms_core.base_url', 'http://comms.test');
+        \Illuminate\Support\Facades\Http::fake([
+            'comms.test/*' => \Illuminate\Support\Facades\Http::response(['results' => [['channel' => 'email', 'status' => 'sent']]]),
+        ]);
+
+        $this->reservar()->assertCreated();
+
+        \Illuminate\Support\Facades\Http::assertSent(fn ($r) => ($r->data()['channels'] ?? []) === ['email']
+            && $r->data()['to']['email'] === 'duena@prueba.test'
+            && str_contains($r->data()['text'] ?? '', 'Canal: Página web'));
+    }
+
     /**
      * El correo es OPCIONAL, pero si lo escriben tiene que ser un correo.
      *

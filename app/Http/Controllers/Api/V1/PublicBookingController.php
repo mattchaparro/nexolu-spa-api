@@ -16,6 +16,7 @@ use App\Models\ServicePackage;
 use App\Models\ServiceRating;
 use App\Services\ClientPortalService;
 use App\Services\ClientResolver;
+use App\Services\Messaging\AvisoCitaNueva;
 use App\Services\Messaging\ConfirmacionDelPanel;
 use App\Services\Scheduling\AvailabilityService;
 use App\Services\Scheduling\BookingService;
@@ -717,6 +718,9 @@ class PublicBookingController
         app(ConfirmacionDelPanel::class)->enviar(
             $appointment->loadMissing('business', 'client', 'items.service', 'items.resource'),
         );
+
+        // Y el correo a los dueños: entró una cita, por la página.
+        app(AvisoCitaNueva::class)->avisar($appointment);
 
         $start = CarbonImmutable::parse($appointment->starts_at)->setTimezone($tz);
         // Lo congelo `BookingService` al reservar; aca solo se lee.

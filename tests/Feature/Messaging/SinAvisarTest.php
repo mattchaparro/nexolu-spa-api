@@ -82,7 +82,43 @@ class SinAvisarTest extends TestCase
         $this->business->update(['appointment_workflow_id' => $flujo->id]);
 
         $this->admin = $this->usuario('ana@prueba.test', PermissionCatalog::ROLE_ADMIN);
+        // Dueña: a ella le llega el correo de cada cita nueva.
+        $this->admin->forceFill(['is_owner' => true, 'name' => 'Ana'])->save();
         Sanctum::actingAs($this->admin->fresh());
+    }
+
+    /** Los correos que salieron hacia Connect. */
+    private function correos(): array
+    {
+        return Http::recorded()
+            ->map(fn (array $par) => $par[0]->data())
+            ->filter(fn (array $d) => ($d['channels'] ?? []) === ['email'])
+            ->values()
+            ->all();
+    }
+
+    public function test_cada_cita_nueva_le_llega_por_correo_a_la_duena_con_el_canal(): void
+    {
+        /*
+         * Alejandro quiere enterarse al momento de cada cita, y por dónde
+         * entró: página, WhatsApp o panel. Desde el panel dice quién la
+         * agendó.
+         */
+        $this->agendar();
+
+        $correos = $this->correos();
+        $this->assertCount(1, $correos);
+        $this->assertSame('ana@prueba.test', $correos[0]['to']['email']);
+        $this->assertStringContainsString('Nueva cita (Panel)', $correos[0]['subject']);
+        $this->assertStringContainsString('Canal: Panel (la agendó Ana)', $correos[0]['text']);
+        $this->assertStringContainsString('Servicio: Semipermanente con Maria', $correos[0]['text']);
+    }
+
+    public function test_sin_avisar_tampoco_sale_el_correo(): void
+    {
+        $this->agendar(['silent' => true]);
+
+        $this->assertSame([], $this->correos());
     }
 
     private function usuario(string $email, string $rol): User
