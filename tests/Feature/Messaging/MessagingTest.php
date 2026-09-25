@@ -206,6 +206,26 @@ class MessagingTest extends TestCase
 
     // ---- Modo automático ----
 
+    public function test_al_enviar_se_guarda_el_identificador_de_meta(): void
+    {
+        /*
+         * Sin él, el acuse que llega después --entregado, leído o
+         * rechazado-- no tiene con qué mensaje emparejarse, y el panel se
+         * queda diciendo «enviado» de algo que nunca llegó.
+         */
+        $this->canalQueFunciona();
+        $this->business->update(['messaging_mode' => 'auto']);
+
+        $mensaje = $this->dispatcher()->queue(
+            $this->business->fresh(),
+            Message::KIND_REMINDER,
+            '+573001112233',
+            'Hola Carolina',
+        );
+
+        $this->assertSame('wamid.prueba.1', $mensaje->provider_message_id);
+    }
+
     public function test_en_automatico_sale_solo(): void
     {
         $canal = $this->canalQueFunciona();

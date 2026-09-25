@@ -11,6 +11,7 @@ use App\Models\WhatsappConversation;
 use App\Services\Messaging\Contracts\MessagingChannel;
 use App\Services\WhatsApp\ConversationRouter;
 use App\Support\ChannelPhone;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -63,6 +64,20 @@ class CommsWebhookController
                 'human_reply' => $this->humanReply($payload),
                 default => response()->json(['ok' => true, 'handled' => false]),
             };
+        }
+
+        /*
+         * Los acuses de Meta: si lo que mandamos llegó, se leyó o se cayó.
+         *
+         * Antes se tiraban. Meta acepta un envío y lo rechaza segundos
+         * después por este camino, así que el panel mostraba «enviado» para
+         * mensajes que nunca llegaron -- los dos avisos a Marcela figuraban
+         * enviados mientras Meta los había rechazado.
+         */
+        $acuses = $this->acuses($payload);
+
+        if ($acuses !== null) {
+            return response()->json(['ok' => true, 'handled' => true, 'acuses' => $acuses]);
         }
 
         /*
@@ -426,6 +441,98 @@ class CommsWebhookController
      *
      * @return array{0: ?string, 1: string, 2: array<string, mixed>, 3: string}|null
      */
+    /**
+     * Aplica los acuses de entrega a sus mensajes. Null si el sobre no trae.
+     *
+     * Se emparejan por el identificador que dio Meta al aceptar el envío
+     * (`provider_message_id`). Los que no son nuestros --los mandó otra
+     * aplicación suscrita al mismo número-- simplemente no se encuentran.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    private function acuses(array $payload): ?int
+    {
+        $estados = [];
+
+        foreach ($payload['entry'] ?? [] as $entry) {
+            foreach ($entry['changes'] ?? [] as $change) {
+                foreach ($change['value']['statuses'] ?? [] as $estado) {
+                    $estados[] = $estado;
+                }
+            }
+        }
+
+        if ($estados === []) {
+            return null;
+        }
+
+        $aplicados = 0;
+
+        foreach ($estados as $estado) {
+            $wamid = (string) ($estado['id'] ?? '');
+
+            if ($wamid === '') {
+                continue;
+            }
+
+            $mensaje = Message::withoutGlobalScopes()->where('provider_message_id', $wamid)->first();
+
+            if ($mensaje === null) {
+                continue;
+            }
+
+            $cuando = isset($estado['timestamp'])
+                ? CarbonImmutable::createFromTimestamp((int) $estado['timestamp'])
+                : now();
+
+            $cambios = match ($estado['status'] ?? null) {
+                'failed' => [
+                    'status' => Message::STATUS_FAILED,
+                    'failed_at' => $cuando,
+                    'error' => $this->motivoDelRechazo($estado['errors'] ?? []),
+                ],
+                'delivered' => $mensaje->delivered_at === null ? ['delivered_at' => $cuando] : [],
+                // Leído implica entregado: a veces Meta manda solo el leído.
+                'read' => array_filter([
+                    'read_at' => $cuando,
+                    'delivered_at' => $mensaje->delivered_at === null ? $cuando : null,
+                ]),
+                default => [],
+            };
+
+            if ($cambios !== []) {
+                $mensaje->forceFill($cambios)->save();
+                $aplicados++;
+            }
+        }
+
+        return $aplicados;
+    }
+
+    /**
+     * Por qué no llegó, dicho para quien lo va a leer en el panel.
+     *
+     * El caso que más va a salir tiene su propia frase porque tiene arreglo
+     * concreto: el mensaje salió como texto a alguien que no escribió en 24
+     * horas, y lo que hacía falta era una plantilla.
+     *
+     * @param  list<array<string, mixed>>  $errores
+     */
+    private function motivoDelRechazo(array $errores): string
+    {
+        $error = $errores[0] ?? [];
+        $codigo = (int) ($error['code'] ?? 0);
+
+        if ($codigo === 131047) {
+            return 'WhatsApp no lo entregó: la persona no le ha escrito a este número en las últimas 24 horas '
+                .'y el mensaje salió como texto libre en vez de plantilla.';
+        }
+
+        $detalle = $error['error_data']['details'] ?? $error['message'] ?? $error['title'] ?? 'motivo desconocido';
+
+        return mb_substr('WhatsApp no lo entregó ('.($codigo ?: '?').'): '.$detalle, 0, 500);
+    }
+
     private function firstFormReply(array $payload): ?array
     {
         foreach ($payload['entry'] ?? [] as $entry) {

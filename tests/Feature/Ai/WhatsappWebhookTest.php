@@ -412,7 +412,13 @@ class WhatsappWebhookTest extends TestCase
                 'HTTP_X_NEXOLU_SIGNATURE' => hash_hmac('sha256', $timestamp.'.'.$body, self::SECRET),
             ],
             $body,
-        )->assertOk()->assertJsonPath('handled', false);
+        )
+            ->assertOk()
+            // Un acuse ahora SÍ se atiende: dice si lo que mandamos llegó
+            // (ver CommsWebhookController::acuses). Este no trae id, así
+            // que no se empareja con nada: cero aplicados, y sin error.
+            ->assertJsonPath('handled', true)
+            ->assertJsonPath('acuses', 0);
 
         $this->assertSame(0, Message::withoutGlobalScopes()->count());
     }

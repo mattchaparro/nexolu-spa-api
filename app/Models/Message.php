@@ -105,6 +105,7 @@ class Message extends Model
         'conversation_id', 'appointment_id',
         'body', 'template_name', 'template_language', 'template_params', 'broadcast_id',
         'status', 'attempts', 'sent_at', 'failed_at', 'error', 'sent_by_user_id',
+        'provider_message_id', 'delivered_at', 'read_at',
     ];
 
     protected function casts(): array
@@ -112,6 +113,8 @@ class Message extends Model
         return [
             'sent_at' => 'datetime',
             'failed_at' => 'datetime',
+            'delivered_at' => 'datetime',
+            'read_at' => 'datetime',
             'template_params' => 'array',
         ];
     }

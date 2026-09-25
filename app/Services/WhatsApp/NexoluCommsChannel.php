@@ -30,6 +30,14 @@ class NexoluCommsChannel implements MessagingChannel
         return ! empty(config('services.comms_core.api_key')) && ! empty(config('services.comms_core.base_url'));
     }
 
+    /** Ver MessagingChannel::lastMessageId. */
+    private ?string $ultimoId = null;
+
+    public function lastMessageId(): ?string
+    {
+        return $this->ultimoId;
+    }
+
     public function sendText(
         string $to,
         string $body,
@@ -178,6 +186,10 @@ class NexoluCommsChannel implements MessagingChannel
         ?string $category = null,
         ?string $idempotencyKey = null,
     ): bool {
+        // Antes que nada: si este envio falla por el camino, no puede quedar
+        // el identificador del anterior pegado al mensaje equivocado.
+        $this->ultimoId = null;
+
         if (! $this->isConfigured()) {
             $this->logSafe('warning', 'Nexolu Communications: intento de envio sin credenciales', ['to' => $to]);
 
@@ -246,6 +258,9 @@ class NexoluCommsChannel implements MessagingChannel
 
         $result = collect($response->json('results'))->firstWhere('channel', 'whatsapp');
         $sent = ($result['status'] ?? null) === self::STATUS_SENT;
+
+        // El wamid que dio Meta: con él se empareja el aviso de entrega.
+        $this->ultimoId = $sent ? ($result['provider_message_id'] ?? null) : null;
 
         if (! $sent) {
             $this->logSafe('warning', 'Nexolu Communications: canal whatsapp no envio', [

@@ -105,4 +105,20 @@ interface MessagingChannel
 
     /** Marca el mensaje entrante como leido y, si el canal lo soporta, activa el indicador de "escribiendo...". No se loguea - un acuse de lectura no es un mensaje enviado. */
     public function markAsReadWithTyping(string $to, string $messageId): bool;
+
+    /**
+     * El identificador que el proveedor le dio al ÚLTIMO envío aceptado, o
+     * null si no dio ninguno.
+     *
+     * Hace falta para emparejar después el aviso de entrega con su mensaje:
+     * Meta acepta un envío y lo rechaza segundos más tarde, por un aviso
+     * aparte que solo trae este identificador.
+     *
+     * Es «el último» y no un valor de retorno porque los envíos devuelven
+     * bool y los usan muchos lugares; cambiarles la forma era tocarlos todos
+     * para algo que solo necesita MessageDispatcher, que lo lee justo
+     * después de enviar. Un proceso manda de a un mensaje, así que no se
+     * pisan.
+     */
+    public function lastMessageId(): ?string;
 }

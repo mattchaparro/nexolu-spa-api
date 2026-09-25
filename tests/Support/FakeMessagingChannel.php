@@ -145,4 +145,10 @@ class FakeMessagingChannel implements MessagingChannel
     {
         return true;
     }
+
+    /** Un wamid de mentira, distinto por envío, para poder emparejar acuses. */
+    public function lastMessageId(): ?string
+    {
+        return $this->sent === [] ? null : 'wamid.prueba.'.count($this->sent);
+    }
 }

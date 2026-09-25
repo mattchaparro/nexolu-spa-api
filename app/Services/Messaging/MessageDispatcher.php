@@ -209,6 +209,13 @@ class MessageDispatcher
             'sent_at' => now(),
             'attempts' => $message->attempts + 1,
             'error' => null,
+            /*
+             * El identificador que dio Meta al aceptarlo. «Enviado» quiere
+             * decir aceptado, no entregado: Meta puede rechazarlo segundos
+             * después, por un aviso aparte que solo trae este identificador
+             * (ver CommsWebhookController::acuses).
+             */
+            'provider_message_id' => $this->channel->lastMessageId(),
         ] : [
             'status' => Message::STATUS_FAILED,
             'failed_at' => now(),

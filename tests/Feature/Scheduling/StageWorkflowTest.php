@@ -159,6 +159,11 @@ class StageWorkflowTest extends TestCase
                 return true;
             }
 
+            public function lastMessageId(): ?string
+            {
+                return null;
+            }
+
             public function markAsReadWithTyping(string $to, string $messageId): bool
             {
                 return true;
@@ -510,6 +515,11 @@ class StageWorkflowTest extends TestCase
             public function sendFlow(string $to, string $flowId, string $screen, string $bodyText, string $cta, array $data, string $flowToken, ?int $businessId = null, string $type = 'generico'): bool
             {
                 return true;
+            }
+
+            public function lastMessageId(): ?string
+            {
+                return null;
             }
 
             public function markAsReadWithTyping(string $to, string $messageId): bool
