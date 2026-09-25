@@ -88,13 +88,27 @@ class LoyaltyTest extends TestCase
         ], $overrides))->assertOk()->json('program');
     }
 
+    /**
+     * Cuántas visitas van: cada una cae en su propio día.
+     *
+     * La tarjeta da un sello por VISITA (un día), no por cita: dos citas el
+     * mismo día cuentan una vez. Las pruebas que llenan la tarjeta necesitan
+     * visitas de verdad, en días distintos.
+     */
+    private int $visitas = 0;
+
     /** Agenda, cobra, y devuelve el id de la cita. */
-    private function visita(string $hora, ?int $clientId = null): int
+    private function visita(string $hora, ?int $clientId = null, bool $mismoDia = false): int
     {
+        // Los domingos Maria no trabaja.
+        do {
+            $dia = $this->hoy()->addDays($mismoDia ? max(0, $this->visitas - 1) : $this->visitas++);
+        } while ($dia->isSunday() && ! $mismoDia);
+
         $id = $this->postJson('/api/v1/appointments', [
             'service_id' => $this->service->id,
             'resource_id' => $this->maria->id,
-            'starts_at' => $this->hoy()->format('Y-m-d')." {$hora}:00",
+            'starts_at' => $dia->format('Y-m-d')." {$hora}:00",
             'client_id' => $clientId,
             'client_name' => $clientId === null ? 'Carolina' : null,
             'client_phone' => $clientId === null ? '3001234567' : null,
@@ -172,6 +186,26 @@ class LoyaltyTest extends TestCase
         $this->assertSame(1, $card->json('stamps'));
         $this->assertSame(2, $card->json('remaining'));
         $this->assertFalse($card->json('complete'));
+    }
+
+    public function test_dos_citas_el_mismo_dia_son_un_solo_sello(): void
+    {
+        /*
+         * Jenny Jaramillo se hizo el retiro y el Semi + Rubber el mismo día,
+         * cargados como dos citas, y quedó con «2 de 5» habiendo venido una
+         * vez. La tarjeta cuenta visitas.
+         */
+        $this->crearPrograma(['stamps_required' => 5]);
+
+        $this->visita('10:00');
+        $cliente = $this->clienteId();
+        $this->visita('11:00', $cliente, mismoDia: true);
+
+        $this->assertSame(1, $this->getJson("/api/v1/clients/{$cliente}/loyalty")->assertOk()->json('stamps'));
+
+        // Otro día, otra visita: ahí sí suma.
+        $this->visita('10:00', $cliente);
+        $this->assertSame(2, $this->getJson("/api/v1/clients/{$cliente}/loyalty")->json('stamps'));
     }
 
     public function test_una_cita_no_puede_dar_dos_sellos(): void

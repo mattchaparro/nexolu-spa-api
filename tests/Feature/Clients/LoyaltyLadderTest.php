@@ -96,13 +96,24 @@ class LoyaltyLadderTest extends TestCase
         ])->assertOk()->json('program');
     }
 
+    /**
+     * Cada visita en su propio día: la tarjeta da un sello por visita (un
+     * día), no por cita.
+     */
+    private int $visitas = 0;
+
     /** Agenda y cobra una visita. Devuelve el id de la cita. */
     private function visita(int $hora, ?int $clientId = null): int
     {
+        // Los domingos Maria no trabaja.
+        do {
+            $dia = $this->hoy()->addDays($this->visitas++);
+        } while ($dia->isSunday());
+
         $id = $this->postJson('/api/v1/appointments', [
             'service_id' => $this->service->id,
             'resource_id' => $this->maria->id,
-            'starts_at' => $this->hoy()->format('Y-m-d').sprintf(' %02d:00:00', $hora),
+            'starts_at' => $dia->format('Y-m-d').sprintf(' %02d:00:00', $hora),
             'client_id' => $clientId,
             'client_name' => $clientId === null ? 'Carolina' : null,
             'client_phone' => $clientId === null ? '3001234567' : null,

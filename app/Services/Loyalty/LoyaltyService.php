@@ -10,6 +10,7 @@ use App\Models\LoyaltyReward;
 use App\Models\LoyaltyStamp;
 use App\Models\LoyaltyTier;
 use App\Support\Money\LoyaltyCalculator;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -71,6 +72,19 @@ class LoyaltyService
             return null;
         }
 
+        /*
+         * Un sello por VISITA, no por cita.
+         *
+         * Una clienta que el mismo día se hace el retiro y el Semi + Rubber
+         * puede quedar en dos citas --dos registros de «servicio sin cita»,
+         * o dos que se agendaron por separado-- y salía con dos sellos por
+         * haber venido una vez. Jenny Jaramillo tenía «2 de 5» con una sola
+         * visita. Si ese día ya le contó otra cita, esta no suma.
+         */
+        if ($this->yaContoEseDia($appointment)) {
+            return null;
+        }
+
         try {
             $stamp = LoyaltyStamp::create([
                 'business_id' => $business->id,
@@ -94,6 +108,25 @@ class LoyaltyService
         $this->unlockIfComplete($appointment->client, $program);
 
         return $stamp;
+    }
+
+    /** ¿Otra cita de esta clienta, el mismo día, ya le dio sello? */
+    private function yaContoEseDia(Appointment $appointment): bool
+    {
+        if ($appointment->starts_at === null) {
+            return false;
+        }
+
+        $tz = $appointment->business->businessTimezone();
+        $dia = CarbonImmutable::parse($appointment->starts_at)->setTimezone($tz)->startOfDay();
+
+        return LoyaltyStamp::withoutGlobalScope('business')
+            ->where('client_id', $appointment->client_id)
+            ->where('appointment_id', '!=', $appointment->id)
+            ->whereHas('appointment', fn ($q) => $q
+                ->withoutGlobalScopes()
+                ->whereBetween('starts_at', [$dia->utc(), $dia->addDay()->utc()]))
+            ->exists();
     }
 
     /**
