@@ -15,9 +15,11 @@ use App\Models\User;
 use App\Support\Money\PackagePricing;
 use App\Support\PermissionCatalog;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
 use Laravel\Sanctum\Sanctum;
 use Tests\Feature\Scheduling\SchedulingScenario;
@@ -563,6 +565,27 @@ class PublicBookingTest extends TestCase
             'Uñas que hablan por ti',
             $this->getJson($this->url())->json('profile.headline'),
         );
+    }
+
+    public function test_el_negocio_sube_su_logo(): void
+    {
+        // Sin logo la página muestra la inicial del negocio en un cuadro.
+        Storage::fake('public');
+        $admin = User::create([
+            'business_id' => $this->business->id, 'name' => 'Ana',
+            'email' => 'ana@prueba.test', 'password' => Hash::make('password123'), 'is_active' => true,
+        ]);
+        PermissionCatalog::applyRole($admin, PermissionCatalog::ROLE_ADMIN);
+        Sanctum::actingAs($admin->fresh());
+
+        $this->post('/api/v1/public-page', [
+            'logo' => UploadedFile::fake()->image('logo.png', 400, 400),
+        ], ['Accept' => 'application/json'])->assertOk();
+
+        $logo = $this->business->fresh()->logo_path;
+        $this->assertNotNull($logo);
+        Storage::disk('public')->assertExists($logo);
+        $this->assertNotNull($this->getJson($this->url())->json('business.logo_url'));
     }
 
     public function test_el_negocio_elige_que_servicios_se_ofrecen(): void

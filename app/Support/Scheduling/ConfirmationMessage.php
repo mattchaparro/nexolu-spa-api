@@ -29,7 +29,7 @@ final class ConfirmationMessage
      * sobran desaparecen --no hay "Precio: $0" ni "Te atiende: "-- y al final
      * va el Instagram del negocio, que es distinto en cada uno.
      */
-    public static function text(Appointment $appointment): string
+    public static function text(Appointment $appointment, bool $conInstagram = true): string
     {
         $d = self::values($appointment);
 
@@ -52,15 +52,30 @@ final class ConfirmationMessage
         $lineas[] = '';
         $lineas[] = 'Gracias por agendar en *'.$d['negocio'].'* 🌟';
 
-        $instagram = $appointment->business !== null
-            ? (PublicProfile::resolve($appointment->business)['instagram'] ?? null)
-            : null;
+        $instagram = $conInstagram ? self::instagram($appointment) : null;
 
         if (! empty($instagram)) {
             $lineas[] = 'Síguenos y entérate de nuestras promociones 👉 '.$instagram;
         }
 
         return implode("\n", $lineas);
+    }
+
+    /**
+     * El Instagram del negocio, si lo tiene.
+     *
+     * El bot lo manda como BOTON debajo de la confirmacion (ver
+     * CreateAppointmentCapability): pegado como texto era una URL larga al
+     * final del mensaje. Donde no se puede poner boton --la bandeja, lo que
+     * se manda a mano-- va en el texto.
+     */
+    public static function instagram(Appointment $appointment): ?string
+    {
+        $url = $appointment->business !== null
+            ? (PublicProfile::resolve($appointment->business)['instagram'] ?? null)
+            : null;
+
+        return empty($url) ? null : (string) $url;
     }
 
     /**

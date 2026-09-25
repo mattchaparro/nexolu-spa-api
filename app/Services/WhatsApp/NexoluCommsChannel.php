@@ -84,6 +84,34 @@ class NexoluCommsChannel implements MessagingChannel
     }
 
     /**
+     * Un texto con un boton que abre un enlace debajo.
+     *
+     * Para lo que la clienta tiene que ABRIR y no contestar: el Instagram
+     * del salon en la confirmacion. Pegado como texto era una URL larga al
+     * final del mensaje; en ManyChat era un boton. WhatsApp corta el titulo
+     * a 20 caracteres. Solo dentro de la ventana de 24h, como el texto.
+     */
+    public function sendLink(
+        string $to,
+        string $body,
+        string $url,
+        string $title,
+        ?int $businessId = null,
+        ?string $idempotencyKey = null,
+    ): bool {
+        return $this->send(
+            $to,
+            [
+                'text' => $body,
+                'whatsapp_cta' => ['url' => $url, 'title' => mb_substr($title, 0, 20)],
+            ],
+            $businessId,
+            'service',
+            $idempotencyKey,
+        );
+    }
+
+    /**
      * @param  list<array<string, mixed>>  $components
      */
     public function sendTemplate(

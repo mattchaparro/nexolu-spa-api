@@ -2,7 +2,9 @@
 
 namespace App\Ai;
 
+use App\Models\Location;
 use App\Services\Ia\KnowledgeClient;
+use App\Support\PublicProfile;
 use Illuminate\Support\Facades\Cache;
 
 /**
@@ -25,10 +27,31 @@ final class InfoPostCita
 
     /** Lo que se ofrece tras la cita, en este orden. */
     private const TEMAS = [
-        'Info de garantías' => '/garant/iu',
         'Recomendaciones' => '/recomend|cuidado/iu',
+        'Garantías' => '/garant/iu',
         'Cancelaciones' => '/cancel/iu',
     ];
+
+    /** La fila que no sale de la base de conocimiento sino del perfil. */
+    private const UBICACION = 'Ubicación';
+
+    /**
+     * Lo que dicen los botones de la PLANTILLA de confirmacion, que Meta ya
+     * aprobo con esos textos. Tocarlos dias despues tiene que seguir
+     * respondiendo aunque la lista ahora los llame distinto.
+     */
+    private const ALIAS = [
+        'info de garantias' => 'garantias',
+    ];
+
+    /**
+     * Arriba de la lista. Antes eran tres botones sueltos bajo «Puedes
+     * consultar informacion adicional»; con la ubicacion son cuatro, y
+     * WhatsApp solo deja tres botones: va como lista, y la frase dice que hay
+     * abajo.
+     */
+    private const INTRO = 'Para conocer nuestras políticas de cancelación, recomendaciones, '
+        .'ubicación y más, mira la información aquí abajo 👇';
 
     /**
      * Ofrece los temas que el negocio SÍ tiene escritos.
@@ -38,7 +61,7 @@ final class InfoPostCita
      */
     public function ofrecer(AiCaller $caller, string $phone): bool
     {
-        $entradas = $this->conocimiento($caller);
+        $entradas = $this->conocimiento($caller) + $this->ubicacion($caller);
 
         if ($entradas === []) {
             return false;
@@ -52,7 +75,7 @@ final class InfoPostCita
             $mapa[$this->plano($titulo)] = $respuesta;
         }
 
-        if (! app(EnvioDirecto::class)->opciones($caller, 'Puedes consultar información adicional 👇', $filas)) {
+        if (! app(EnvioDirecto::class)->opciones($caller, self::INTRO, $filas, 'Ver información')) {
             return false;
         }
 
@@ -72,6 +95,7 @@ final class InfoPostCita
      */
     public function respuestaA(string $phone, string $texto, ?AiCaller $caller = null): ?string
     {
+        $texto = self::ALIAS[$this->plano($texto)] ?? $texto;
         $mapa = Cache::get($this->clave($phone), []);
         $clave = UltimoPedido::claveDe($mapa, $texto);
 
@@ -87,7 +111,7 @@ final class InfoPostCita
         // normaliza el texto tocado, no las llaves del mapa.
         $vivos = [];
 
-        foreach ($this->conocimiento($caller) as $titulo => $respuesta) {
+        foreach ($this->conocimiento($caller) + $this->ubicacion($caller) as $titulo => $respuesta) {
             $vivos[$this->plano($titulo)] = $respuesta;
         }
 
@@ -141,6 +165,31 @@ final class InfoPostCita
         }
 
         return $encontradas;
+    }
+
+    /**
+     * Donde queda el salon: el enlace de Google Maps que el negocio guardo
+     * en su pagina (o el de su sede), con la direccion si la escribio.
+     *
+     * @return array<string, string>
+     */
+    private function ubicacion(AiCaller $caller): array
+    {
+        $business = $caller->business;
+        $perfil = PublicProfile::resolve($business);
+        $sede = Location::withoutGlobalScopes()->where('business_id', $business->id)
+            ->whereNotNull('maps_url')->orderBy('id')->first();
+
+        $mapa = $perfil['maps_url'] ?? $sede?->maps_url;
+        $direccion = $sede?->address ?? $business->address;
+
+        if (empty($mapa)) {
+            return [];
+        }
+
+        $texto = '📍 '.($direccion ? 'Estamos en '.$direccion.'.' : 'Así nos encuentras:')."\n".$mapa;
+
+        return [self::UBICACION => $texto];
     }
 
     private function clave(string $phone): string

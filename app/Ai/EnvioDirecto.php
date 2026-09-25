@@ -60,6 +60,29 @@ final class EnvioDirecto
     }
 
     /**
+     * Un texto con un boton que abre un enlace, directo a la clienta.
+     *
+     * Si el boton no sale, sale el texto con el enlace pegado al final: la
+     * confirmacion de una cita no puede perderse por su adorno.
+     */
+    public function conEnlace(AiCaller $caller, string $texto, string $titulo, string $url): bool
+    {
+        $phone = $this->phone($caller);
+
+        if ($phone === null) {
+            return false;
+        }
+
+        if (! $this->channel->sendLink($phone, $texto, $url, $titulo, $caller->business->id)) {
+            return $this->texto($caller, $texto."\n".$url);
+        }
+
+        $this->registrar($caller, $phone, $texto."\n\n▸ ".$titulo.' ('.$url.')');
+
+        return true;
+    }
+
+    /**
      * Opciones tocables (botones o lista), directas a la clienta.
      *
      * @param  list<array{id: string, title: string, description?: string}>  $opciones

@@ -211,7 +211,11 @@ class ToquesTest extends TestCase
                 && str_contains($texto, '💵 Precio: *$')
                 && str_contains($texto, '🙋‍♀️ Te atiende:')
                 && str_contains($texto, 'Gracias por agendar en *Spa de prueba*')
-                && str_contains($texto, 'https://instagram.com/luxurynails');
+                // El Instagram va como BOTÓN debajo, no pegado al texto:
+                // así era en ManyChat y así lo pidió Alejandro.
+                && ! str_contains($texto, 'instagram.com')
+                && ($r->data()['whatsapp_cta']['url'] ?? null) === 'https://instagram.com/luxurynails'
+                && ($r->data()['whatsapp_cta']['title'] ?? null) === 'Seguir en Instagram';
         });
     }
 
@@ -235,11 +239,48 @@ class ToquesTest extends TestCase
         $this->toques()->atender($this->conversacion, Toques::SI);
 
         // Solo los temas escritos y activos; «Cancelaciones» no está.
-        $this->assertSame(['Info de garantías', 'Recomendaciones'], array_column($this->ultimaLista(), 'title'));
+        $this->assertSame(['Recomendaciones', 'Garantías'], array_column($this->ultimaLista(), 'title'));
 
-        $respuesta = $this->toques()->atender($this->conversacion, 'Info de garantías');
-
+        $respuesta = $this->toques()->atender($this->conversacion, 'Garantías');
         $this->assertSame('Cubrimos 5 días el semipermanente.', $respuesta['text']);
+
+        // El botón de la plantilla de confirmación, que Meta aprobó como
+        // «Info de garantías», sigue respondiendo.
+        $respuesta = $this->toques()->atender($this->conversacion, 'Info de garantías');
+        $this->assertSame('Cubrimos 5 días el semipermanente.', $respuesta['text']);
+    }
+
+    public function test_la_lista_trae_la_ubicacion_del_salon(): void
+    {
+        /*
+         * La cuarta opción, que no sale de la base de conocimiento sino del
+         * enlace de Google Maps que el negocio guardó en su página. Con
+         * cuatro ya no caben botones: va como lista.
+         */
+        $this->business->forceFill(['public_profile' => ['maps_url' => 'https://maps.app.goo.gl/luxury']])->save();
+        config()->set('services.ia_core.base_url', 'http://ia-core.test');
+        Http::fake([
+            'comms.test/*' => Http::response(['results' => [['channel' => 'whatsapp', 'status' => 'sent']]]),
+            'ia-core.test/*' => Http::response([
+                ['id' => 'k1', 'topic' => 'Garantías', 'answer' => 'Cubrimos 5 días.', 'is_active' => true, 'updated_at' => '2026-09-22T10:00:00'],
+                ['id' => 'k2', 'topic' => 'Recomendaciones', 'answer' => 'Llega antes.', 'is_active' => true, 'updated_at' => '2026-09-22T10:00:00'],
+                ['id' => 'k3', 'topic' => 'Cancelaciones', 'answer' => 'Con 3 horas.', 'is_active' => true, 'updated_at' => '2026-09-22T10:00:00'],
+            ]),
+        ]);
+
+        $horas = $this->invoke('disponibilidad', ['servicio' => 'Semipermanente', 'fecha' => $this->manana()])
+            ->json('data.ofrecidas');
+        $this->toques()->atender($this->conversacion, $horas[0]['hora']);
+        $this->toques()->atender($this->conversacion, Toques::SI);
+
+        $this->assertSame(
+            ['Recomendaciones', 'Garantías', 'Cancelaciones', 'Ubicación'],
+            array_column($this->ultimaLista(), 'title'),
+        );
+        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'mira la información aquí abajo'));
+
+        $respuesta = $this->toques()->atender($this->conversacion, 'Ubicación');
+        $this->assertStringContainsString('https://maps.app.goo.gl/luxury', $respuesta['text']);
     }
 
     public function test_sin_conocimiento_escrito_no_se_ofrece_nada(): void
@@ -256,7 +297,7 @@ class ToquesTest extends TestCase
         $this->toques()->atender($this->conversacion, Toques::SI);
 
         // Un botón que contesta "no tengo esa información" es peor que no estar.
-        Http::assertNotSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'información adicional'));
+        Http::assertNotSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'mira la información aquí abajo'));
     }
 
     public function test_se_agenda_con_quien_de_verdad_esta_libre_a_esa_hora(): void

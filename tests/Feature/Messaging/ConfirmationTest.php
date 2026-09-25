@@ -262,7 +262,7 @@ class ConfirmationTest extends TestCase
 
         $this->confirmar($this->cita());
 
-        $this->assertSame(['Info de garantías', 'Recomendaciones'], $this->botonesOfrecidos());
+        $this->assertSame(['Recomendaciones', 'Garantías'], $this->botonesOfrecidos());
     }
 
     public function test_fuera_de_la_ventana_no_se_manda_un_segundo_mensaje(): void
@@ -342,7 +342,7 @@ class ConfirmationTest extends TestCase
 
         app(ConfirmacionDelPanel::class)->enviar($this->cita());
 
-        $this->assertSame(['Info de garantías', 'Recomendaciones'], $this->botonesOfrecidos());
+        $this->assertSame(['Recomendaciones', 'Garantías'], $this->botonesOfrecidos());
     }
 
     public function test_la_confirmacion_del_panel_fuera_de_la_ventana_no_manda_un_segundo_mensaje(): void

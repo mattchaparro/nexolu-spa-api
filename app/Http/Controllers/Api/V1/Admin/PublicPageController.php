@@ -85,11 +85,18 @@ class PublicPageController
             'comunicado' => ['nullable', 'string', 'max:300'],
             'comunicado_hasta' => ['nullable', 'date_format:Y-m-d'],
             'cover' => ImageStorage::rules(),
+            'logo' => ImageStorage::rules(),
         ]);
 
         if ($request->hasFile('cover')) {
             ImageStorage::delete($business->cover_path);
             $business->cover_path = ImageStorage::store($request->file('cover'), $business->id, 'portada');
+        }
+
+        // El cuadro de la página: sin logo muestra la inicial del negocio.
+        if ($request->hasFile('logo')) {
+            ImageStorage::delete($business->logo_path);
+            $business->logo_path = ImageStorage::store($request->file('logo'), $business->id, 'logo');
         }
 
         $business->public_profile = PublicProfile::sanitize($data);

@@ -520,7 +520,17 @@ class CreateAppointmentCapability implements Capability
          * el salón, y dos copias del mismo mensaje se vuelven dos mensajes
          * distintos al primer retoque de redacción.
          */
-        $enviada = app(EnvioDirecto::class)->texto($caller, ConfirmationMessage::text($cita));
+        $instagram = ConfirmationMessage::instagram($cita);
+        $enviada = $instagram === null
+            ? app(EnvioDirecto::class)->texto($caller, ConfirmationMessage::text($cita))
+            // «Síguenos en Instagram» como boton, como en ManyChat: pegado
+            // al final era una URL larga que nadie tocaba.
+            : app(EnvioDirecto::class)->conEnlace(
+                $caller,
+                ConfirmationMessage::text($cita, conInstagram: false),
+                'Seguir en Instagram',
+                $instagram,
+            );
 
         /*
          * Y, aparte, lo que el negocio tenga escrito para después de la

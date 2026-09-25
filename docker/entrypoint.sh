@@ -13,6 +13,12 @@ set -e
 # futura del mismo problema, no solo la de hoy.
 chown -R www-data:www-data /var/www/html/storage
 
+# Las fotos que sube el negocio (portada, logo) viven en storage/app/public
+# y se sirven por /storage. Ese enlace nunca se creó en la imagen: la
+# portada de Luxury se subía, quedaba guardada, y la página daba 404 al
+# pedirla. Se rehace en cada arranque porque public/ viene de la imagen.
+ln -sfn /var/www/html/storage/app/public /var/www/html/public/storage
+
 # Aca NO se corre `php artisan migrate`.
 #
 # A diferencia del POS -- que no migra porque su esquema viene de un
