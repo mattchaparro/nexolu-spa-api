@@ -48,6 +48,7 @@ class Client extends Model
     {
         return [
             'birth_date' => 'date',
+            'name_confirmed_at' => 'datetime',
             'accepts_marketing' => 'boolean',
             'is_active' => 'boolean',
         ];

@@ -80,6 +80,8 @@ class GuidedEntryTest extends TestCase
             'phone' => ChannelPhone::normalize(self::PHONE),
             'is_active' => true,
         ]);
+        // Ya nos dio su nombre: los tests del menú no pasan por la pregunta.
+        $cliente->forceFill(['name_confirmed_at' => now()])->save();
 
         $this->conversacion = WhatsappConversation::withoutGlobalScope('business')->create([
             'business_id' => $this->business->id,
@@ -213,7 +215,7 @@ class GuidedEntryTest extends TestCase
 
     public function test_el_nombre_raro_no_se_usa_en_el_saludo(): void
     {
-        $this->conversacion->client->forceFill(['name' => '🦋 Yess 🦋'])->save();
+        $this->conversacion->client->forceFill(['name' => '🦋 Yess 🦋', 'name_confirmed_at' => null])->save();
 
         $this->escribe('Hola');
 
@@ -224,7 +226,7 @@ class GuidedEntryTest extends TestCase
 
     public function test_sin_nombre_se_lo_pregunta_al_empezar_y_despues_el_menu(): void
     {
-        $this->conversacion->client->forceFill(['name' => '.'])->save();
+        $this->conversacion->client->forceFill(['name' => '.', 'name_confirmed_at' => null])->save();
 
         $pregunta = $this->escribe('Hola');
         $this->assertSame(['pedir_nombre'], $pregunta['tools_used']);
@@ -235,6 +237,40 @@ class GuidedEntryTest extends TestCase
         $this->assertSame('Liliana Gómez', $this->conversacion->client->fresh()->name);
         Http::assertSent(fn ($r) => str_starts_with($r->data()['text'] ?? '', '¡Hola, Liliana! 👋'));
         $this->assertSame([GuidedEntry::BOOK, GuidedEntry::MY_APPOINTMENTS, GuidedEntry::OTHER], $this->ultimosBotones());
+    }
+
+    public function test_a_quien_tiene_un_nombre_sin_confirmar_se_le_pide_una_vez(): void
+    {
+        // «Claus»: parece un nombre, pero nunca nos lo confirmó.
+        $this->conversacion->client->forceFill(['name' => 'Claus', 'name_confirmed_at' => null])->save();
+
+        $pregunta = $this->escribe('Hola');
+        $this->assertSame(['pedir_nombre'], $pregunta['tools_used']);
+        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'te tenemos como *Claus*'));
+
+        $menu = $this->escribe('Claudia Rodríguez');
+
+        $this->assertSame(['menu_root'], $menu['tools_used']);
+        $clienta = $this->conversacion->client->fresh();
+        $this->assertSame('Claudia Rodríguez', $clienta->name);
+        $this->assertNotNull($clienta->name_confirmed_at);
+
+        // Otro día, ya no se le pregunta.
+        $this->travel(2)->days();
+        $this->assertSame(['menu_root'], $this->escribe('Hola')['tools_used']);
+    }
+
+    public function test_un_si_confirma_el_nombre_sin_cambiarlo(): void
+    {
+        $this->conversacion->client->forceFill(['name' => 'Carolina', 'name_confirmed_at' => null])->save();
+
+        $this->escribe('Hola');
+        $menu = $this->escribe('Sí');
+
+        $this->assertSame(['menu_root'], $menu['tools_used']);
+        $clienta = $this->conversacion->client->fresh();
+        $this->assertSame('Carolina', $clienta->name);
+        $this->assertNotNull($clienta->name_confirmed_at);
     }
 
     public function test_quien_no_esta_en_el_spa_queda_con_ficha_al_decir_su_nombre(): void
@@ -254,7 +290,7 @@ class GuidedEntryTest extends TestCase
 
     public function test_si_no_da_el_nombre_no_se_le_insiste_el_mismo_dia(): void
     {
-        $this->conversacion->client->forceFill(['name' => '?'])->save();
+        $this->conversacion->client->forceFill(['name' => '?', 'name_confirmed_at' => null])->save();
 
         $this->escribe('Hola');
         $this->escribe('quiero ver mis citas');
@@ -964,7 +1000,7 @@ class GuidedEntryTest extends TestCase
     public function test_una_orden_no_se_guarda_como_nombre(): void
     {
         // Alejandra contestó «Reiniciar» y quedó guardada con ese nombre.
-        $this->conversacion->client->forceFill(['name' => '.'])->save();
+        $this->conversacion->client->forceFill(['name' => '.', 'name_confirmed_at' => null])->save();
         $this->escribe(GuidedEntry::STILL_CLIENT);
 
         $this->escribe('Reiniciar');
@@ -975,7 +1011,7 @@ class GuidedEntryTest extends TestCase
     public function test_si_no_teniamos_su_nombre_se_lo_pregunta_y_lo_guarda(): void
     {
         // 35 de las 161 del aviso se llaman "?", "." o "Cc".
-        $this->conversacion->client->forceFill(['name' => '.'])->save();
+        $this->conversacion->client->forceFill(['name' => '.', 'name_confirmed_at' => null])->save();
 
         $pregunta = $this->escribe(GuidedEntry::STILL_CLIENT);
 
@@ -991,7 +1027,7 @@ class GuidedEntryTest extends TestCase
 
     public function test_sin_nombre_un_si_no_confirma_nada(): void
     {
-        $this->conversacion->client->forceFill(['name' => '?'])->save();
+        $this->conversacion->client->forceFill(['name' => '?', 'name_confirmed_at' => null])->save();
         $this->escribe(GuidedEntry::STILL_CLIENT);
 
         $respuesta = $this->escribe('si');
@@ -1002,7 +1038,7 @@ class GuidedEntryTest extends TestCase
 
     public function test_si_en_vez_del_nombre_pide_otra_cosa_no_se_guarda_como_nombre(): void
     {
-        $this->conversacion->client->forceFill(['name' => '?'])->save();
+        $this->conversacion->client->forceFill(['name' => '?', 'name_confirmed_at' => null])->save();
         $this->escribe(GuidedEntry::STILL_CLIENT);
 
         $respuesta = $this->escribe('quiero una cita mañana');

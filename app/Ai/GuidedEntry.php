@@ -7,6 +7,7 @@ use App\Ai\Capabilities\CancelAppointmentCapability;
 use App\Models\Appointment;
 use App\Models\AppointmentStageEvent;
 use App\Models\Message;
+use App\Models\Client;
 use App\Models\WhatsappConversation;
 use App\Services\ClientPortalService;
 use App\Services\ClientResolver;
@@ -407,15 +408,21 @@ final class GuidedEntry
     private function showMenu(AiCaller $caller, string $phone, string $menu, bool $welcome = false): ?array
     {
         /*
-         * Sin nombre, primero el nombre. Quien no está en el spa, o está
-         * como "?", "." o su usuario de WhatsApp, recibía el menú y agendaba
-         * sin que nadie supiera quién era. Una vez al día como mucho: si no
-         * contesta con un nombre, sigue como siempre y no se le insiste.
+         * Sin nombre confirmado, primero el nombre. Quien no está en el spa,
+         * o está como "?", "." o su usuario de WhatsApp, recibía el menú y
+         * agendaba sin que nadie supiera quién era. Y a quien tenía un apodo
+         * que parece nombre («Claus») no se le preguntaba nunca: ahora se le
+         * pregunta a todas, una sola vez (`name_confirmed_at`). Una vez al día
+         * como mucho: si no contesta con un nombre, sigue como siempre.
          */
-        if ($menu === 'root' && ! $this->knowsName($caller) && Cache::add(self::ASKED_NAME_TODAY.$phone, true, now()->addDay())) {
+        if ($menu === 'root' && $caller->client?->name_confirmed_at === null && Cache::add(self::ASKED_NAME_TODAY.$phone, true, now()->addDay())) {
+            $pregunta = $this->knowsName($caller)
+                ? 'Estamos actualizando nuestros contactos: te tenemos como *'.trim((string) $caller->client->fullName()).'*. ¿Nos confirmas tu nombre completo? ✍️'
+                : 'Antes de empezar, ¿cómo te llamas? ✍️';
+
             // Sale directo, como el menú: si no hay canal, no se pregunta y
             // todo sigue igual que antes (el menú tampoco saldría).
-            if (app(EnvioDirecto::class)->textoSiSale($caller, $this->welcome($caller)."\n\nAntes de empezar, ¿cómo te llamas? ✍️")) {
+            if (app(EnvioDirecto::class)->textoSiSale($caller, $this->welcome($caller)."\n\n".$pregunta)) {
                 Cache::put(self::ASKING_NAME.$phone, 'root', now()->addDays(3));
 
                 return ['text' => '', 'conversation_id' => null, 'tools_used' => ['pedir_nombre']];
@@ -1087,7 +1094,7 @@ final class GuidedEntry
                 return null;
             }
             $caller = AiCaller::customer($caller->business, $phone, $client, $caller->channel);
-            $this->noteOnClient($caller, 'Nos dio su nombre al empezar a hablar con el bot.');
+            $this->noteOnClient($caller, 'Nos dio su nombre al empezar a hablar con el bot.', ['name_confirmed_at' => now()]);
 
             // La conversación queda ligada a su ficha nueva.
             if ($conversacion->client_id === null) {
@@ -1103,24 +1110,29 @@ final class GuidedEntry
         }
 
         if ($siguiente === 'root') {
+            if ($this->confirmsName($client, $texto)) {
+                $this->noteOnClient($caller, 'Confirmó su nombre.', ['name_confirmed_at' => now()]);
+                $caller = AiCaller::customer($caller->business, $phone, $client->fresh(), $caller->channel);
+
+                return $this->showMenu($caller, $phone, 'root');
+            }
+
             $nombre = $this->nameFrom($texto);
             if ($nombre === null) {
                 return null;
             }
 
-            $this->noteOnClient($caller, 'Nos dio su nombre al empezar a hablar con el bot.', ['name' => $nombre, 'last_name' => null]);
+            $this->noteOnClient($caller, 'Nos dio su nombre al empezar a hablar con el bot.', ['name' => $nombre, 'last_name' => null, 'name_confirmed_at' => now()]);
             $caller = AiCaller::customer($caller->business, $phone, $client->fresh(), $caller->channel);
 
             return $this->showMenu($caller, $phone, 'root');
         }
 
         // "Sí", "correcto", "así es": confirma el que ya tenemos.
-        $pilaActual = NombreDePila::deSaludo($client->name);
-        $dicho = trim((string) preg_replace('/[\s,]+/u', ' ', $this->plain($texto)));
-        if ($pilaActual !== null && preg_match('/^(si|sip|correcto|asi es|exacto|ok|listo|ese|ese es|si senora|si senor)( es| asi| correcto| gracias)*$/u', $dicho)) {
-            $this->noteOnClient($caller, 'Confirmó su nombre.');
+        if ($this->confirmsName($client, $texto)) {
+            $this->noteOnClient($caller, 'Confirmó su nombre.', ['name_confirmed_at' => now()]);
 
-            return $this->welcomeBack($caller, $phone, $pilaActual);
+            return $this->welcomeBack($caller, $phone, NombreDePila::deSaludo($client->name));
         }
 
         $nombre = $this->nameFrom($texto);
@@ -1131,9 +1143,18 @@ final class GuidedEntry
 
         // Lo que escribió es su nombre completo: reemplaza nombre y apellido
         // guardados, para no terminar con "Ana María Gómez Gómez".
-        $this->noteOnClient($caller, 'Nos dio su nombre al confirmar que sigue siendo clienta.', ['name' => $nombre, 'last_name' => null]);
+        $this->noteOnClient($caller, 'Nos dio su nombre al confirmar que sigue siendo clienta.', ['name' => $nombre, 'last_name' => null, 'name_confirmed_at' => now()]);
 
         return $this->welcomeBack($caller, $phone, NombreDePila::deSaludo($nombre));
+    }
+
+    /** "Sí", "correcto", "así es" a «te tenemos como X»: vale si X se puede usar. */
+    private function confirmsName(Client $client, string $texto): bool
+    {
+        $dicho = trim((string) preg_replace('/[\s,]+/u', ' ', $this->plain($texto)));
+
+        return NombreDePila::deSaludo($client->name) !== null
+            && preg_match('/^(si|sip|correcto|asi es|exacto|ok|listo|ese|ese es|si senora|si senor)( es| asi| correcto| gracias)*$/u', $dicho) === 1;
     }
 
     /** "me llamo ana maría" -> "Ana María"; null si no parece un nombre. */

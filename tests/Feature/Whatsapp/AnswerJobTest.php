@@ -62,6 +62,8 @@ class AnswerJobTest extends TestCase
             'phone' => ChannelPhone::normalize(self::PHONE),
             'is_active' => true,
         ]);
+        // Ya nos dio su nombre: el saludo abre el menú, sin preguntarlo.
+        $cliente->forceFill(['name_confirmed_at' => now()])->save();
 
         $this->conversacion = WhatsappConversation::withoutGlobalScope('business')->create([
             'business_id' => $business->id,
