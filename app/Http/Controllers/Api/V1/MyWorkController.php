@@ -6,11 +6,13 @@ use App\Models\Appointment;
 use App\Models\AppointmentItem;
 use App\Models\PayrollSettlement;
 use App\Models\ServiceRating;
+use App\Services\Payroll\PayrollService;
 use App\Support\Ratings\Comentario;
 use App\Support\Ratings\Nota;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Lo que ve una profesional de si misma.
@@ -39,6 +41,13 @@ class MyWorkController
 
         return response()->json([
             'resource' => ['id' => $resource->id, 'name' => $resource->name],
+            /*
+             * Lo primero que se mira: cuánto lleva ganado desde el último
+             * pago. Es la pregunta de toda manicurista --«¿cuánto me van a
+             * pagar?»-- y la semana o el mes no la contestan: el pago no
+             * corta por semanas ni por meses, corta cuando se liquida.
+             */
+            'to_date' => $this->hastaHoy($user->business, $resource, $now),
             'today' => $this->earnedBetween($resource->id, $now->startOfDay(), $now->addDay()->startOfDay()),
             'week' => $this->earnedBetween($resource->id, $now->startOfWeek(), $now->addDay()->startOfDay()),
             'month' => $this->earnedBetween($resource->id, $now->startOfMonth(), $now->addDay()->startOfDay()),
@@ -53,6 +62,41 @@ class MyWorkController
             // para el administrador.
             'payments' => $this->pagos($resource->id, $tz),
         ]);
+    }
+
+    /**
+     * Lo que se le pagaría si se liquidara hoy.
+     *
+     * La MISMA cuenta que ve quien paga (PayrollService::preview): si esta
+     * pantalla sacara su propio número, un día le diría a Marcela una cifra
+     * y la liquidación otra, y nadie sabría cuál creer.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function hastaHoy($business, $resource, CarbonImmutable $now): ?array
+    {
+        try {
+            $p = app(PayrollService::class)->preview($business, $resource, $now, conDetalle: false);
+        } catch (ValidationException) {
+            // Ya se le liquidó más allá de hoy: no lleva nada pendiente.
+            return null;
+        } catch (\Throwable $e) {
+            // Una configuración de nómina a medias no puede dejarla sin su
+            // agenda del día: se pierde este número, no la pantalla.
+            report($e);
+
+            return null;
+        }
+
+        return [
+            'since' => $p['period_start'],
+            'services' => $p['services_count'],
+            'charged' => $p['charged_total'],
+            'commission' => $p['commission_total'],
+            'bonus' => $p['bonus_total'],
+            'deduction' => $p['deduction_total'],
+            'net' => $p['net_total'],
+        ];
     }
 
     /**
