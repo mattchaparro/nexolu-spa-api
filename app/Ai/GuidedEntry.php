@@ -1350,26 +1350,7 @@ final class GuidedEntry
         string $aLaClienta = 'Listo 🙏 Ya le avisé al equipo: te escriben por aquí enseguida.',
     ): array {
         $this->forgetMenu($phone);
-        $conversacion->pauseAgent();
-
-        Message::create([
-            'business_id' => $conversacion->business_id,
-            'conversation_id' => $conversacion->id,
-            'client_id' => $conversacion->client_id,
-            'kind' => Message::KIND_STAFF,
-            'direction' => Message::DIRECTION_OUT,
-            'to' => $conversacion->phone,
-            'body' => '⚑ '.$nota.' (el bot queda en pausa: responde tú)',
-            // Nota interna: nace enviada para que el outbox no la despache.
-            'status' => Message::STATUS_SENT,
-            'sent_at' => now(),
-        ]);
-
-        $conversacion->update([
-            'last_message_at' => now(),
-            'read_at' => null,
-            'status' => WhatsappConversation::STATUS_OPEN,
-        ]);
+        AlEquipo::pasar($conversacion, $nota);
 
         return ['text' => $aLaClienta, 'conversation_id' => null, 'tools_used' => [$herramienta]];
     }

@@ -46,6 +46,11 @@ final class Toques
     /** Lo que dice el botón de pedir otras horas. */
     public const OTRA_HORA = 'Otra hora';
 
+    /** La hora pedida no cabe en el turno: que lo decida una persona. */
+    public const CONSULTAR = 'Consultar al equipo';
+
+    public const OTRAS_HORAS = 'Ver otras horas';
+
     /** El "Sí" cuando lo que se confirma es una mudanza. */
     public const SI_MOVER = 'Sí, muévela';
 
@@ -207,6 +212,40 @@ final class Toques
             // Escribió el día con sus palabras ("el viernes"): del modelo,
             // que DateInText ya dejó mandando lo que dijo.
             return null;
+        }
+
+        // 1.9) Pidió una hora fuera del turno: consultar o ver las que hay.
+        if (! empty($pedido['consulta_hora'])) {
+            $consulta = $pedido['consulta_hora'];
+
+            foreach ($candidatos as $plano) {
+                if ($plano === $this->plano(self::CONSULTAR)) {
+                    unset($pedido['consulta_hora']);
+                    UltimoPedido::guardar($phone, $pedido);
+
+                    AlEquipo::pasar($conversacion, sprintf(
+                        'Pide %s el %s a las %s%s: no cabe en el turno. ¿Se puede?',
+                        $consulta['servicio'] ?? 'una cita',
+                        $consulta['dia'] ?? '',
+                        $consulta['hora'] ?? '',
+                        empty($consulta['con']) ? '' : ' con '.$consulta['con'],
+                    ));
+
+                    return [
+                        'text' => '¡Listo! 🙏 Le pregunto al equipo si se puede a las '.($consulta['hora'] ?? 'esa hora')
+                            .' y te confirmamos por aquí enseguida.',
+                        'conversation_id' => null,
+                        'tools_used' => ['consultar_hora'],
+                    ];
+                }
+
+                if ($plano === $this->plano(self::OTRAS_HORAS)) {
+                    unset($pedido['consulta_hora']);
+                    UltimoPedido::guardar($phone, $pedido);
+
+                    return $this->respuestaDe($this->disponibilidad->execute($caller, []), 'otras_horas');
+                }
+            }
         }
 
         // 2) Ninguna hora le sirvió: otro día u otra persona.

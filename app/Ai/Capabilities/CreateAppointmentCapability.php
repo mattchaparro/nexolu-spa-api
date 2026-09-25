@@ -12,11 +12,13 @@ use App\Ai\HoraLegible;
 use App\Ai\InfoPostCita;
 use App\Ai\InstagramOfrecido;
 use App\Ai\Resolves;
+use App\Ai\Toques;
 use App\Ai\UltimoPedido;
 use App\Models\Appointment;
 use App\Models\Business;
 use App\Models\Client;
 use App\Models\Location;
+use App\Models\Resource;
 use App\Models\Service;
 use App\Services\ClientPortalService;
 use App\Services\ClientResolver;
@@ -216,7 +218,24 @@ class CreateAppointmentCapability implements Capability
                 'agendada' => false,
                 'motivo' => 'Esa hora ya se ocupó mientras conversábamos. Ofrece otra hora del mismo día.',
             ];
-        } catch (OutsideWorkingHoursException|\DomainException $e) {
+        } catch (OutsideWorkingHoursException $e) {
+            /*
+             * La hora cae fuera del turno de quien atiende. Antes el bot
+             * decía que no, rotundo; a veces sí se puede («Aleja sale a las
+             * 5, pero a las 4 la atiende») y eso lo decide una persona. Se le
+             * ofrece consultarlo con el equipo o ver las horas que sí hay.
+             */
+            if ($this->ofrecerConsulta($caller, $servicios, $inicio, $items)) {
+                return [
+                    'agendada' => false,
+                    'consulta_ofrecida' => true,
+                    'instruccion' => 'Ya le ofrecí por botones consultarlo con el equipo o ver otras horas. '
+                        .'NO digas nada más: responde con una cadena vacía.',
+                ];
+            }
+
+            return ['agendada' => false, 'motivo' => $e->getMessage()];
+        } catch (\DomainException $e) {
             return ['agendada' => false, 'motivo' => $e->getMessage()];
         }
 
@@ -560,6 +579,62 @@ class CreateAppointmentCapability implements Capability
         }
 
         return $enviada;
+    }
+
+    /**
+     * «¿Lo consulto con el equipo?», con botones.
+     *
+     * @param  list<Service>  $servicios
+     * @param  list<array<string, mixed>>  $items
+     */
+    private function ofrecerConsulta(AiCaller $caller, array $servicios, CarbonImmutable $inicio, array $items): bool
+    {
+        if (! $caller->isCustomer() || $caller->channel !== 'whatsapp') {
+            return false;
+        }
+
+        $phone = ChannelPhone::normalize((string) $caller->phone, $caller->business->country_code ?? 'CO');
+
+        if ($phone === null) {
+            return false;
+        }
+
+        $tz = $caller->business->businessTimezone();
+        $hora = HoraLegible::de($inicio, $tz);
+        $dia = $inicio->locale('es')->isoFormat('dddd D [de] MMMM');
+        $servicio = collect($servicios)->pluck('name')->implode(' y ');
+        $quien = isset($items[0]['resource_id'])
+            ? Resource::withoutGlobalScopes()->find($items[0]['resource_id'])?->name
+            : null;
+
+        $enviado = app(EnvioDirecto::class)->opciones(
+            $caller,
+            sprintf(
+                'A las *%s* no me aparece espacio%s 😕 Puedo consultarlo con el equipo, o te muestro las horas que sí hay.',
+                $hora,
+                $quien ? ' con '.explode(' ', $quien)[0] : '',
+            ),
+            [
+                ['id' => 'consultar', 'title' => Toques::CONSULTAR],
+                ['id' => 'otras', 'title' => Toques::OTRAS_HORAS],
+            ],
+        );
+
+        if (! $enviado) {
+            return false;
+        }
+
+        UltimoPedido::guardar($phone, [
+            ...UltimoPedido::ver($phone),
+            'consulta_hora' => [
+                'servicio' => $servicio,
+                'dia' => $dia,
+                'hora' => $hora,
+                'con' => $quien,
+            ],
+        ]);
+
+        return true;
     }
 
     private function notaDeTerceros(AiCaller $caller, array $arguments): ?string

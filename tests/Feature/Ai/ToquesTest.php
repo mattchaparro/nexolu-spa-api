@@ -8,6 +8,7 @@ use App\Ai\UltimoPedido;
 use App\Models\Appointment;
 use App\Models\Business;
 use App\Models\Client;
+use App\Models\Message;
 use App\Models\ServiceCategory;
 use App\Models\WhatsappConversation;
 use App\Support\ChannelPhone;
@@ -195,6 +196,31 @@ class ToquesTest extends TestCase
         $this->assertNotNull($respuesta);
         $this->assertNotContains('Otro día', array_column($this->ultimaLista(), 'title'));
         $this->assertNotEmpty(UltimoPedido::ver((string) ChannelPhone::normalize(self::PHONE))['fechas'] ?? []);
+    }
+
+    public function test_una_hora_fuera_del_turno_ofrece_consultar_con_el_equipo(): void
+    {
+        /*
+         * Laura pidió las 4 con Alejandra, que sale a las 5, y el bot le
+         * dijo que no, rotundo. A veces sí se puede: lo decide una persona.
+         * Maria trabaja hasta la 1: a las 12:30 una hora no le cabe.
+         */
+        $r = $this->invoke('crear_cita', [
+            'servicio' => 'Semipermanente', 'fecha' => $this->manana(),
+            'hora' => '12:30', 'empleado' => 'Maria',
+        ])->assertOk();
+
+        $this->assertTrue($r->json('data.consulta_ofrecida'));
+        $this->assertSame(['Consultar al equipo', 'Ver otras horas'], array_column($this->ultimaLista(), 'title'));
+
+        $respuesta = $this->toques()->atender($this->conversacion, 'Consultar al equipo');
+
+        $this->assertStringContainsString('Le pregunto al equipo', $respuesta['text']);
+        $this->assertTrue($this->conversacion->fresh()->agentIsPaused());
+        $nota = Message::withoutGlobalScopes()->where('kind', Message::KIND_STAFF)->latest('id')->first();
+        $this->assertStringContainsString('12:30 pm', $nota->body);
+        $this->assertStringContainsString('con Maria', $nota->body);
+        $this->assertSame(0, Appointment::withoutGlobalScopes()->count());
     }
 
     public function test_tocar_si_agenda_exactamente_lo_confirmado(): void

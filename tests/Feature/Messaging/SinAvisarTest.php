@@ -127,6 +127,34 @@ class SinAvisarTest extends TestCase
         $this->assertSame(['duenio@correo.test'], array_column(array_column($this->correos(), 'to'), 'email'));
     }
 
+    public function test_el_admin_agenda_una_hora_puntual_fuera_del_turno(): void
+    {
+        // Maria sale a las 6: a las 7 de la noche no hay horas, pero el
+        // admin puede dejarla a mano.
+        $fuera = ['starts_at' => $this->wednesday()->format('Y-m-d').' 19:00:00'];
+
+        $this->postJson('/api/v1/appointments', [
+            'service_id' => $this->service->id, 'resource_id' => $this->maria->id,
+            'client_name' => 'Laura', ...$fuera,
+        ])->assertStatus(422);
+
+        $this->postJson('/api/v1/appointments', [
+            'service_id' => $this->service->id, 'resource_id' => $this->maria->id,
+            'client_name' => 'Laura', 'outside_schedule' => true, ...$fuera,
+        ])->assertCreated();
+    }
+
+    public function test_fuera_del_turno_es_solo_de_quien_gestiona_horarios(): void
+    {
+        Sanctum::actingAs($this->usuario('sofia@prueba.test', PermissionCatalog::ROLE_RECEPTION)->fresh());
+
+        $this->postJson('/api/v1/appointments', [
+            'service_id' => $this->service->id, 'resource_id' => $this->maria->id,
+            'client_name' => 'Laura', 'outside_schedule' => true,
+            'starts_at' => $this->wednesday()->format('Y-m-d').' 19:00:00',
+        ])->assertForbidden();
+    }
+
     public function test_sin_avisar_tampoco_sale_el_correo(): void
     {
         $this->agendar(['silent' => true]);

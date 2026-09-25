@@ -169,7 +169,23 @@ class AppointmentController
             'client_name' => ['required_without:client_id', 'nullable', 'string', 'max:255'],
             'client_phone' => ['nullable', 'string', 'max:32'],
             'notes' => ['nullable', 'string', 'max:2000'],
+
+            /*
+             * Una hora puntual, aunque no esté dentro del turno: «Aleja sale
+             * a las 5, pero a esta clienta la atiende a las 4 y cuarto». Solo
+             * quien gestiona horarios; lo demás se sigue validando (dos citas
+             * de la misma persona a la vez siguen sin caber).
+             */
+            'outside_schedule' => ['nullable', 'boolean'],
         ]);
+
+        $fueraDeTurno = $request->boolean('outside_schedule');
+
+        abort_if(
+            $fueraDeTurno && ! $request->user()->hasBusinessPermission('horarios.gestionar'),
+            403,
+            'No tienes permiso para agendar fuera del turno.',
+        );
 
         $business = $request->user()->business;
         $tz = $business->businessTimezone();
@@ -237,6 +253,7 @@ class AppointmentController
                 $phone ?? $client?->phone,
                 Appointment::SOURCE_ADMIN,
                 $data['notes'] ?? null,
+                enforceSchedule: ! $fueraDeTurno,
                 package: $package,
             );
         } catch (SlotUnavailableException $e) {
