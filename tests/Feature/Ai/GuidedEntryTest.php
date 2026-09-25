@@ -795,6 +795,47 @@ class GuidedEntryTest extends TestCase
         $this->assertTrue((bool) $this->conversacion->client->fresh()->accepts_marketing);
     }
 
+    public function test_ya_no_voy_la_saca_de_las_promociones_y_queda_anotado(): void
+    {
+        /*
+         * El aviso de cambio de número le llega a todas las clientas; quien
+         * ya no viene (se fue de Sibaté, cambió de salón) lo dice con un
+         * toque y no le volvemos a escribir.
+         */
+        $respuesta = $this->escribe(GuidedEntry::NO_LONGER_CLIENT);
+
+        $this->assertSame(['ya_no_es_clienta'], $respuesta['tools_used']);
+        $this->assertStringContainsString('No te volveremos a escribir', $respuesta['text']);
+
+        $clienta = $this->conversacion->client->fresh();
+        $this->assertFalse((bool) $clienta->accepts_marketing);
+        $this->assertStringContainsString('ya no viene', $clienta->notes);
+
+        // Tocarlo otra vez no repite la nota.
+        $this->escribe(GuidedEntry::NO_LONGER_CLIENT);
+        $this->assertSame(1, substr_count($this->conversacion->client->fresh()->notes, 'ya no viene'));
+    }
+
+    public function test_si_ahi_nos_vemos_la_anota_y_le_ofrece_agendar(): void
+    {
+        $this->conversacion->client->forceFill(['accepts_marketing' => true, 'notes' => 'Alérgica al acrílico'])->save();
+
+        $respuesta = $this->escribe(GuidedEntry::STILL_CLIENT);
+
+        $this->assertSame(['sigue_siendo_clienta'], $respuesta['tools_used']);
+        $this->assertSame([GuidedEntry::HERE, GuidedEntry::WEB], $this->ultimosBotones());
+        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'granizado gratis'));
+
+        $clienta = $this->conversacion->client->fresh();
+        $this->assertTrue((bool) $clienta->accepts_marketing);
+        // Lo que ya tenía anotado se queda; la línea nueva va al final.
+        $this->assertStringStartsWith('Alérgica al acrílico', $clienta->notes);
+        $this->assertStringContainsString('sigue siendo clienta', $clienta->notes);
+
+        // Y el toque siguiente se enruta como el menú de agendar.
+        $this->assertSame(['agenda_web'], $this->escribe(GuidedEntry::WEB)['tools_used'] ?? null);
+    }
+
     public function test_empezar_de_cero_abre_el_catalogo_sin_nada_pegado(): void
     {
         $this->visitaPasada(21);

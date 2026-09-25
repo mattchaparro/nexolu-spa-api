@@ -115,6 +115,19 @@ final class GuidedEntry
 
     public const CANCEL_APPOINTMENT = 'Cancelar cita';
 
+    /**
+     * Los dos botones del aviso de cambio de número (plantilla
+     * `cambio_de_numero_granizado`, septiembre de 2026).
+     *
+     * Aprovechan que le escribimos a TODAS las clientas para limpiar la
+     * lista: quien ya no viene --se fue de Sibaté, cambió de salón-- lo dice
+     * con un toque y no le volvemos a escribir, en vez de bloquear el
+     * número, que es lo que hace quien no puede salirse.
+     */
+    public const STILL_CLIENT = 'Sí, ahí nos vemos';
+
+    public const NO_LONGER_CLIENT = 'Ya no voy, gracias';
+
     /** Sin mensajes del bot en este lapso, lo siguiente es una conversación nueva. */
     private const NEW_SESSION_MINUTES = 30;
 
@@ -164,6 +177,13 @@ final class GuidedEntry
 
         if ($retoque !== null) {
             return $retoque;
+        }
+
+        // 0.4) Los del aviso de cambio de número: sigue viniendo, o ya no.
+        $cambio = $this->fromNumberChange($caller, $phone, $texto);
+
+        if ($cambio !== null) {
+            return $cambio;
         }
 
         // 0.5) Los botones del final de la visita: su tarjeta y calificar.
@@ -880,6 +900,76 @@ final class GuidedEntry
             "¡Gracias! 🌟 Son 30 segundos y nos ayuda muchísimo 👇\n".$enlace,
             'calificar',
         );
+    }
+
+    // -- Cambio de número ---------------------------------------------------
+
+    /**
+     * Los dos botones del aviso de cambio de número.
+     *
+     * La respuesta queda en las notas de la clienta, con fecha: es lo que
+     * el salón va a querer mirar ("¿esta sigue viniendo?"), y no hace falta
+     * una columna para una campaña.
+     *
+     * @return array{text: string, conversation_id: null, tools_used: list<string>}|null
+     */
+    private function fromNumberChange(AiCaller $caller, string $phone, string $texto): ?array
+    {
+        $tocado = $this->plain($texto);
+
+        if ($tocado === $this->plain(self::NO_LONGER_CLIENT)) {
+            // La misma llave que ya frena difusiones y retoques: una sola.
+            $this->noteOnClient($caller, 'Dijo que ya no viene (aviso de cambio de número). No enviarle promociones.', ['accepts_marketing' => false]);
+
+            return $this->reply(
+                $phone,
+                '¡Gracias por avisarnos! 💛 No te volveremos a escribir con promociones.'
+                    ."\n\nSi algún día vuelves por Sibaté, aquí estaremos. ¡Te deseamos lo mejor! ✨",
+                'ya_no_es_clienta',
+            );
+        }
+
+        if ($tocado === $this->plain(self::STILL_CLIENT)) {
+            $this->noteOnClient($caller, 'Confirmó que sigue siendo clienta (aviso de cambio de número).');
+
+            $texto = '¡Qué alegría! 💅 Ya quedaste con nuestro número nuevo.'
+                ."\n\nRecuerda que por hacerte cualquier servicio te llevas un granizado gratis 🍧 ¿Te agendamos tu próxima cita?";
+
+            // Los mismos dos botones del menú de agendar, y ese menú queda
+            // guardado: el toque siguiente se enruta como si viniera de ahí.
+            return $this->send($caller, $phone, $texto, [self::HERE, self::WEB], ['menu' => 'agendar'], 'sigue_siendo_clienta', fresh: true)
+                ?? $this->reply($phone, $texto, 'sigue_siendo_clienta');
+        }
+
+        return null;
+    }
+
+    /**
+     * Una línea con fecha al final de las notas de la clienta (y, si
+     * hace falta, otros cambios). Sin clienta reconocida no hay dónde
+     * anotarlo, y la respuesta sale igual.
+     *
+     * @param  array<string, mixed>  $cambios
+     */
+    private function noteOnClient(AiCaller $caller, string $nota, array $cambios = []): void
+    {
+        $client = $caller->client;
+
+        if ($client === null) {
+            return;
+        }
+
+        $linea = '['.now()->timezone('America/Bogota')->format('d/m/Y').'] '.$nota;
+        $notas = trim((string) $client->notes);
+
+        // Tocar dos veces el mismo botón no repite la nota.
+        if (! str_contains($notas, $nota)) {
+            $cambios['notes'] = $notas === '' ? $linea : $notas."\n".$linea;
+        }
+
+        if ($cambios !== []) {
+            $client->forceFill($cambios)->save();
+        }
     }
 
     // -- Retoque -----------------------------------------------------------
