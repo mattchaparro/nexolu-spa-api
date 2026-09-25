@@ -3,10 +3,11 @@
 namespace App\Http\Controllers\Api;
 
 use App\Ai\BookingForm;
-use App\Jobs\AnswerWhatsappMessageJob;
 use App\Ai\SurveyForm;
+use App\Jobs\AnswerWhatsappMessageJob;
 use App\Jobs\ProcessBookingFormJob;
 use App\Jobs\ProcessSurveyFormJob;
+use App\Jobs\PushClientNameToConnectJob;
 use App\Jobs\SendMessageJob;
 use App\Models\Business;
 use App\Models\Client;
@@ -15,6 +16,7 @@ use App\Models\WhatsappConversation;
 use App\Services\Messaging\Contracts\MessagingChannel;
 use App\Services\WhatsApp\ConversationRouter;
 use App\Support\ChannelPhone;
+use App\Support\NombreDePila;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -458,6 +460,27 @@ class CommsWebhookController
             // escondida es una clienta a la que nadie contesta.
             'status' => WhatsappConversation::STATUS_OPEN,
         ]);
+
+        /*
+         * El chat de Connect la muestra con el nombre de su perfil de
+         * WhatsApp ("ventasmaterasmexicanas") si la conoció al mandarle
+         * algo: la ficha de aquí es la que vale. Una vez al día por
+         * clienta, y solo si tiene un nombre con que saludarla.
+         */
+        $clienta = $conversacion->client_id !== null
+            ? Client::withoutGlobalScope('business')->find($conversacion->client_id)
+            : null;
+        if ($clienta !== null
+            && NombreDePila::deSaludo($clienta->name) !== null
+            && Cache::add('connect_nombre:'.$clienta->id, true, now()->addDay())) {
+            // Mejor esfuerzo: un nombre sin sincronizar no puede tumbar el
+            // webhook (con cola síncrona el job correría aquí mismo).
+            try {
+                PushClientNameToConnectJob::dispatch($clienta->id);
+            } catch (\Throwable $e) {
+                Log::info('comms.webhook: no se pudo llevar el nombre a Connect', ['client_id' => $clienta->id, 'error' => $e->getMessage()]);
+            }
+        }
 
         return $mensaje;
     }

@@ -3,6 +3,7 @@
 namespace Tests\Feature\Ai;
 
 use App\Ai\Capabilities\AvailabilityCapability;
+use App\Ai\GuidedEntry;
 use App\Ai\Toques;
 use App\Ai\UltimoPedido;
 use App\Models\Appointment;
@@ -164,7 +165,7 @@ class ToquesTest extends TestCase
         $this->assertSame('', $respuesta['text']);
         $this->assertSame([Toques::SI, Toques::OTRA_HORA], array_column($this->ultimaLista(), 'title'));
 
-        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'Te confirmo: *Semipermanente*')
+        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', "¿te agendo la siguiente cita? 👇\n\n💅 *Semipermanente*")
             && str_contains($r->data()['text'] ?? '', $horas[0]['hora']));
     }
 
@@ -242,6 +243,39 @@ class ToquesTest extends TestCase
         $cita = Appointment::withoutGlobalScopes()->with('items.service')->sole();
         $this->assertSame('Semipermanente', $cita->items->first()->service->name);
         $this->assertSame($horas[0]['hora_24'], $cita->starts_at->timezone('America/Bogota')->format('H:i'));
+    }
+
+    public function test_sin_ficha_al_confirmar_se_le_pregunta_el_nombre_y_se_agenda(): void
+    {
+        /*
+         * María no estaba en el spa: tocó «Sí, agendar», la reserva exigió
+         * el nombre y falló en silencio -- ni cita ni mensaje. Ahora se le
+         * pregunta, y con su nombre queda agendado lo que ya había elegido.
+         */
+        $anterior = $this->conversacion->client_id;
+        $this->conversacion->update(['client_id' => null]);
+        Client::withoutGlobalScopes()->whereKey($anterior)->forceDelete();
+        $this->conversacion = $this->conversacion->fresh(['business', 'client']);
+
+        $horas = $this->invoke('disponibilidad', ['servicio' => 'Semipermanente', 'fecha' => $this->manana()])
+            ->json('data.ofrecidas');
+        $this->toques()->atender($this->conversacion, $horas[0]['hora']);
+
+        $pregunta = $this->toques()->atender($this->conversacion, Toques::SI);
+
+        $this->assertSame(['pedir_nombre'], $pregunta['tools_used']);
+        $this->assertStringContainsString('¿cómo te llamas?', $pregunta['text']);
+        $this->assertSame(0, Appointment::withoutGlobalScopes()->count());
+
+        // Lo que escribe no es un botón: Toques no lo toma y lo atiende el iniciador.
+        $this->assertNull($this->toques()->atender($this->conversacion, 'María Pérez'));
+        app(GuidedEntry::class)->attend($this->conversacion->fresh(['business', 'client']), 'María Pérez');
+
+        $cita = Appointment::withoutGlobalScopes()->with('client')->sole();
+        $this->assertSame('María', $cita->client->name);
+        $this->assertSame($horas[0]['hora_24'], $cita->starts_at->timezone('America/Bogota')->format('H:i'));
+        $this->assertSame($cita->client_id, $this->conversacion->fresh()->client_id);
+        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', '¡Tu cita quedó confirmada!'));
     }
 
     public function test_la_confirmacion_trae_el_detalle_de_la_cita(): void

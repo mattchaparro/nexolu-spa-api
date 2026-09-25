@@ -9,6 +9,7 @@ use App\Models\AppointmentStageEvent;
 use App\Models\Message;
 use App\Models\WhatsappConversation;
 use App\Services\ClientPortalService;
+use App\Services\ClientResolver;
 use App\Services\Loyalty\LoyaltyService;
 use App\Services\Ratings\SurveyService;
 use App\Services\Scheduling\StageTransitionService;
@@ -139,8 +140,15 @@ final class GuidedEntry
      */
     public const BOOK_APPOINTMENT = 'Agendar cita';
 
-    /** Marca en caché: le preguntamos el nombre y falta la respuesta. */
-    private const ASKING_NAME = 'pide_nombre:';
+    /**
+     * Marca en caché: le preguntamos el nombre y falta la respuesta. El
+     * valor dice qué sigue después: 'root' (el menú de inicio) o true (el
+     * cierre del aviso de cambio de número).
+     */
+    public const ASKING_NAME = 'pide_nombre:';
+
+    /** Para no preguntarle el nombre más de una vez al día a quien no lo da. */
+    private const ASKED_NAME_TODAY = 'nombre_preguntado:';
 
     /** Sin mensajes del bot en este lapso, lo siguiente es una conversación nueva. */
     private const NEW_SESSION_MINUTES = 30;
@@ -196,7 +204,7 @@ final class GuidedEntry
         // 0.4) Los del aviso de cambio de número: sigue viniendo, o ya no
         // (y, si no teníamos su nombre, la respuesta a "¿cómo te llamas?").
         $cambio = $this->fromNumberChange($caller, $phone, $texto)
-            ?? $this->fromNamePrompt($caller, $phone, $texto);
+            ?? $this->fromNamePrompt($caller, $phone, $texto, $conversacion);
 
         if ($cambio !== null) {
             return $cambio;
@@ -398,6 +406,24 @@ final class GuidedEntry
      */
     private function showMenu(AiCaller $caller, string $phone, string $menu, bool $welcome = false): ?array
     {
+        /*
+         * Sin nombre, primero el nombre. Quien no está en el spa, o está
+         * como "?", "." o su usuario de WhatsApp, recibía el menú y agendaba
+         * sin que nadie supiera quién era. Una vez al día como mucho: si no
+         * contesta con un nombre, sigue como siempre y no se le insiste.
+         */
+        if ($menu === 'root' && ! $this->knowsName($caller) && Cache::add(self::ASKED_NAME_TODAY.$phone, true, now()->addDay())) {
+            // Sale directo, como el menú: si no hay canal, no se pregunta y
+            // todo sigue igual que antes (el menú tampoco saldría).
+            if (app(EnvioDirecto::class)->textoSiSale($caller, $this->welcome($caller)."\n\nAntes de empezar, ¿cómo te llamas? ✍️")) {
+                Cache::put(self::ASKING_NAME.$phone, 'root', now()->addDays(3));
+
+                return ['text' => '', 'conversation_id' => null, 'tools_used' => ['pedir_nombre']];
+            }
+
+            Cache::forget(self::ASKED_NAME_TODAY.$phone);
+        }
+
         /*
          * Al empezar, se saluda como en el mostrador: el nombre si lo
          * sabemos, el del negocio, y la pregunta. Alejandro escribió
@@ -1039,16 +1065,53 @@ final class GuidedEntry
      *
      * @return array{text: string, conversation_id: null, tools_used: list<string>}|null
      */
-    private function fromNamePrompt(AiCaller $caller, string $phone, string $texto): ?array
+    private function fromNamePrompt(AiCaller $caller, string $phone, string $texto, WhatsappConversation $conversacion): ?array
     {
-        if (! Cache::pull(self::ASKING_NAME.$phone)) {
+        $siguiente = Cache::pull(self::ASKING_NAME.$phone);
+
+        if (! $siguiente) {
             return null;
         }
 
         $client = $caller->client;
 
+        // Quien no estaba en el spa: con su nombre ya se le puede abrir ficha.
         if ($client === null) {
-            return null;
+            $nombre = $this->nameFrom($texto);
+            if ($nombre === null) {
+                return null;
+            }
+
+            $client = app(ClientResolver::class)->resolve($caller->business->id, null, $nombre, $phone);
+            if ($client === null) {
+                return null;
+            }
+            $caller = AiCaller::customer($caller->business, $phone, $client, $caller->channel);
+            $this->noteOnClient($caller, 'Nos dio su nombre al empezar a hablar con el bot.');
+
+            // La conversación queda ligada a su ficha nueva.
+            if ($conversacion->client_id === null) {
+                $conversacion->update(['client_id' => $client->id]);
+            }
+
+            // Estaba confirmando una cita: se agenda lo que ya eligió.
+            if ($siguiente === 'agendar') {
+                return app(Toques::class)->atender($conversacion->fresh(['business', 'client']), 'Sí, agendar');
+            }
+
+            return $this->showMenu($caller, $phone, 'root');
+        }
+
+        if ($siguiente === 'root') {
+            $nombre = $this->nameFrom($texto);
+            if ($nombre === null) {
+                return null;
+            }
+
+            $this->noteOnClient($caller, 'Nos dio su nombre al empezar a hablar con el bot.', ['name' => $nombre, 'last_name' => null]);
+            $caller = AiCaller::customer($caller->business, $phone, $client->fresh(), $caller->channel);
+
+            return $this->showMenu($caller, $phone, 'root');
         }
 
         // "Sí", "correcto", "así es": confirma el que ya tenemos.
@@ -1431,6 +1494,19 @@ final class GuidedEntry
      * bienvenida" y no "Bienvenido/a": así no hay que adivinar el género
      * de quien escribe.
      */
+    /** Si la ficha tiene un nombre con el que se la pueda saludar. */
+    private function knowsName(AiCaller $caller): bool
+    {
+        $client = $caller->client;
+        if ($client === null) {
+            return false;
+        }
+
+        $nombre = trim((string) $client->fullName());
+
+        return $nombre !== '' && ! NombreRaro::es($nombre) && NombreDePila::deSaludo($client->name) !== null;
+    }
+
     private function welcome(AiCaller $caller): string
     {
         $nombre = trim((string) $caller->client?->fullName());

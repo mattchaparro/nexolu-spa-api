@@ -12,6 +12,7 @@ use App\Services\WhatsApp\NexoluCommsChannel;
 use App\Support\ChannelPhone;
 use App\Support\PublicProfile;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\Cache;
 
 /**
  * Lo que la clienta TOCÓ no pasa por el modelo.
@@ -162,6 +163,22 @@ final class Toques
         if (isset($pedido['confirmar'])) {
             foreach ($candidatos as $plano) {
                 if (in_array($plano, ['si, agendar', 'si agendar', 'si, muevela', 'si muevela', 'muevela', 'si', 'dale', 'confirmo', 'confirmar', 'listo', 'ok', 'de una', 'agendame', 'agendala'], true)) {
+                    /*
+                     * Sin ficha, la reserva exige el nombre y fallaba en
+                     * silencio: María tocó «Sí, agendar» y no pasó nada.
+                     * Se le pregunta, y con la respuesta se agenda lo que
+                     * ya había elegido (GuidedEntry::fromNamePrompt).
+                     */
+                    if ($caller->client === null && ! isset($pedido['mudanza'])) {
+                        Cache::put(GuidedEntry::ASKING_NAME.$phone, 'agendar', now()->addHours(8));
+
+                        return [
+                            'text' => '¡Ya casi! 💅 Para dejar tu cita a tu nombre, ¿cómo te llamas?',
+                            'conversation_id' => null,
+                            'tools_used' => ['pedir_nombre'],
+                        ];
+                    }
+
                     return $this->agendar($caller, $conversacion, $phone, $pedido);
                 }
 
@@ -509,7 +526,10 @@ final class Toques
     }
 
     /**
-     * "Te confirmo: X el día D a las H con P. ¿Lo agendo?" con dos botones.
+     * "Para finalizar, ¿te agendo la siguiente cita?" con el detalle y dos botones.
+     *
+     * Antes decía "Te confirmo: …", y la gente creía que ya estaba agendada
+     * y no tocaba el botón: la cita no quedaba.
      *
      * @param  array<string, mixed>  $pedido
      * @param  array{hora_24: string, hora: string, con?: string}  $hora
@@ -528,11 +548,11 @@ final class Toques
                 empty($hora['con']) ? '' : ' con *'.$hora['con'].'*',
             )
             : sprintf(
-                'Te confirmo: *%s* el *%s* a las *%s*%s. ¿Lo agendo?',
+                "Para finalizar, ¿te agendo la siguiente cita? 👇\n\n💅 *%s*\n📅 *%s* a las *%s*%s",
                 $this->nombreDe($pedido),
                 $pedido['dia'] ?? $pedido['fecha'],
                 $hora['hora'],
-                empty($hora['con']) ? '' : ' con *'.$hora['con'].'*',
+                empty($hora['con']) ? '' : "\n👩 Con *".$hora['con'].'*',
             );
 
         $enviado = $this->channel->sendOptions(

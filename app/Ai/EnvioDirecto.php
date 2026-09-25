@@ -60,6 +60,26 @@ final class EnvioDirecto
     }
 
     /**
+     * Un texto directo SIN red de la cola: false si el canal no lo manda.
+     *
+     * Para lo que reemplaza a un menú (preguntar el nombre antes del menú
+     * de inicio): si el canal no puede, tampoco saldría el menú, y quien
+     * llama sigue por el camino de siempre en vez de dejarlo en cola.
+     */
+    public function textoSiSale(AiCaller $caller, string $texto): bool
+    {
+        $phone = $this->phone($caller);
+
+        if ($phone === null || ! $this->channel->sendText($phone, $texto, $caller->business->id)) {
+            return false;
+        }
+
+        $this->registrar($caller, $phone, $texto);
+
+        return true;
+    }
+
+    /**
      * Un texto con un boton que abre un enlace, directo a la clienta.
      *
      * Si el boton no sale, sale el texto con el enlace pegado al final: la

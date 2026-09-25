@@ -217,7 +217,51 @@ class GuidedEntryTest extends TestCase
 
         $this->escribe('Hola');
 
-        Http::assertSent(fn ($r) => str_starts_with($r->data()['text'] ?? '', "¡Hola! 👋\nTe damos la bienvenida a *Spa de prueba*"));
+        // Sin un nombre con que saludarla, se le pregunta antes del menú.
+        Http::assertSent(fn ($r) => str_starts_with($r->data()['text'] ?? '', "¡Hola! 👋\nTe damos la bienvenida a *Spa de prueba*")
+            && str_contains($r->data()['text'] ?? '', '¿cómo te llamas?'));
+    }
+
+    public function test_sin_nombre_se_lo_pregunta_al_empezar_y_despues_el_menu(): void
+    {
+        $this->conversacion->client->forceFill(['name' => '.'])->save();
+
+        $pregunta = $this->escribe('Hola');
+        $this->assertSame(['pedir_nombre'], $pregunta['tools_used']);
+
+        $menu = $this->escribe('Soy Liliana Gómez');
+
+        $this->assertSame(['menu_root'], $menu['tools_used']);
+        $this->assertSame('Liliana Gómez', $this->conversacion->client->fresh()->name);
+        Http::assertSent(fn ($r) => str_starts_with($r->data()['text'] ?? '', '¡Hola, Liliana! 👋'));
+        $this->assertSame([GuidedEntry::BOOK, GuidedEntry::MY_APPOINTMENTS, GuidedEntry::OTHER], $this->ultimosBotones());
+    }
+
+    public function test_quien_no_esta_en_el_spa_queda_con_ficha_al_decir_su_nombre(): void
+    {
+        $anterior = $this->conversacion->client_id;
+        $this->conversacion->forceFill(['client_id' => null])->save();
+        Client::withoutGlobalScopes()->whereKey($anterior)->forceDelete();
+
+        $this->escribe('Hola');
+        $menu = $this->escribe('Liliana');
+
+        $this->assertSame(['menu_root'], $menu['tools_used']);
+        $clienta = Client::withoutGlobalScopes()->where('business_id', $this->business->id)->where('phone', $this->phone())->first();
+        $this->assertNotNull($clienta);
+        $this->assertSame('Liliana', $clienta->name);
+    }
+
+    public function test_si_no_da_el_nombre_no_se_le_insiste_el_mismo_dia(): void
+    {
+        $this->conversacion->client->forceFill(['name' => '?'])->save();
+
+        $this->escribe('Hola');
+        $this->escribe('quiero ver mis citas');
+        $otra = $this->escribe('Hola');
+
+        $this->assertNotSame(['pedir_nombre'], $otra['tools_used'] ?? []);
+        $this->assertSame('?', $this->conversacion->client->fresh()->name);
     }
 
     public function test_con_una_confirmacion_esperando_no_interrumpe(): void
