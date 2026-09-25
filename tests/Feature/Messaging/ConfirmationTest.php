@@ -11,6 +11,7 @@ use App\Models\Message;
 use App\Models\Resource;
 use App\Models\Service;
 use App\Models\WhatsappConversation;
+use App\Services\Messaging\ConfirmacionDelPanel;
 use App\Services\Messaging\Contracts\MessagingChannel;
 use App\Services\Scheduling\Actions\NotifyClientAction;
 use App\Services\Scheduling\Actions\StageActionContext;
@@ -180,7 +181,7 @@ class ConfirmationTest extends TestCase
          */
         $this->confirmar($this->cita());
 
-        $cuerpo = Message::withoutGlobalScopes()->where('kind', Message::KIND_STAGE)->sole()->body;
+        $cuerpo = Message::withoutGlobalScopes()->where('kind', Message::KIND_CONFIRMATION)->sole()->body;
 
         $this->assertStringContainsString('📅 Día: *Jueves 17 de septiembre*', $cuerpo);
         $this->assertStringContainsString('⏰ Hora: *3:00 pm*', $cuerpo);
@@ -322,9 +323,73 @@ class ConfirmationTest extends TestCase
          */
         $this->confirmar($this->cita());
 
-        $mensaje = Message::withoutGlobalScopes()->where('kind', Message::KIND_STAGE)->sole();
+        $mensaje = Message::withoutGlobalScopes()->where('kind', Message::KIND_CONFIRMATION)->sole();
 
         $this->assertNotEmpty($mensaje->body);
         $this->assertSame('confirmacion_cita', $mensaje->template_name);
+    }
+
+    public function test_la_confirmacion_del_panel_tambien_ofrece_los_botones_de_informacion(): void
+    {
+        /*
+         * Agendada desde el panel con la ventana abierta: la confirmación
+         * salía como texto y ahí se quedaba. Quien agenda con el bot recibe
+         * detrás garantías, recomendaciones y cancelaciones; la del panel no
+         * recibía nada.
+         */
+        $this->escribioHace(1);
+        $this->conConocimiento();
+
+        app(ConfirmacionDelPanel::class)->enviar($this->cita());
+
+        $this->assertSame(['Info de garantías', 'Recomendaciones'], $this->botonesOfrecidos());
+    }
+
+    public function test_la_confirmacion_del_panel_fuera_de_la_ventana_no_manda_un_segundo_mensaje(): void
+    {
+        // Sale como plantilla, que ya lleva los botones adentro.
+        $this->conConocimiento();
+
+        app(ConfirmacionDelPanel::class)->enviar($this->cita());
+
+        Http::assertNothingSent();
+        $this->assertSame('confirmacion_cita', $this->canal->sent[0]['template']);
+    }
+
+    public function test_confirmar_no_le_tapa_el_paso_al_gracias_de_la_misma_cita(): void
+    {
+        /*
+         * Todos los avisos de etapa compartían tipo, y el índice único deja
+         * uno por (cita, tipo, destinatario). En un flujo que confirma y
+         * después completa, el gracias --con la tarjeta y la encuesta-- se
+         * descartaba como repetido y la clienta no lo recibía nunca.
+         */
+        $cita = $this->cita();
+        $this->confirmar($cita);
+
+        app(NotifyClientAction::class)->execute(new StageActionContext(
+            $cita,
+            new AppointmentWorkflowStage([
+                'key' => 'completada', 'label' => 'Completada',
+                'maps_to_status' => Appointment::STATUS_COMPLETED,
+            ]),
+            ['template' => 'Gracias por venir, {cliente}.'],
+            null,
+            AppointmentStageEvent::ACTOR_USER,
+        ));
+
+        $tipos = Message::withoutGlobalScopes()->where('appointment_id', $cita->id)->orderBy('id')->pluck('kind')->all();
+        $this->assertSame([Message::KIND_CONFIRMATION, Message::KIND_THANK_YOU], $tipos);
+        $this->assertCount(2, $this->canal->sent);
+    }
+
+    public function test_confirmar_dos_veces_la_misma_cita_no_le_repite_el_mensaje(): void
+    {
+        $cita = $this->cita();
+
+        $this->confirmar($cita);
+        $this->confirmar($cita);
+
+        $this->assertCount(1, $this->canal->sent);
     }
 }

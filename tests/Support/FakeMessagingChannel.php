@@ -111,6 +111,7 @@ class FakeMessagingChannel implements MessagingChannel
                 fn (array $p) => (string) ($p['text'] ?? ''),
                 $components[0]['parameters'] ?? [],
             ),
+            'idempotency_key' => $idempotencyKey,
         ];
 
         return true;

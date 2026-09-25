@@ -31,7 +31,11 @@ class SendMessageJob implements ShouldQueue
     /** 1, 5 y 15 minutos. Un proveedor saturado no se recupera en 10 segundos. */
     public array $backoff = [60, 300, 900];
 
-    public function __construct(public readonly int $messageId) {}
+    public function __construct(
+        public readonly int $messageId,
+        /** Mandarlo como plantilla aunque la ventana parezca abierta. */
+        public readonly bool $asTemplate = false,
+    ) {}
 
     public function handle(MessageDispatcher $dispatcher): void
     {
@@ -49,7 +53,7 @@ class SendMessageJob implements ShouldQueue
             return;
         }
 
-        if ($dispatcher->send($message)) {
+        if ($dispatcher->send($message, $this->asTemplate)) {
             return;
         }
 

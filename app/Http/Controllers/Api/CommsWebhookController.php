@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Ai\BookingForm;
 use App\Jobs\AnswerWhatsappMessageJob;
 use App\Jobs\ProcessBookingFormJob;
+use App\Jobs\SendMessageJob;
 use App\Models\Business;
 use App\Models\Message;
 use App\Models\WhatsappConversation;
@@ -504,9 +505,45 @@ class CommsWebhookController
                 $mensaje->forceFill($cambios)->save();
                 $aplicados++;
             }
+
+            if (($estado['status'] ?? null) === 'failed') {
+                $this->reintentarComoPlantilla($mensaje, $estado['errors'] ?? []);
+            }
         }
 
         return $aplicados;
+    }
+
+    /**
+     * Lo que Meta rechazó por la ventana, otra vez, ahora como plantilla.
+     *
+     * La ventana de 24 horas se calcula con lo que el Spa sabe, y a veces
+     * no alcanza: la clienta le escribió a otro número del negocio, o el
+     * aviso salió justo cuando se cerraba. Meta acepta el texto y lo rechaza
+     * segundos después (131047). Así le pasó a Marcela con sus dos avisos, y
+     * hubo que reenviarlos a mano.
+     *
+     * Solo si la fila trae plantilla --sin ella no hay nada que Meta vaya a
+     * entregar-- y una sola vez: si Meta repite el aviso de la falla, eso no
+     * puede volverse una ráfaga de mensajes para la misma persona.
+     *
+     * @param  list<array<string, mixed>>  $errores
+     */
+    private function reintentarComoPlantilla(Message $mensaje, array $errores): void
+    {
+        if ((int) ($errores[0]['code'] ?? 0) !== 131047 || ! $mensaje->usesTemplate()) {
+            return;
+        }
+
+        if (! Cache::add('spa-msg:'.$mensaje->id.':reintento-plantilla', true, now()->addDays(2))) {
+            return;
+        }
+
+        // En cola y no fallido mientras sale: un «falló» con el reintento en
+        // camino invita a mandarlo a mano, y le llegaría dos veces.
+        $mensaje->forceFill(['status' => Message::STATUS_PENDING])->save();
+
+        SendMessageJob::dispatch($mensaje->id, asTemplate: true);
     }
 
     /**

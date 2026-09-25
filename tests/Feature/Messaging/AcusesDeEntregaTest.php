@@ -4,9 +4,11 @@ namespace Tests\Feature\Messaging;
 
 use App\Models\Business;
 use App\Models\Message;
+use App\Services\Messaging\Contracts\MessagingChannel;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Testing\TestResponse;
 use Tests\Feature\Scheduling\SchedulingScenario;
+use Tests\Support\FakeMessagingChannel;
 use Tests\TestCase;
 
 /**
@@ -110,5 +112,106 @@ class AcusesDeEntregaTest extends TestCase
             ->assertOk();
 
         $this->assertSame(0, Message::withoutGlobalScopes()->where('status', Message::STATUS_FAILED)->count());
+    }
+
+    /** Un aviso que salió como texto y que trae plantilla para cuando haga falta. */
+    private function textoConPlantilla(string $wamid): Message
+    {
+        $this->business->update(['messaging_mode' => 'auto']);
+
+        return Message::withoutGlobalScopes()->create([
+            'business_id' => $this->business->id,
+            'kind' => Message::KIND_TEAM_BOOKED,
+            'direction' => Message::DIRECTION_OUT,
+            'to' => '573142305988',
+            'body' => 'Te agendaron una cita',
+            'template_name' => 'cita_nueva_equipo',
+            'template_language' => 'es',
+            'template_params' => ['Marcela', 'Carolina', 'Pedicure', 'Viernes 25', '6:00 pm'],
+            'status' => Message::STATUS_SENT,
+            'sent_at' => now(),
+            'attempts' => 1,
+            'provider_message_id' => $wamid,
+        ]);
+    }
+
+    private function rechazoPorLaVentana(string $wamid): TestResponse
+    {
+        return $this->llegaAcuse([
+            'id' => $wamid,
+            'status' => 'failed',
+            'timestamp' => (string) now()->timestamp,
+            'errors' => [['code' => 131047, 'title' => 'Re-engagement message']],
+        ]);
+    }
+
+    private function conCanal(): FakeMessagingChannel
+    {
+        $canal = new FakeMessagingChannel;
+        $this->app->instance(MessagingChannel::class, $canal);
+
+        return $canal;
+    }
+
+    public function test_si_meta_lo_rechaza_por_la_ventana_sale_otra_vez_como_plantilla(): void
+    {
+        /*
+         * Lo de Marcela sin que nadie tenga que hacer nada: el texto se
+         * rechazó por la ventana, y la plantilla --que Meta sí entrega--
+         * sale sola.
+         */
+        $canal = $this->conCanal();
+        $mensaje = $this->textoConPlantilla('wamid.marcela');
+
+        $this->rechazoPorLaVentana('wamid.marcela')->assertOk();
+
+        $this->assertCount(1, $canal->sent);
+        $this->assertSame('cita_nueva_equipo', $canal->sent[0]['template']);
+        $this->assertSame(['Marcela', 'Carolina', 'Pedicure', 'Viernes 25', '6:00 pm'], $canal->sent[0]['params']);
+        // Otra clave: con la del texto, Connect devolvería el envío rechazado.
+        $this->assertSame('spa-msg:'.$mensaje->id.':plantilla', $canal->sent[0]['idempotency_key']);
+
+        $mensaje->refresh();
+        $this->assertSame(Message::STATUS_SENT, $mensaje->status);
+        $this->assertSame('wamid.prueba.1', $mensaje->provider_message_id);
+    }
+
+    public function test_si_meta_repite_el_rechazo_la_plantilla_sale_una_sola_vez(): void
+    {
+        $canal = $this->conCanal();
+        $this->textoConPlantilla('wamid.marcela');
+
+        $this->rechazoPorLaVentana('wamid.marcela');
+        $this->rechazoPorLaVentana('wamid.marcela');
+
+        $this->assertCount(1, $canal->sent);
+    }
+
+    public function test_sin_plantilla_no_hay_nada_que_reintentar(): void
+    {
+        // Una respuesta del bot: solo texto. Queda fallida con su motivo.
+        $canal = $this->conCanal();
+        $mensaje = $this->mensajeEnviado('wamid.bot');
+
+        $this->rechazoPorLaVentana('wamid.bot');
+
+        $this->assertSame([], $canal->sent);
+        $this->assertSame(Message::STATUS_FAILED, $mensaje->fresh()->status);
+    }
+
+    public function test_otro_rechazo_no_se_reintenta(): void
+    {
+        // Un número que no tiene WhatsApp no se arregla mandando plantilla.
+        $canal = $this->conCanal();
+        $mensaje = $this->textoConPlantilla('wamid.sin.whatsapp');
+
+        $this->llegaAcuse([
+            'id' => 'wamid.sin.whatsapp',
+            'status' => 'failed',
+            'errors' => [['code' => 131026, 'title' => 'Message undeliverable']],
+        ]);
+
+        $this->assertSame([], $canal->sent);
+        $this->assertSame(Message::STATUS_FAILED, $mensaje->fresh()->status);
     }
 }

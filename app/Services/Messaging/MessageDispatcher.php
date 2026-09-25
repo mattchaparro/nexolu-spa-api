@@ -151,7 +151,7 @@ class MessageDispatcher
      * perdido. Cuando exista el worker, esto se mueve a un job y lo unico que
      * cambia es esta linea.
      */
-    public function send(Message $message): bool
+    public function send(Message $message, bool $asTemplate = false): bool
     {
         $ok = false;
         $error = null;
@@ -165,7 +165,19 @@ class MessageDispatcher
              */
             $idempotencyKey = 'spa-msg:'.$message->id;
 
-            $ok = $this->goesAsTemplate($message)
+            /*
+             * Forzada: Meta ya rechazó el texto de esta misma fila porque la
+             * ventana estaba cerrada (ver CommsWebhookController::acuses). La
+             * clave cambia porque es OTRO envío: con la misma, Connect
+             * devolvería la respuesta del texto rechazado y no mandaría nada.
+             */
+            $forzada = $asTemplate && $message->usesTemplate();
+
+            if ($forzada) {
+                $idempotencyKey .= ':plantilla';
+            }
+
+            $ok = $forzada || $this->goesAsTemplate($message)
                 ? $this->channel->sendTemplate(
                     $message->to,
                     (string) $message->template_name,

@@ -172,7 +172,7 @@ class ThankYouTest extends TestCase
 
         $this->terminar($this->cita());
 
-        $cuerpo = Message::withoutGlobalScopes()->where('kind', Message::KIND_STAGE)->sole()->body;
+        $cuerpo = Message::withoutGlobalScopes()->where('kind', Message::KIND_THANK_YOU)->sole()->body;
 
         $this->assertStringContainsString('*Gracias por tu visita*', $cuerpo);
         $this->assertStringContainsString('¡Hola, Carolina!', $cuerpo);
@@ -210,7 +210,7 @@ class ThankYouTest extends TestCase
          */
         $this->terminar($this->cita());
 
-        $mensaje = Message::withoutGlobalScopes()->where('kind', Message::KIND_STAGE)->sole();
+        $mensaje = Message::withoutGlobalScopes()->where('kind', Message::KIND_THANK_YOU)->sole();
 
         $this->assertStringNotContainsString('sellos', $mensaje->body);
         $this->assertNull($mensaje->template_name);

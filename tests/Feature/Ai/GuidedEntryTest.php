@@ -605,7 +605,7 @@ class GuidedEntryTest extends TestCase
 
         $this->escribe(GuidedEntry::CONFIRM_ATTENDANCE);
 
-        $this->assertSame(0, Message::withoutGlobalScope('business')->where('kind', Message::KIND_STAGE)->count());
+        $this->assertSame(0, Message::withoutGlobalScope('business')->where('kind', Message::KIND_CONFIRMATION)->count());
     }
 
     public function test_cancelar_cita_pregunta_antes_de_cancelar(): void

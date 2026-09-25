@@ -53,6 +53,20 @@ class Message extends Model
      */
     public const KIND_CONFIRMATION = 'confirmacion';
 
+    /**
+     * El gracias al terminar y el aviso de cancelación: cada uno con su tipo.
+     *
+     * Todos los avisos de etapa compartían `etapa`, y el índice único deja
+     * UNO por (cita, tipo, destinatario): en un flujo que confirma y después
+     * completa, el gracias --con la tarjeta y la encuesta-- se descartaba
+     * como «repetido» porque la confirmación ya había ocupado el lugar. Con
+     * un tipo por aviso, cada uno sale una vez y ninguno le tapa el paso al
+     * otro. `etapa` queda para las etapas propias de cada negocio.
+     */
+    public const KIND_THANK_YOU = 'gracias';
+
+    public const KIND_CANCELLATION = 'cancelacion';
+
     public const KIND_STAFF = 'equipo';
 
     /**

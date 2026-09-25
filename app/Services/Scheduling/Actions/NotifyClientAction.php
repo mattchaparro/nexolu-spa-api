@@ -72,7 +72,19 @@ class NotifyClientAction implements StageAction
 
         $message = $this->dispatcher->queue(
             $business,
-            Message::KIND_STAGE,
+            /*
+             * Un tipo por aviso, no uno para todos: el índice único deja un
+             * mensaje por (cita, tipo, destinatario), y con todos en `etapa`
+             * la confirmación le tapaba el paso al gracias de la misma cita.
+             * La confirmación comparte tipo con la del panel a propósito:
+             * es el mismo mensaje y no tiene que llegar dos veces.
+             */
+            match (true) {
+                $confirma => Message::KIND_CONFIRMATION,
+                $termina => Message::KIND_THANK_YOU,
+                $cancela => Message::KIND_CANCELLATION,
+                default => Message::KIND_STAGE,
+            },
             $phone,
             StageMessage::render(
                 (string) $context->config('template', ''),
@@ -113,8 +125,8 @@ class NotifyClientAction implements StageAction
         );
 
         if ($message === null) {
-            // Repetido: ya hay un aviso de etapa para esta cita. Volver a
-            // moverla de etapa no le manda un segundo mensaje al cliente.
+            // Repetido: ya se le mandó este mismo aviso para esta cita.
+            // Volver a pasarla por la misma etapa no se lo repite.
             return StageActionResult::skipped('Ya se le avisó al cliente de esta cita.');
         }
 

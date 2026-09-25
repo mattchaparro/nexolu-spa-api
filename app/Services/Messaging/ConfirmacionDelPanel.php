@@ -2,6 +2,8 @@
 
 namespace App\Services\Messaging;
 
+use App\Ai\AiCaller;
+use App\Ai\InfoPostCita;
 use App\Models\Appointment;
 use App\Models\Message;
 use App\Support\Scheduling\ConfirmationMessage;
@@ -51,7 +53,7 @@ final class ConfirmacionDelPanel
         }
 
         try {
-            return $this->dispatcher->queue(
+            $message = $this->dispatcher->queue(
                 $appointment->business,
                 Message::KIND_CONFIRMATION,
                 $phone,
@@ -74,6 +76,40 @@ final class ConfirmacionDelPanel
             report($e);
 
             return null;
+        }
+
+        if ($message?->status === Message::STATUS_SENT) {
+            $this->ofrecerInfo($appointment, $phone);
+        }
+
+        return $message;
+    }
+
+    /**
+     * Garantías, recomendaciones y cancelaciones, detrás de la confirmación.
+     *
+     * Lo mismo que recibe quien agenda con el bot, y lo que ya conocía de
+     * ManyChat. Solo con la ventana abierta: fuera de ella la confirmación
+     * sale como plantilla y esos botones ya viajan adentro, así que un
+     * segundo mensaje sobraría (y Meta no lo entregaría).
+     *
+     * Mejor esfuerzo y en silencio: la cita ya quedó y ella ya lo sabe.
+     */
+    private function ofrecerInfo(Appointment $appointment, string $phone): void
+    {
+        $business = $appointment->business;
+
+        if (! $this->dispatcher->windowIsOpenFor($business, $phone)) {
+            return;
+        }
+
+        try {
+            app(InfoPostCita::class)->ofrecer(
+                AiCaller::customer($business, $phone, $appointment->client, 'whatsapp'),
+                $phone,
+            );
+        } catch (Throwable $e) {
+            report($e);
         }
     }
 
