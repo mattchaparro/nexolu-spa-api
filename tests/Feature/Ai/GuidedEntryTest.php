@@ -251,7 +251,10 @@ class GuidedEntryTest extends TestCase
         $this->escribe('quiero agendar');
         $respuesta = $this->escribe(GuidedEntry::WEB);
 
-        $this->assertStringContainsString('https://agenda.test/reservar/luxury', $respuesta['text']);
+        // Como botón que abre la página, no como enlace pegado al texto.
+        $this->assertSame('', $respuesta['text']);
+        Http::assertSent(fn ($r) => str_contains($r->data()['whatsapp_cta']['url'] ?? '', 'https://agenda.test/reservar/luxury')
+            && ($r->data()['whatsapp_cta']['title'] ?? null) === 'Reservar en la web');
     }
 
     public function test_hola_quiero_agendar_saluda_antes_de_preguntar(): void

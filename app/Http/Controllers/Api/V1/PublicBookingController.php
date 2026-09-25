@@ -16,6 +16,7 @@ use App\Models\ServicePackage;
 use App\Models\ServiceRating;
 use App\Services\ClientPortalService;
 use App\Services\ClientResolver;
+use App\Services\Messaging\ConfirmacionDelPanel;
 use App\Services\Scheduling\AvailabilityService;
 use App\Services\Scheduling\BookingService;
 use App\Services\Scheduling\Exceptions\OutsideWorkingHoursException;
@@ -705,6 +706,17 @@ class PublicBookingController
                 'message' => 'Ese horario ya no está disponible. Elige otro, por favor.',
             ], 422);
         }
+
+        /*
+         * La confirmación por WhatsApp, la misma que reciben las que agendan
+         * con el bot o desde el panel. Quien reservaba en la página no
+         * recibía nada: solo la pantalla de «listo», que se cierra y se
+         * olvida. Como casi nunca hay ventana abierta, sale la plantilla.
+         * Nunca rompe la reserva (ver ConfirmacionDelPanel::enviar).
+         */
+        app(ConfirmacionDelPanel::class)->enviar(
+            $appointment->loadMissing('business', 'client', 'items.service', 'items.resource'),
+        );
 
         $start = CarbonImmutable::parse($appointment->starts_at)->setTimezone($tz);
         // Lo congelo `BookingService` al reservar; aca solo se lee.

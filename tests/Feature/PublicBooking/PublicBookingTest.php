@@ -248,6 +248,21 @@ class PublicBookingTest extends TestCase
         ]);
     }
 
+    public function test_reservar_en_la_pagina_le_confirma_por_whatsapp(): void
+    {
+        /*
+         * Quien reservaba en la página no recibía nada por WhatsApp: solo
+         * la pantalla de «listo». Recibe la misma confirmación que las
+         * demás; sin ventana abierta, como plantilla.
+         */
+        $this->reservar()->assertCreated();
+
+        $mensaje = \App\Models\Message::withoutGlobalScopes()
+            ->where('kind', \App\Models\Message::KIND_CONFIRMATION)->sole();
+        $this->assertSame('573001234567', $mensaje->to);
+        $this->assertSame('confirmacion_cita', $mensaje->template_name);
+    }
+
     /**
      * El correo es OPCIONAL, pero si lo escriben tiene que ser un correo.
      *

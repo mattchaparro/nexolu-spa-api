@@ -476,6 +476,17 @@ final class GuidedEntry
             return $this->bookHere($caller, $phone);
         }
 
+        $texto = "Aquí puedes ver la agenda completa y reservar tú misma 👇\n\nSi prefieres, también te agendo por aquí 😊";
+
+        /*
+         * Como BOTÓN y no como enlace pegado: el enlace suelto a veces lo
+         * abría el navegador de afuera en vez del de WhatsApp, y la clienta
+         * salía del chat. Si el botón no sale, el enlace de siempre.
+         */
+        if (app(EnvioDirecto::class)->conEnlace($caller, $texto, 'Reservar en la web', $link)) {
+            return $this->reply($phone, '', 'agenda_web');
+        }
+
         return $this->reply(
             $phone,
             "Aquí puedes ver la agenda completa y reservar tú misma 👇\n{$link}\n\nSi prefieres, también te agendo por aquí 😊",
