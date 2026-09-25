@@ -42,6 +42,17 @@ class Message extends Model
 
     public const KIND_STAGE = 'etapa';
 
+    /**
+     * La confirmación que recibe quien fue agendada desde el panel.
+     *
+     * Tipo propio, y no `etapa`, a propósito: el índice único deja UN
+     * mensaje por (cita, tipo, destinatario), y los avisos de etapa
+     * comparten tipo. Si la confirmación fuera `etapa`, cancelar después esa
+     * misma cita se descartaría como «repetido» y la clienta se aparecería a
+     * una cita que ya no existe.
+     */
+    public const KIND_CONFIRMATION = 'confirmacion';
+
     public const KIND_STAFF = 'equipo';
 
     /**

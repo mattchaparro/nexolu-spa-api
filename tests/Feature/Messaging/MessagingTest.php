@@ -451,7 +451,9 @@ class MessagingTest extends TestCase
 
         $this->assertNotNull($primero);
         $this->assertNull($segundo);
-        $this->assertSame(1, Message::where('appointment_id', $cita->id)->count());
+        // Solo recordatorios: agendar desde el panel ya deja su propia
+        // confirmación (ver ConfirmacionDelPanel), que no es lo que se prueba.
+        $this->assertSame(1, Message::where('appointment_id', $cita->id)->where('kind', Message::KIND_REMINDER)->count());
     }
 
     public function test_tipos_distintos_de_la_misma_cita_si_conviven(): void
@@ -463,7 +465,12 @@ class MessagingTest extends TestCase
         $this->dispatcher()->queue($this->business, Message::KIND_REMINDER, '+573001112233', 'A', $cita);
         $this->dispatcher()->queue($this->business, Message::KIND_SURVEY, '+573001112233', 'B', $cita);
 
-        $this->assertSame(2, Message::where('appointment_id', $cita->id)->count());
+        $this->assertSame(
+            2,
+            Message::where('appointment_id', $cita->id)
+                ->whereIn('kind', [Message::KIND_REMINDER, Message::KIND_SURVEY])
+                ->count(),
+        );
     }
 
     public function test_los_mensajes_sueltos_si_se_pueden_repetir(): void

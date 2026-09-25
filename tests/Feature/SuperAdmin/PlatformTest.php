@@ -150,7 +150,13 @@ class PlatformTest extends TestCase
         $this->actAsPlatform();
         $business = $this->makeBusiness(['slot_granularity_min' => 60]);
         $resource = $this->makeResource($business, start: '09:00:00', end: '12:00:00');
-        $service = $this->makeService($business, 60, [$resource]);
+        /*
+         * De media hora, no de una. Las horas avanzan lo que dura el servicio
+         * redondeado a la rejilla (ver AvailabilityService::pasoEntreHoras):
+         * uno de una hora va de hora en hora con rejilla de 60 o de 30, y la
+         * prueba no mediría nada. Con media hora la rejilla sí manda.
+         */
+        $service = $this->makeService($business, 30, [$resource]);
 
         $admin = User::create([
             'business_id' => $business->id, 'name' => 'Admin', 'email' => 'admin@t.test',

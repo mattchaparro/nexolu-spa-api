@@ -1,0 +1,87 @@
+<?php
+
+namespace App\Services\Messaging;
+
+use App\Models\Appointment;
+use App\Models\Message;
+use App\Support\Scheduling\ConfirmationMessage;
+use Illuminate\Support\Facades\Log;
+use Throwable;
+
+/**
+ * La confirmación de una cita agendada desde el panel.
+ *
+ * Nunca existió. El bot manda la suya cuando la clienta agenda sola, pero
+ * lo que se agendaba en el panel salía mudo: la confirmación colgaba de
+ * pasar la cita a la etapa «Confirmada», y crear una cita no la mueve de
+ * etapa -- la deja en la inicial SIN correr sus acciones. En el flujo sin
+ * confirmación, que es el de Luxury, esa etapa ni existe. Alejandro agendó
+ * un turno desde la aplicación nueva y a la clienta no le llegó nada.
+ *
+ * Es la MISMA confirmación que manda el bot (ConfirmationMessage): el
+ * texto sale dentro de la ventana de 24 horas, la plantilla fuera, y cuál
+ * de los dos lo decide MessageDispatcher, que es el único que sabe si la
+ * ventana está abierta.
+ */
+final class ConfirmacionDelPanel
+{
+    public function __construct(private readonly MessageDispatcher $dispatcher) {}
+
+    public function enviar(Appointment $appointment): ?Message
+    {
+        /*
+         * Solo si el flujo del negocio NO tiene etapa de confirmación.
+         *
+         * En el flujo estándar agendar deja la cita tentativa y el salón la
+         * confirma después; la confirmación sale al pasar por esa etapa. Si
+         * además saliera al crear, esa clienta recibiría dos. Es el negocio
+         * sin esa etapa --el de Luxury: agendado, completado, cancelado-- el
+         * que se quedaba sin ninguna.
+         */
+        if ($this->confirmaEnOtraEtapa($appointment)) {
+            return null;
+        }
+
+        $phone = $appointment->client_phone ?? $appointment->client?->phone;
+
+        if (! $phone) {
+            // Se agendó por teléfono o en el mostrador y nadie anotó el
+            // número. No es una falla: no hay a quién escribirle.
+            return null;
+        }
+
+        try {
+            return $this->dispatcher->queue(
+                $appointment->business,
+                Message::KIND_CONFIRMATION,
+                $phone,
+                ConfirmationMessage::text($appointment),
+                $appointment,
+                $appointment->client,
+                ConfirmationMessage::template($appointment),
+            );
+        } catch (Throwable $e) {
+            /*
+             * La cita YA quedó agendada. Que el aviso falle no puede
+             * convertir eso en un error para quien está en el panel: vería
+             * «no se pudo agendar», lo intentaría otra vez y la clienta
+             * quedaría con dos citas.
+             */
+            Log::warning('panel.confirmacion.fallo', [
+                'appointment_id' => $appointment->id,
+                'error' => $e->getMessage(),
+            ]);
+            report($e);
+
+            return null;
+        }
+    }
+
+    private function confirmaEnOtraEtapa(Appointment $appointment): bool
+    {
+        $flujo = $appointment->business?->appointmentWorkflow;
+
+        return $flujo !== null
+            && $flujo->stages()->where('maps_to_status', Appointment::STATUS_CONFIRMED)->exists();
+    }
+}

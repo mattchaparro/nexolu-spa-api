@@ -6,6 +6,7 @@ use App\Http\Resources\AppointmentResource;
 use App\Models\Appointment;
 use App\Models\ServicePackage;
 use App\Services\ClientResolver;
+use App\Services\Messaging\ConfirmacionDelPanel;
 use App\Services\Scheduling\BookingService;
 use App\Services\Scheduling\Exceptions\SlotUnavailableException;
 use App\Support\AgendaScope;
@@ -247,6 +248,11 @@ class AppointmentController
             // disponibilidad no lo va a hacer aparecer.
             return response()->json(['message' => $e->getMessage()], 422);
         }
+
+        // La confirmación a la clienta, la misma que manda el bot. Crear la
+        // cita no la mueve de etapa, así que ningún aviso de etapa la cubre
+        // (ver ConfirmacionDelPanel).
+        app(ConfirmacionDelPanel::class)->enviar($appointment->loadMissing('business', 'client', 'items.service', 'items.resource'));
 
         return response()->json(
             new AppointmentResource($appointment->load('items.service', 'items.resource')),

@@ -54,10 +54,14 @@ class ThankYouTest extends TestCase
     {
         parent::setUp();
 
-        $this->travelTo(
-            CarbonImmutable::now('America/Bogota')->startOfDay()
-                ->previous(CarbonImmutable::WEDNESDAY)->setTime(9, 0),
-        );
+        /*
+         * Un miércoles FIJO, no «el miércoles anterior a hoy». Las pruebas
+         * esperan fechas escritas a mano («jueves 17 de septiembre»), y con
+         * el reloj relativo al día real solo pasaban la semana en que se
+         * escribieron: el 24 de septiembre el miércoles anterior ya era el 23
+         * y el «mañana» de la prueba era el jueves 24.
+         */
+        $this->travelTo(CarbonImmutable::parse('2026-09-16 09:00', 'America/Bogota'));
 
         $this->canal = new FakeMessagingChannel;
         $this->app->instance(MessagingChannel::class, $this->canal);
