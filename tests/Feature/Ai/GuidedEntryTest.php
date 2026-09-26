@@ -959,7 +959,14 @@ class GuidedEntryTest extends TestCase
 
         // A TODAS se les pide: con el que tenemos a la vista.
         $this->assertSame(['pedir_nombre'], $pregunta['tools_used']);
-        $this->assertStringContainsString('Te tenemos como *Carolina*', $pregunta['text']);
+        // Con el nombre a la vista, un botón para confirmarlo, y qué hacer si no es.
+        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'Te tenemos como *Carolina*')
+            && str_contains($r->data()['text'] ?? '', 'escríbenos tu nombre completo'));
+        $this->assertSame([GuidedEntry::NAME_IS_MINE], $this->ultimosBotones());
+
+        // Tocar el botón lo confirma sin reescribirlo.
+        $this->assertSame(['sigue_siendo_clienta'], $this->escribe(GuidedEntry::NAME_IS_MINE)['tools_used']);
+        $this->assertSame('Carolina', $this->conversacion->client->fresh()->name);
 
         $clienta = $this->conversacion->client->fresh();
         $this->assertTrue((bool) $clienta->accepts_marketing);

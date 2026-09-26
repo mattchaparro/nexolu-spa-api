@@ -6,8 +6,8 @@ use App\Ai\Capabilities\AvailabilityCapability;
 use App\Ai\Capabilities\CancelAppointmentCapability;
 use App\Models\Appointment;
 use App\Models\AppointmentStageEvent;
-use App\Models\Message;
 use App\Models\Client;
+use App\Models\Message;
 use App\Models\WhatsappConversation;
 use App\Services\ClientPortalService;
 use App\Services\ClientResolver;
@@ -131,6 +131,9 @@ final class GuidedEntry
     public const STILL_CLIENT = 'Sí, ahí nos vemos';
 
     public const NO_LONGER_CLIENT = 'Ya no voy, gracias';
+
+    /** El botón para confirmar el nombre que ya tenemos, sin reescribirlo. */
+    public const NAME_IS_MINE = 'Ese es mi nombre';
 
     public const CANT_WRITE = 'No puedo escribirles';
 
@@ -1048,16 +1051,22 @@ final class GuidedEntry
             Cache::put(self::ASKING_NAME.$phone, true, now()->addDays(3));
 
             $actual = trim($caller->client->name.' '.$caller->client->last_name);
-            $pregunta = NombreDePila::deSaludo($caller->client->name) === null
-                ? '¿Nos confirmas tu nombre completo? ✍️'
-                : "Te tenemos como *{$actual}*. ¿Nos confirmas tu nombre completo? ✍️";
+            $inicio = "¡Qué alegría! 💅 Ya quedaste con nuestro número nuevo.\n\n";
 
-            return $this->reply(
-                $phone,
-                "¡Qué alegría! 💅 Ya quedaste con nuestro número nuevo.\n\nPara tenerte bien guardada: {$pregunta}"
-                    ."\n\n_Si no te deja escribirnos aquí, guarda el número, borra este chat y escríbenos desde tus contactos 💛_",
-                'pedir_nombre',
-            );
+            if (NombreDePila::deSaludo($caller->client->name) === null) {
+                return $this->reply($phone, $inicio.'Para tenerte bien guardada, ¿cómo te llamas? ✍️', 'pedir_nombre');
+            }
+
+            /*
+             * Con un nombre que ya sirve, confirmarlo es un toque: tener que
+             * escribir otra vez el mismo nombre para decir "sí, es ese" era
+             * trabajo de más. Y se aclara qué hacer si no es.
+             */
+            $texto = $inicio."Te tenemos como *{$actual}*.\n\n"
+                .'Si está bien, toca «'.self::NAME_IS_MINE.'». Si no, escríbenos tu nombre completo ✍️';
+
+            return $this->send($caller, $phone, $texto, [self::NAME_IS_MINE], [], 'pedir_nombre')
+                ?? $this->reply($phone, $texto, 'pedir_nombre');
         }
 
         return null;
@@ -1152,6 +1161,10 @@ final class GuidedEntry
     private function confirmsName(Client $client, string $texto): bool
     {
         $dicho = trim((string) preg_replace('/[\s,]+/u', ' ', $this->plain($texto)));
+
+        if (NombreDePila::deSaludo($client->name) !== null && $dicho === $this->plain(self::NAME_IS_MINE)) {
+            return true;
+        }
 
         return NombreDePila::deSaludo($client->name) !== null
             && preg_match('/^(si|sip|correcto|asi es|exacto|ok|listo|ese|ese es|si senora|si senor)( es| asi| correcto| gracias)*$/u', $dicho) === 1;
