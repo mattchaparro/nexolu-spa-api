@@ -97,6 +97,27 @@ class WalkInAndMethodsTest extends TestCase
         }
     }
 
+    public function test_elegir_un_medio_reusa_el_que_vino_del_sistema_anterior(): void
+    {
+        // Un negocio que viene del sistema anterior: sus medios no apuntan
+        // al catálogo, pero son los que tienen los cobros.
+        PaymentMethod::withoutGlobalScope('business')->where('business_id', $this->business->id)->delete();
+        $viejo = PaymentMethod::create([
+            'business_id' => $this->business->id,
+            'name' => 'Efectivo',
+            'counts_as_cash' => true,
+            'is_active' => true,
+        ]);
+        $efectivo = PlatformPaymentMethod::where('key', 'efectivo')->first();
+
+        app(PaymentMethodProvisioner::class)->sync($this->business, [$efectivo->id]);
+
+        $activos = PaymentMethod::withoutGlobalScope('business')
+            ->where('business_id', $this->business->id)->where('is_active', true)->get();
+        $this->assertSame([$viejo->id], $activos->pluck('id')->all());
+        $this->assertSame($efectivo->id, $viejo->fresh()->platform_payment_method_id);
+    }
+
     public function test_un_negocio_nuevo_arranca_con_los_medios_por_defecto(): void
     {
         Sanctum::actingAs($this->admin);

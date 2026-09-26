@@ -39,7 +39,18 @@ class PaymentMethodProvisioner
                 $row = PaymentMethod::withoutGlobalScope('business')
                     ->where('business_id', $business->id)
                     ->where('platform_payment_method_id', $method->id)
-                    ->first();
+                    ->first()
+                    /*
+                     * Los medios que vinieron del sistema anterior no apuntan
+                     * al catálogo. Sin esto, elegir «Efectivo» creaba un
+                     * segundo Efectivo vacío al lado del que tiene 1.700
+                     * cobros, y los reportes lo mostraban dos veces.
+                     */
+                    ?? PaymentMethod::withoutGlobalScope('business')
+                        ->where('business_id', $business->id)
+                        ->whereNull('platform_payment_method_id')
+                        ->where('name', $method->label)
+                        ->first();
 
                 if ($row === null) {
                     $row = PaymentMethod::create([
@@ -55,6 +66,7 @@ class PaymentMethodProvisioner
                     // el catalogo: si la plataforma corrige un medio, la
                     // correccion llega a todos los negocios.
                     $row->update([
+                        'platform_payment_method_id' => $method->id,
                         'name' => $method->label,
                         'counts_as_cash' => $method->counts_as_cash,
                         'is_active' => true,
