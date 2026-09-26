@@ -72,7 +72,17 @@ class StageController
                 'status_label' => $etapa?->label ?? AppointmentStateMachine::label($appointment->status),
                 'stage_id' => $appointment->stage_id,
             ],
-            'options' => $this->transitions->availableStages($appointment),
+            /*
+             * «Completada» no se ofrece: una cita se completa COBRÁNDOLA.
+             * Desde los botones de estado quedaba completada sin venta -- no
+             * salía en las ventas del día ni en el cierre, y a la clienta le
+             * llegaba el gracias. Pasó con una cita de María el 25-sep.
+             */
+            'options' => array_values(array_filter(
+                $this->transitions->availableStages($appointment),
+                fn (array $o) => $o['maps_to_status'] !== Appointment::STATUS_COMPLETED
+                    || $this->charges($o['stage_id'] === null ? null : AppointmentWorkflowStage::find($o['stage_id'])),
+            )),
         ]);
     }
 
@@ -87,6 +97,17 @@ class StageController
 
         if (empty($data['stage_id']) && empty($data['status'])) {
             return response()->json(['message' => 'Falta la etapa a la que mover la cita.'], 422);
+        }
+
+        $etapaDestino = ! empty($data['stage_id'])
+            ? AppointmentWorkflowStage::find($data['stage_id'])
+            : $appointment->business?->appointmentWorkflow?->loadMissing('stages')->stageForStatus($data['status']);
+        $destino = $etapaDestino?->maps_to_status ?? $data['status'];
+
+        if ($destino === Appointment::STATUS_COMPLETED && $appointment->checked_out_at === null && ! $this->charges($etapaDestino)) {
+            return response()->json([
+                'message' => 'Para completarla, cóbrala con el botón «Cobrar»: así queda en las ventas del día.',
+            ], 422);
         }
 
         try {
@@ -112,6 +133,13 @@ class StageController
             // quien movio la cita tiene que enterarse ahi y no nunca.
             'actions' => $this->lastActions($moved),
         ]);
+    }
+
+    /** Si entrar a esa etapa cobra (la acción «marcar pagada»): entonces sí completa con venta. */
+    private function charges(?AppointmentWorkflowStage $stage): bool
+    {
+        return $stage !== null && collect($stage->actionList())
+            ->contains(fn (array $a) => ($a['type'] ?? null) === StageActionCatalog::MARK_PAID);
     }
 
     /** Por donde paso esta cita. */

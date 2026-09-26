@@ -208,9 +208,10 @@ class StageWorkflowTest extends TestCase
 
         $etiquetas = array_column($opciones->json('options'), 'label');
 
-        // Los nombres del negocio, no los internos.
+        // Los nombres del negocio, no los internos. «Lista y cobrada» no se
+        // ofrece: sin cobro automático, completar es cobrar (botón Cobrar).
         $this->assertContains('Confirmada', $etiquetas);
-        $this->assertContains('Lista y cobrada', $etiquetas);
+        $this->assertNotContains('Lista y cobrada', $etiquetas);
 
         /*
          * «En la silla» ya NO está, y es deliberado: «la manicurista
@@ -285,7 +286,7 @@ class StageWorkflowTest extends TestCase
 
         $this->assertNotContains('Confirmada', $etiquetas);
 
-        foreach (['En curso', 'Completado', 'Cancelado', 'No asistió'] as $esperada) {
+        foreach (['En curso', 'Cancelado', 'No asistió'] as $esperada) {
             $this->assertContains($esperada, $etiquetas);
         }
 
@@ -320,25 +321,26 @@ class StageWorkflowTest extends TestCase
         $this->assertNotContains('Agendado', array_column($respuesta->json('options'), 'label'));
     }
 
-    public function test_completado_no_cobra(): void
+    public function test_completar_sin_cobrar_no_se_puede(): void
     {
         /*
-         * El nombre importa: el flujo estándar llama a esta etapa "Lista y
-         * cobrada" y tampoco cobra. Prometer un cobro que no ocurre es como se
-         * termina con un servicio atendido, marcado como listo, y sin cobrar.
+         * Una cita se completa cobrándola. Completarla desde los botones de
+         * estado la dejaba lista y sin venta: no salía en las ventas del día,
+         * y a la clienta le llegaba el gracias igual (María, 25-sep).
          */
         $this->business->update(['appointment_workflow_id' => FlujoSinConfirmacion::sync()->id]);
 
         $cita = $this->agendar();
 
+        $this->getJson("/api/v1/appointments/{$cita->id}/stages")
+            ->assertOk()
+            ->assertJsonMissing(['maps_to_status' => Appointment::STATUS_COMPLETED]);
+
         $this->postJson("/api/v1/appointments/{$cita->id}/stage", [
             'status' => Appointment::STATUS_COMPLETED,
-        ])->assertOk();
+        ])->assertStatus(422);
 
-        $cita->refresh();
-
-        $this->assertSame(Appointment::STATUS_COMPLETED, $cita->status);
-        $this->assertNull($cita->checked_out_at, 'Mover de etapa no puede cobrar.');
+        $this->assertNotSame(Appointment::STATUS_COMPLETED, $cita->fresh()->status);
     }
 
     public function test_mover_de_etapa_cambia_el_estado_nucleo(): void
@@ -791,8 +793,8 @@ class StageWorkflowTest extends TestCase
 
         $cita = $this->agendar();
 
-        $this->postJson("/api/v1/appointments/{$cita->id}/stage", [
-            'stage_id' => $this->stage('lista')->id,
+        $this->postJson("/api/v1/appointments/{$cita->id}/checkout", [
+            'payment_method_id' => $this->efectivo->id,
         ])->assertOk();
 
         // El enlace viaja armado, no el marcador crudo.
@@ -827,11 +829,10 @@ class StageWorkflowTest extends TestCase
             'warranty_for_resource_id' => $this->maria->id,
         ])->assertCreated()->json('id');
 
-        $respuesta = $this->postJson("/api/v1/appointments/{$id}/stage", [
-            'stage_id' => $this->stage('lista')->id,
+        $this->postJson("/api/v1/appointments/{$id}/checkout", [
+            'payment_method_id' => $this->efectivo->id,
         ])->assertOk();
 
-        $this->assertSame([], $canal->sent);
-        $this->assertSame('skipped', $respuesta->json('actions.0.status'));
+        $this->assertSame([], collect($canal->sent)->filter(fn ($m) => str_contains($m['body'] ?? '', '/encuesta/'))->all());
     }
 }
