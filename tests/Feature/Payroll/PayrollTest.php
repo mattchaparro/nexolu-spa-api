@@ -214,6 +214,7 @@ class PayrollTest extends TestCase
         $this->cobrar(20);
 
         $this->postJson("/api/v1/payroll/resources/{$this->maria->id}/settle", [
+            'payment_method_id' => $this->efectivo->id,
             'until' => $this->dia(10)->toDateString(),
         ])->assertCreated();
 
@@ -274,6 +275,7 @@ class PayrollTest extends TestCase
         // siempre y nunca se cobraba.
         $this->cobrar(20);
         $this->postJson("/api/v1/payroll/resources/{$this->maria->id}/settle", [
+            'payment_method_id' => $this->efectivo->id,
             'until' => $this->dia(18)->toDateString(),
         ])->assertCreated();
 
@@ -325,7 +327,7 @@ class PayrollTest extends TestCase
         $this->cobrar(5);
         $id = $this->anticipo(4, 10000);
 
-        $this->postJson("/api/v1/payroll/resources/{$this->maria->id}/settle")->assertCreated();
+        $this->postJson("/api/v1/payroll/resources/{$this->maria->id}/settle", ['payment_method_id' => $this->efectivo->id])->assertCreated();
 
         $this->deleteJson("/api/v1/payroll/adjustments/{$id}")->assertStatus(422);
     }
@@ -490,7 +492,7 @@ class PayrollTest extends TestCase
         $this->cobrar(5);
         $this->anticipo(4, 100000);
 
-        $this->postJson("/api/v1/payroll/resources/{$this->maria->id}/settle")->assertCreated();
+        $this->postJson("/api/v1/payroll/resources/{$this->maria->id}/settle", ['payment_method_id' => $this->efectivo->id])->assertCreated();
 
         $siguiente = $this->getJson("/api/v1/payroll/resources/{$this->maria->id}/preview")->assertOk();
 
@@ -530,13 +532,31 @@ class PayrollTest extends TestCase
         $this->cobrar(5);
         $this->anticipo(4, 100000);
 
-        $this->postJson("/api/v1/payroll/resources/{$this->maria->id}/settle")->assertCreated();
+        $this->postJson("/api/v1/payroll/resources/{$this->maria->id}/settle", ['payment_method_id' => $this->efectivo->id])->assertCreated();
 
         $ajuste = $this->getJson("/api/v1/payroll/resources/{$this->maria->id}/preview")
             ->assertOk()->json('adjustments.0');
 
         $this->assertStringContainsString('Saldo a favor del negocio', $ajuste['description']);
         $this->assertEqualsWithDelta(60000, $ajuste['amount'], 0.01);
+    }
+
+    public function test_sin_medio_de_pago_no_se_liquida(): void
+    {
+        // Sin medio, el pago entero se restaba del efectivo del día.
+        $this->cobrar(3);
+
+        $this->postJson("/api/v1/payroll/resources/{$this->maria->id}/settle", [])->assertStatus(422);
+    }
+
+    public function test_quien_se_fue_con_comision_sin_pagar_sigue_en_pendientes(): void
+    {
+        $this->cobrar(3);
+        $this->maria->update(['is_active' => false]);
+
+        $pendientes = collect($this->getJson('/api/v1/payroll/pending')->assertOk()->json('resources'));
+
+        $this->assertTrue($pendientes->contains('resource_id', $this->maria->id));
     }
 
     public function test_deshacer_devuelve_los_anticipos_a_pendientes(): void
@@ -566,11 +586,12 @@ class PayrollTest extends TestCase
     {
         $this->cobrar(20);
         $primera = $this->postJson("/api/v1/payroll/resources/{$this->maria->id}/settle", [
+            'payment_method_id' => $this->efectivo->id,
             'until' => $this->dia(15)->toDateString(),
         ])->assertCreated()->json('id');
 
         $this->cobrar(10);
-        $this->postJson("/api/v1/payroll/resources/{$this->maria->id}/settle")->assertCreated();
+        $this->postJson("/api/v1/payroll/resources/{$this->maria->id}/settle", ['payment_method_id' => $this->efectivo->id])->assertCreated();
 
         // Borrar una del medio dejaria el periodo siguiente arrancando despues
         // de un hueco que nadie liquido.

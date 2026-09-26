@@ -345,7 +345,11 @@ class PayrollService
     public function pending(Business $business, CarbonImmutable $until, ?array $locationIds = null): array
     {
         return Resource::where('type', Resource::TYPE_STAFF)
-            ->where('is_active', true)
+            /*
+             * Sin filtrar por activa: quien se fue con comisiones sin pagar
+             * desaparecía de la lista y esa plata no la veía nadie. Las
+             * inactivas salen solo si les queda algo (ver abajo).
+             */
             /*
              * Por la sede de LA PERSONA, no la de sus citas.
              *
@@ -375,9 +379,16 @@ class PayrollService
                     return null;
                 }
 
+                if (! $resource->is_active
+                    && (int) $preview['services_count'] === 0
+                    && abs((float) $preview['net_total']) < 0.01) {
+                    return null;
+                }
+
                 return [
                     'resource_id' => $resource->id,
                     'name' => $resource->name,
+                    'is_active' => (bool) $resource->is_active,
                     'mode' => $preview['mode'],
                     'period_start' => $preview['period_start'],
                     'period_end' => $preview['period_end'],

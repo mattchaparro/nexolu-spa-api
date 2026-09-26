@@ -38,6 +38,17 @@ class DepositController
             return response()->json(['message' => 'No se registra un abono de una cita cancelada.'], 422);
         }
 
+        /*
+         * Ya cobrada, el cobro guardó cuánto entró ese día (total − abono).
+         * Un abono registrado después bajaba lo de aquel día y lo sumaba hoy:
+         * dos cierres descuadrados por la misma plata.
+         */
+        if ($appointment->checked_out_at !== null) {
+            return response()->json([
+                'message' => 'Esta cita ya se cobró completa. Si el cobro quedó mal, corrígelo desde el Resumen del día.',
+            ], 422);
+        }
+
         $method = PaymentMethod::where('business_id', $appointment->business_id)
             ->findOrFail($data['payment_method_id']);
 

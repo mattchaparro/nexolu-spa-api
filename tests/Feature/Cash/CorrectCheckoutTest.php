@@ -111,6 +111,19 @@ class CorrectCheckoutTest extends TestCase
         $this->assertEqualsWithDelta(40500, (float) $this->linea($nueva)->charged_amount, 0.01);
     }
 
+    public function test_una_cobrada_no_recibe_abono_despues(): void
+    {
+        // Bajaba lo cobrado aquel día y lo sumaba hoy: dos cierres mal.
+        $cita = $this->cobrada();
+
+        $this->postJson("/api/v1/appointments/{$cita->id}/deposit", [
+            'payment_method_id' => $this->bold->id,
+            'amount' => 10000,
+        ])->assertStatus(422);
+
+        $this->assertNull($cita->fresh()->deposit_paid_at);
+    }
+
     public function test_el_resumen_lista_cada_servicio_cobrado(): void
     {
         $cita = $this->cobrada();

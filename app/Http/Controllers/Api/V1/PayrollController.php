@@ -16,6 +16,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Nomina: lo que se le paga a cada profesional.
@@ -104,11 +105,38 @@ class PayrollController
 
         $data = $request->validate([
             'until' => ['nullable', 'date_format:Y-m-d'],
-            'payment_method_id' => ['nullable', 'integer', 'exists:payment_methods,id'],
+            // Del negocio, no un id cualquiera. Obligatorio si sale plata (abajo).
+            'payment_method_id' => [
+                'nullable', 'integer',
+                Rule::exists('payment_methods', 'id')->where('business_id', $request->user()->business_id),
+            ],
             'notes' => ['nullable', 'string', 'max:500'],
         ]);
 
         $business = $request->user()->business;
+
+        /*
+         * Si sale plata, con qué. Sin medio, el gasto de nómina se asumía
+         * efectivo y TODO el pago se restaba del cajón del día, aunque se
+         * hubiera pagado por transferencia. Un neto en cero o negativo
+         * (pidió más anticipos de lo que produjo) no mueve plata: ahí no.
+         */
+        if (empty($data['payment_method_id'])) {
+            try {
+                $neto = (float) $this->payroll->preview(
+                    $business,
+                    $resource,
+                    $this->until($data['until'] ?? null, $business->businessTimezone()),
+                    conDetalle: false,
+                )['net_total'];
+            } catch (ValidationException) {
+                $neto = 0.0;
+            }
+
+            if ($neto > 0) {
+                return response()->json(['message' => 'Elige con qué le pagas: efectivo, Bold…'], 422);
+            }
+        }
 
         $settlement = $this->payroll->settle(
             $business,
