@@ -118,6 +118,22 @@ class WalkInAndMethodsTest extends TestCase
         $this->assertSame($efectivo->id, $viejo->fresh()->platform_payment_method_id);
     }
 
+    public function test_la_migracion_junta_el_efectivo_duplicado_si_esta_vacio(): void
+    {
+        PaymentMethod::withoutGlobalScope('business')->where('business_id', $this->business->id)->delete();
+        $efectivo = PlatformPaymentMethod::where('key', 'efectivo')->first();
+
+        // Lo que quedó en producción: el importado (con cobros) y uno nuevo, vacío.
+        $viejo = PaymentMethod::create(['business_id' => $this->business->id, 'name' => 'Efectivo', 'counts_as_cash' => true, 'is_active' => false]);
+        $nuevo = PaymentMethod::create(['business_id' => $this->business->id, 'platform_payment_method_id' => $efectivo->id, 'name' => 'Efectivo', 'counts_as_cash' => true, 'is_active' => true]);
+
+        (require database_path('migrations/2026_09_26_000300_merge_duplicate_payment_methods.php'))->up();
+
+        $this->assertNull(PaymentMethod::withoutGlobalScope('business')->find($nuevo->id));
+        $this->assertTrue((bool) $viejo->fresh()->is_active);
+        $this->assertSame($efectivo->id, $viejo->fresh()->platform_payment_method_id);
+    }
+
     public function test_un_negocio_nuevo_arranca_con_los_medios_por_defecto(): void
     {
         Sanctum::actingAs($this->admin);
