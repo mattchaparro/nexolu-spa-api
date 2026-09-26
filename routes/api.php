@@ -34,8 +34,8 @@ use App\Http\Controllers\Api\V1\InstagramStoryController;
 use App\Http\Controllers\Api\V1\LoyaltyCardController;
 use App\Http\Controllers\Api\V1\MessageController;
 use App\Http\Controllers\Api\V1\MyWorkController;
-use App\Http\Controllers\Api\V1\PanelAssistantController;
 use App\Http\Controllers\Api\V1\NavBadgesController;
+use App\Http\Controllers\Api\V1\PanelAssistantController;
 use App\Http\Controllers\Api\V1\PayrollController;
 use App\Http\Controllers\Api\V1\ProductController;
 use App\Http\Controllers\Api\V1\PublicBookingController;
@@ -49,6 +49,7 @@ use App\Http\Controllers\Api\V1\SurveyController;
 use App\Http\Controllers\Api\V1\WaitlistAdminController;
 use App\Http\Controllers\Api\V1\WaitlistController;
 use App\Http\Controllers\Api\V1\WalkInController;
+use App\Http\Controllers\Api\V1\WhatsappSpendController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -530,6 +531,10 @@ Route::prefix('v1')->group(function () {
         | como usuaria de SU salon, con un pase de un solo uso. El negocio
         | sale de la sesion, nunca del request (ver ConnectChat).
         */
+        // Lo que Meta cobra por WhatsApp este mes: solo quien administra.
+        Route::get('whatsapp/gasto', [WhatsappSpendController::class, 'show'])
+            ->middleware('permission:negocio.configurar');
+
         Route::post('whatsapp/connect-link', [ConnectChatController::class, 'link'])
             ->middleware('permission:clientes.ver');
 
