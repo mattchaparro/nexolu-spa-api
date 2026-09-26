@@ -123,6 +123,25 @@ class ReminderTest extends TestCase
         $this->assertStringContainsString('Maria', $mensaje->body);
     }
 
+    public function test_con_el_valor_por_defecto_le_llega_a_quien_agendo_el_dia_anterior(): void
+    {
+        /*
+         * Claudia agendó a las 6 pm para las 4 pm del día siguiente (22 horas
+         * antes). Con 24 horas por defecto no le llegaba nada; con 3, le llega
+         * a la 1 pm.
+         */
+        $settings = $this->business->scheduling_settings;
+        unset($settings['reminder_hours_before']);
+        $this->business->update(['scheduling_settings' => $settings]);
+
+        $this->assertSame(3, (int) $this->business->fresh()->schedulingSetting('reminder_hours_before'));
+
+        $cita = $this->agendar(enHoras: 2, creadaHaceHoras: 22);
+
+        $this->assertSame(['queued' => 1, 'skipped' => 0], $this->reminders()->run($this->business->fresh()));
+        $this->assertSame($cita->id, Message::withoutGlobalScopes()->value('appointment_id'));
+    }
+
     public function test_el_recordatorio_lleva_como_mover_la_cita(): void
     {
         /*

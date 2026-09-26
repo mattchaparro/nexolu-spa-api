@@ -56,12 +56,14 @@ return [
         /*
          * Cuantas horas antes se le recuerda la cita al cliente.
          *
-         * 24 y no 2: el recordatorio sirve para que quien no va a poder avise
-         * A TIEMPO, no para que se acuerde de correr. Dos horas antes ya no
-         * alcanza a vender ese hueco otra vez, que es de lo que se trata bajar
-         * las inasistencias.
+         * 3 y no 24 (26-sep-2026). Con 24 solo le llegaba a quien agendó con
+         * más de un día de anticipación -- a quien acaba de agendar no se le
+         * recuerda --, y en Luxury casi todas agendan para hoy o mañana: en
+         * diez días no salió ni un recordatorio. Claudia agendó 22 horas antes
+         * y no recibió nada. Tres horas antes sí le llega a casi todas, y
+         * todavía deja tiempo para avisar si no puede.
          */
-        'reminder_hours_before' => 24,
+        'reminder_hours_before' => 3,
 
         // Cuanto hacia adelante se puede reservar.
         'max_booking_horizon_days' => 60,
