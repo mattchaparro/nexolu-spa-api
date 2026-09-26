@@ -122,7 +122,18 @@ class ResourceAdminController
 
         $business = $request->user()->business;
 
+        // Viaja en un multipart (por la foto): la regla llega como JSON en texto.
+        if (is_string($request->input('category_rest_days'))) {
+            $request->merge(['category_rest_days' => json_decode($request->input('category_rest_days'), true) ?? []]);
+        }
+
         $data = $request->validate([
+            'category_rest_days' => ['sometimes', 'array', 'max:50'],
+            'category_rest_days.*.category_id' => [
+                'required', 'integer',
+                Rule::exists('service_categories', 'id')->where('business_id', $business->id),
+            ],
+            'category_rest_days.*.rest_days' => ['required', 'integer', 'min:0', 'max:6'],
             'name' => ['sometimes', 'string', 'max:255'],
             'color' => ['nullable', 'string', 'max:7'],
             'is_bookable_online' => ['nullable', 'boolean'],
@@ -191,6 +202,14 @@ class ResourceAdminController
                     ])->values(),
                 ], 422);
             }
+        }
+
+        if (array_key_exists('category_rest_days', $data)) {
+            // Solo las que dicen algo: «todos los días» es no tener regla.
+            $data['category_rest_days'] = array_values(array_filter(
+                array_map(fn ($r) => ['category_id' => (int) $r['category_id'], 'rest_days' => (int) $r['rest_days']], $data['category_rest_days']),
+                fn ($r) => $r['rest_days'] > 0,
+            )) ?: null;
         }
 
         $resource->update(collect($data)->except('photo')->all());

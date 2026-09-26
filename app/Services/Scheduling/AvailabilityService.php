@@ -2,6 +2,8 @@
 
 namespace App\Services\Scheduling;
 
+use App\Models\Appointment;
+use App\Models\AppointmentItem;
 use App\Models\Business;
 use App\Models\Resource;
 use App\Models\ResourceBreak;
@@ -61,7 +63,7 @@ class AvailabilityService
         }
 
         $earliest = $now->addMinutes($notice);
-        $resources = $this->candidateResources($business, $service, $onlyResource, $locationId);
+        $resources = $this->candidateResources($business, $service, $onlyResource, $locationId, $date);
 
         if ($resources->isEmpty()) {
             return [];
@@ -172,7 +174,7 @@ class AvailabilityService
         $candidatesByService = [];
 
         foreach ($services as $index => $service) {
-            $candidates = $this->candidateResources($business, $service, null, $locationId);
+            $candidates = $this->candidateResources($business, $service, null, $locationId, $date);
 
             if ($candidates->isEmpty()) {
                 // Un eslabon que nadie presta hace imposible la cadena entera.
@@ -784,19 +786,60 @@ class AvailabilityService
         Service $service,
         ?Resource $onlyResource,
         ?int $locationId = null,
+        ?CarbonImmutable $date = null,
     ): Collection {
         if ($onlyResource !== null) {
-            return collect([$onlyResource])
+            $resources = collect([$onlyResource])
                 ->filter(fn (Resource $r) => $r->is_active
                     && ($locationId === null || $r->location_id === $locationId))
                 ->values();
+        } else {
+            $resources = $service->resources()
+                ->where('resources.business_id', $business->id)
+                ->where('resources.is_active', true)
+                ->when($locationId !== null, fn ($q) => $q->where('resources.location_id', $locationId))
+                ->get();
         }
 
-        return $service->resources()
-            ->where('resources.business_id', $business->id)
-            ->where('resources.is_active', true)
-            ->when($locationId !== null, fn ($q) => $q->where('resources.location_id', $locationId))
-            ->get();
+        if ($date === null) {
+            return $resources;
+        }
+
+        return $resources
+            ->reject(fn (Resource $r) => $this->restingFrom($business, $r, $service, $date))
+            ->values();
+    }
+
+    /**
+     * ¿Le toca descansar de esta categoría ese día?
+     *
+     * Marcela no aguanta pedicures todos los días: con un día de descanso,
+     * si el lunes tiene uno, el martes no se le ofrece otro y el miércoles
+     * sí. Se mira hacia los dos lados -- un pedicure ya agendado para el
+     * miércoles también cierra el martes -- y el MISMO día no cuenta: ese
+     * es su día de pedicures y puede hacer varios.
+     */
+    private function restingFrom(Business $business, Resource $resource, Service $service, CarbonImmutable $date): bool
+    {
+        $restDays = $resource->restDaysFor($service->service_category_id);
+
+        if ($restDays === 0) {
+            return false;
+        }
+
+        $tz = $business->businessTimezone();
+        $day = $date->setTimezone($tz)->startOfDay();
+
+        return AppointmentItem::withoutGlobalScopes()
+            ->join('appointments', 'appointments.id', '=', 'appointment_items.appointment_id')
+            ->join('services', 'services.id', '=', 'appointment_items.service_id')
+            ->where('appointment_items.resource_id', $resource->id)
+            ->where('services.service_category_id', $service->service_category_id)
+            ->whereIn('appointments.status', Appointment::activeStatuses())
+            ->where(fn ($q) => $q
+                ->whereBetween('appointment_items.starts_at', [$day->subDays($restDays)->utc(), $day->subSecond()->utc()])
+                ->orWhereBetween('appointment_items.starts_at', [$day->addDay()->utc(), $day->addDays($restDays + 1)->subSecond()->utc()]))
+            ->exists();
     }
 
     private function atTime(CarbonImmutable $date, string $time, string $tz): CarbonImmutable

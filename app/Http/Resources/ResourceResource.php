@@ -29,6 +29,9 @@ class ResourceResource extends JsonResource
             // llegan, que es lo que pasa hoy con casi todo el equipo.
             'phone' => $this->phone,
             'is_public' => (bool) $this->is_public,
+            // [{category_id, rest_days}]: los días entre dos servicios de
+            // esa categoría (Marcela, pedicure día de por medio).
+            'category_rest_days' => array_values($this->category_rest_days ?? []),
             'user_id' => $this->user_id,
             'is_bookable_online' => (bool) $this->is_bookable_online,
             'is_active' => (bool) $this->is_active,

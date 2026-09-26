@@ -174,6 +174,28 @@ class CatalogAdminTest extends TestCase
         $this->assertFalse((bool) User::where('email', 'maria@prueba.test')->first()->is_active);
     }
 
+    public function test_el_descanso_entre_pedicures_se_guarda_desde_el_formulario(): void
+    {
+        $resource = $this->makeResource($this->business, 'Marcela');
+        $pies = \App\Models\ServiceCategory::create(['business_id' => $this->business->id, 'name' => 'Pedicure', 'is_active' => true]);
+        $manos = \App\Models\ServiceCategory::create(['business_id' => $this->business->id, 'name' => 'Manicure', 'is_active' => true]);
+
+        // Llega como JSON en texto: el formulario es multipart por la foto.
+        $this->post("/api/v1/resources/{$resource->id}", [
+            'category_rest_days' => json_encode([
+                ['category_id' => $pies->id, 'rest_days' => 1],
+                ['category_id' => $manos->id, 'rest_days' => 0],
+            ]),
+        ], ['Accept' => 'application/json'])
+            ->assertOk()
+            ->assertJsonCount(1, 'category_rest_days')
+            ->assertJsonPath('category_rest_days.0.category_id', $pies->id)
+            ->assertJsonPath('category_rest_days.0.rest_days', 1);
+
+        $this->assertSame(1, $resource->fresh()->restDaysFor($pies->id));
+        $this->assertSame(0, $resource->fresh()->restDaysFor($manos->id));
+    }
+
     public function test_guardar_el_horario_semanal_reemplaza_el_anterior(): void
     {
         $resource = $this->makeResource($this->business, weekdays: [1, 2, 3, 4, 5, 6]);

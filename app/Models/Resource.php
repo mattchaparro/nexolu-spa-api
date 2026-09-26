@@ -55,16 +55,33 @@ class Resource extends Model
 
     protected $fillable = [
         'business_id', 'location_id', 'type', 'user_id', 'name', 'color', 'photo_path',
-        'bio', 'phone', 'is_public',
+        'bio', 'phone', 'is_public', 'category_rest_days',
         'is_bookable_online', 'is_active', 'sort_order',
         'payroll_mode', 'commission_rate', 'base_amount', 'base_period', 'base_until', 'payroll_started_on',
     ];
+
+    /** Días que tiene que haber entre dos de esta categoría (0 = sin regla). */
+    public function restDaysFor(?int $categoryId): int
+    {
+        if ($categoryId === null) {
+            return 0;
+        }
+
+        foreach ($this->category_rest_days ?? [] as $rule) {
+            if ((int) ($rule['category_id'] ?? 0) === $categoryId) {
+                return max(0, (int) ($rule['rest_days'] ?? 0));
+            }
+        }
+
+        return 0;
+    }
 
     protected function casts(): array
     {
         return [
             'is_bookable_online' => 'boolean',
             'is_active' => 'boolean',
+            'category_rest_days' => 'array',
             'commission_rate' => 'decimal:4',
             'base_amount' => 'decimal:2',
             // Fechas y no texto: `base_until` se compara contra el periodo
