@@ -19,7 +19,12 @@ class PlatformPaymentMethodSeeder extends Seeder
         // eso vive aca y no en cada negocio.
         $methods = [
             ['efectivo', 'Efectivo', true],
-            ['datafono', 'Datáfono', false],
+            // Bold: QR y link de pago en una sola cuenta. Luxury lo usa para
+            // todo lo que antes entraba por Nequi, Daviplata o transferencia.
+            ['bold', 'Bold', false],
+            // El pago con tarjeta en el datáfono. «Tarjeta» es como lo dice
+            // quien cobra; «Datáfono» es el aparato.
+            ['datafono', 'Tarjeta', false],
             ['transferencia', 'Transferencia', false],
             ['nequi', 'Nequi', false],
             ['daviplata', 'Daviplata', false],

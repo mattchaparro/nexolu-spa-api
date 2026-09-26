@@ -80,6 +80,10 @@ class WalkInAndMethodsTest extends TestCase
 
     private function seedCatalog(): void
     {
+        // La migración ya siembra el catálogo real (con Bold); estas pruebas
+        // hablan de uno propio, así que se parte de cero.
+        PlatformPaymentMethod::query()->delete();
+
         foreach ([
             ['efectivo', 'Efectivo', true],
             ['datafono', 'Datáfono', false],
