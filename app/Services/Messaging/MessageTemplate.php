@@ -98,7 +98,7 @@ final class MessageTemplate
         string $faltan,
         string $premio,
     ): self {
-        return new self('gracias_por_tu_visita', 'es', [$cliente, $servicio, $fecha, $sellos, $faltan, $premio]);
+        return new self('resumen_de_tu_visita', 'es', [$cliente, $servicio, $fecha, $sellos, $faltan, $premio]);
     }
 
     /**
@@ -149,7 +149,7 @@ final class MessageTemplate
         string $hora,
         string $negocio,
     ): self {
-        return new self('cupo_disponible', 'es', [$cliente, $servicio, $fecha, $hora, $negocio]);
+        return new self('aviso_lista_de_espera', 'es', [$cliente, $servicio, $fecha, $hora, $negocio]);
     }
 
     /**

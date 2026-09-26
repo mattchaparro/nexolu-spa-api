@@ -194,7 +194,7 @@ class ThankYouTest extends TestCase
 
         $enviado = $this->canal->sent[0];
 
-        $this->assertSame('gracias_por_tu_visita', $enviado['template']);
+        $this->assertSame('resumen_de_tu_visita', $enviado['template']);
         $this->assertSame(
             ['Carolina', 'Manicure', 'Miércoles 16 de septiembre', '7', '10', '15% de descuento'],
             $enviado['params'],

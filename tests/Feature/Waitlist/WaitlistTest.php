@@ -153,7 +153,7 @@ class WaitlistTest extends TestCase
 
         $aviso = $this->avisos()->first();
 
-        $this->assertSame('cupo_disponible', $aviso->template_name);
+        $this->assertSame('aviso_lista_de_espera', $aviso->template_name);
         $this->assertSame('Carolina', $aviso->template_params[0]);
         $this->assertSame('Manicure', $aviso->template_params[1]);
         // Y el texto SIGUE llevando el enlace, que la plantilla no puede
