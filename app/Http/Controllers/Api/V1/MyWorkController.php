@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api\V1;
 use App\Models\Appointment;
 use App\Models\AppointmentItem;
 use App\Models\PayrollSettlement;
+use App\Support\Payroll\AdjustmentCatalog;
+use App\Models\PayrollAdjustment;
 use App\Models\ServiceRating;
 use App\Services\Payroll\PayrollService;
 use App\Support\Ratings\Comentario;
@@ -61,7 +63,40 @@ class MyWorkController
             // "¿cuánto me pagaron el mes pasado?" vuelve a ser una pregunta
             // para el administrador.
             'payments' => $this->pagos($resource->id, $tz),
+            // Sus vales: anticipos, insumos y demás que se le descuentan en la
+            // nómina. Los pendientes son los que se le van a restar en el
+            // próximo pago -- la sorpresa más común del día de pago.
+            'adjustments' => $this->vales($resource->id),
         ]);
+    }
+
+    /**
+     * Los vales y ajustes: los que faltan por descontar y los de los últimos
+     * tres meses que ya entraron en un pago.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function vales(int $resourceId): array
+    {
+        return PayrollAdjustment::withoutGlobalScope('business')
+            ->where('resource_id', $resourceId)
+            ->where(fn ($q) => $q->whereNull('settlement_id')
+                ->orWhere('date', '>=', now()->subMonths(3)->toDateString()))
+            ->orderByDesc('date')
+            ->orderByDesc('id')
+            ->limit(60)
+            ->get()
+            ->map(fn (PayrollAdjustment $a) => [
+                'id' => $a->id,
+                // Columna `date`: sin convertir de zona (ver `pagos`).
+                'date' => $a->date?->toDateString(),
+                'kind' => $a->kind,
+                'label' => AdjustmentCatalog::label((string) $a->category),
+                'description' => $a->description,
+                'amount' => round((float) $a->amount, 2),
+                'pending' => $a->settlement_id === null,
+            ])
+            ->all();
     }
 
     /**

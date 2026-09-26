@@ -133,6 +133,24 @@ class MisPagosTest extends TestCase
         $this->assertCount(12, $this->miDia()['payments']);
     }
 
+    public function test_ve_sus_vales_pendientes_y_no_los_de_su_companera(): void
+    {
+        foreach ([[$this->maria, 50000, 'Para el mercado'], [$this->lucia, 30000, 'De Lucía']] as [$quien, $monto, $nota]) {
+            \App\Models\PayrollAdjustment::create([
+                'business_id' => $this->business->id, 'resource_id' => $quien->id,
+                'date' => now()->toDateString(), 'kind' => \App\Models\PayrollAdjustment::KIND_DEDUCTION,
+                'category' => 'anticipo', 'amount' => $monto, 'description' => $nota,
+            ]);
+        }
+
+        $vales = $this->miDia()['adjustments'];
+
+        $this->assertCount(1, $vales);
+        $this->assertSame('Anticipo', $vales[0]['label']);
+        $this->assertEqualsWithDelta(50000, $vales[0]['amount'], 0.01);
+        $this->assertTrue($vales[0]['pending']);
+    }
+
     public function test_sin_pagos_la_lista_viene_vacia_y_no_falla(): void
     {
         // Quien acaba de entrar al equipo todavía no tiene ninguno.
