@@ -93,6 +93,24 @@ class CorrectCheckoutTest extends TestCase
         return AppointmentItem::where('appointment_id', $cita->id)->first();
     }
 
+    public function test_el_relleno_no_resta_dos_veces_el_descuento(): void
+    {
+        // Importada: la línea ya trae el descuento (60.000 − 6.000 = 54.000).
+        $importada = $this->cobrada('10:00');
+        $importada->update(['subtotal' => 60000, 'discount_amount' => 6000, 'total' => 54000]);
+        AppointmentItem::where('appointment_id', $importada->id)->update(['final_price' => 54000, 'charged_amount' => null]);
+
+        // Del sistema nuevo: la línea es antes del descuento.
+        $nueva = $this->cobrada('11:00');
+        $nueva->update(['subtotal' => 45000, 'discount_amount' => 4500, 'total' => 40500]);
+        AppointmentItem::where('appointment_id', $nueva->id)->update(['final_price' => 45000, 'charged_amount' => null]);
+
+        (require database_path('migrations/2026_09_26_000500_charged_amount_without_double_discount.php'))->up();
+
+        $this->assertEqualsWithDelta(54000, (float) $this->linea($importada)->charged_amount, 0.01);
+        $this->assertEqualsWithDelta(40500, (float) $this->linea($nueva)->charged_amount, 0.01);
+    }
+
     public function test_el_resumen_lista_cada_servicio_cobrado(): void
     {
         $cita = $this->cobrada();
