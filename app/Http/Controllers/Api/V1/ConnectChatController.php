@@ -21,7 +21,22 @@ class ConnectChatController
             return response()->json(['message' => 'El chat no está configurado todavía.'], 503);
         }
 
-        $url = $connect->loginUrl($request->user());
+        $data = $request->validate([
+            // Desde una cita de la agenda: abrir directo el chat de esa clienta.
+            'phone' => ['nullable', 'string', 'max:32'],
+            'name' => ['nullable', 'string', 'max:80'],
+        ]);
+
+        $next = '/chat';
+
+        if (! empty($data['phone'])) {
+            $next .= '?'.http_build_query(array_filter([
+                'phone' => preg_replace('/\D+/', '', $data['phone']),
+                'name' => $data['name'] ?? null,
+            ]));
+        }
+
+        $url = $connect->loginUrl($request->user(), $next);
 
         if ($url === null) {
             // Que Connect este caido no tumba el panel del salon: se dice
