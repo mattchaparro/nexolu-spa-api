@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Jobs\PushClientNameToConnectJob;
+use App\Jobs\SyncClientToConnectJob;
 use App\Traits\BelongsToBusiness;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -40,6 +41,17 @@ class Client extends Model
         static::updated(function (Client $client) {
             if ($client->wasChanged(['name', 'last_name']) && ! empty($client->phone)) {
                 PushClientNameToConnectJob::dispatch($client->id);
+            }
+
+            // Quien deja de aceptar promociones sale de las difusiones de
+            // Connect ya, no en la sincronización de la próxima hora.
+            if ($client->wasChanged(['accepts_marketing', 'is_active']) && ! empty($client->phone)) {
+                SyncClientToConnectJob::dispatch($client->id);
+            }
+        });
+        static::deleted(function (Client $client) {
+            if (! empty($client->phone)) {
+                SyncClientToConnectJob::dispatch($client->id);
             }
         });
     }

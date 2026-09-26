@@ -70,6 +70,15 @@ Schedule::command('difusiones:enviar')
     ->runInBackground();
 
 /*
+ * Lo que las difusiones de Connect necesitan saber de cada clienta (si
+ * acepta promociones, su última visita). Ver ConnectContactSync.
+ */
+Schedule::command('connect:sincronizar-clientas')
+    ->hourlyAt(20)
+    ->withoutOverlapping()
+    ->runInBackground();
+
+/*
  * Historias de Instagram programadas.
  *
  * La API de Meta no programa: publicar es una llamada en el momento, y
