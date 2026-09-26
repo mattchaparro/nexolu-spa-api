@@ -12,6 +12,7 @@ use App\Ai\FechaDicha;
 use App\Ai\HoraLegible;
 use App\Ai\Resolves;
 use App\Ai\ServiciosPendientes;
+use App\Ai\Toques;
 use App\Ai\UltimoPedido;
 use App\Models\Location;
 use App\Models\ResourceSchedule;
@@ -747,7 +748,7 @@ class AvailabilityCapability implements Capability
         if (! empty($con)) {
             $filas[] = ['id' => 'otra_persona', 'title' => self::OTRA_PERSONA];
         }
-        $filas[] = ['id' => 'consultar', 'title' => \App\Ai\Toques::CONSULTAR];
+        $filas[] = ['id' => 'consultar', 'title' => Toques::CONSULTAR];
 
         $texto = sprintf(
             'Para *%s* el *%s*%s no me quedan horas 😕 ¿Buscamos otro día?',
@@ -817,7 +818,7 @@ class AvailabilityCapability implements Capability
      *
      * @return array<string, mixed>|null
      */
-    public function welcomeMenu(AiCaller $caller, string $texto): ?array
+    public function welcomeMenu(AiCaller $caller, string $texto, ?string $intro = null): ?array
     {
         if ($caller->isStaff()) {
             return null;
@@ -837,8 +838,10 @@ class AvailabilityCapability implements Capability
             $caller,
             $nombres,
             // Sin "¡Hola!": a esta altura ya se saludó, y saludar dos veces
-            // en la misma conversación suena a máquina.
-            'Estos son los servicios que más nos piden 💅 Toca uno, o escríbeme qué necesitas 👇',
+            // en la misma conversación suena a máquina. `$intro` es para
+            // cuando este menú ES el primer mensaje (tocó «Agendar cita» en
+            // una difusión): ahí el saludo va arriba, en el mismo mensaje.
+            ($intro !== null ? $intro."\n\n" : '').'Estos son los servicios que más nos piden 💅 Toca uno, o escríbeme qué necesitas 👇',
         );
 
         if ($menu === null) {

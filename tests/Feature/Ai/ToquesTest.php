@@ -278,6 +278,41 @@ class ToquesTest extends TestCase
         Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', '¡Tu cita quedó confirmada!'));
     }
 
+    public function test_con_ficha_sin_nombre_util_al_confirmar_se_le_pregunta_y_se_agenda(): void
+    {
+        // El nombre ya no se pregunta al empezar: si la ficha dice ".", se
+        // pregunta aquí, y con la respuesta se agenda lo que eligió.
+        $this->conversacion->client->forceFill(['name' => '.', 'last_name' => null])->save();
+        $this->conversacion = $this->conversacion->fresh(['business', 'client']);
+
+        $horas = $this->invoke('disponibilidad', ['servicio' => 'Semipermanente', 'fecha' => $this->manana()])
+            ->json('data.ofrecidas');
+        $this->toques()->atender($this->conversacion, $horas[0]['hora']);
+
+        $pregunta = $this->toques()->atender($this->conversacion, Toques::SI);
+
+        $this->assertSame(['pedir_nombre'], $pregunta['tools_used']);
+        $this->assertSame(0, Appointment::withoutGlobalScopes()->count());
+
+        app(GuidedEntry::class)->attend($this->conversacion->fresh(['business', 'client']), 'María Pérez');
+
+        $cita = Appointment::withoutGlobalScopes()->with('client')->sole();
+        $this->assertSame('María Pérez', $cita->client->name);
+        $this->assertSame($horas[0]['hora_24'], $cita->starts_at->timezone('America/Bogota')->format('H:i'));
+    }
+
+    public function test_la_pregunta_de_confirmar_muestra_a_nombre_de_quien(): void
+    {
+        $horas = $this->invoke('disponibilidad', ['servicio' => 'Semipermanente', 'fecha' => $this->manana()])
+            ->json('data.ofrecidas');
+
+        $this->toques()->atender($this->conversacion, $horas[0]['hora']);
+
+        $nombre = trim($this->conversacion->client->fullName());
+        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'Para finalizar')
+            && str_contains($r->data()['text'] ?? '', "🙋‍♀️ A nombre de *{$nombre}*"));
+    }
+
     public function test_la_confirmacion_trae_el_detalle_de_la_cita(): void
     {
         /*

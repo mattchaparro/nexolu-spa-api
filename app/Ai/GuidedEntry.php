@@ -146,13 +146,11 @@ final class GuidedEntry
 
     /**
      * Marca en caché: le preguntamos el nombre y falta la respuesta. El
-     * valor dice qué sigue después: 'root' (el menú de inicio) o true (el
-     * cierre del aviso de cambio de número).
+     * valor dice qué sigue después: 'agendar' (apartar la cita que ya
+     * eligió, ver Toques), o 'root' / true en preguntas viejas que aún
+     * esperan respuesta.
      */
     public const ASKING_NAME = 'pide_nombre:';
-
-    /** Para no preguntarle el nombre más de una vez al día a quien no lo da. */
-    private const ASKED_NAME_TODAY = 'nombre_preguntado:';
 
     /** Sin mensajes del bot en este lapso, lo siguiente es una conversación nueva. */
     private const NEW_SESSION_MINUTES = 30;
@@ -411,28 +409,14 @@ final class GuidedEntry
     private function showMenu(AiCaller $caller, string $phone, string $menu, bool $welcome = false): ?array
     {
         /*
-         * Sin nombre confirmado, primero el nombre. Quien no está en el spa,
-         * o está como "?", "." o su usuario de WhatsApp, recibía el menú y
-         * agendaba sin que nadie supiera quién era. Y a quien tenía un apodo
-         * que parece nombre («Claus») no se le preguntaba nunca: ahora se le
-         * pregunta a todas, una sola vez (`name_confirmed_at`). Una vez al día
-         * como mucho: si no contesta con un nombre, sigue como siempre.
+         * El nombre ya NO se pregunta al empezar (26-sep). Se preguntaba a
+         * todas "¿nos confirmas tu nombre completo?" y quien lo tenía bien
+         * no contestaba: después de la difusión, gente que tocó «Agendar
+         * cita» se quedó ahí y no agendó. Ahora el nombre que tengamos se
+         * usa tal cual (y se le muestra en la confirmación de la cita), y
+         * si no hay uno que sirva, se pregunta al final, justo antes de
+         * apartar la cita (Toques), cuando ya eligió todo.
          */
-        if ($menu === 'root' && $caller->client?->name_confirmed_at === null && Cache::add(self::ASKED_NAME_TODAY.$phone, true, now()->addDay())) {
-            $pregunta = $this->knowsName($caller)
-                ? 'Estamos actualizando nuestros contactos: te tenemos como *'.trim((string) $caller->client->fullName()).'*. ¿Nos confirmas tu nombre completo? ✍️'
-                : 'Antes de empezar, ¿cómo te llamas? ✍️';
-
-            // Sale directo, como el menú: si no hay canal, no se pregunta y
-            // todo sigue igual que antes (el menú tampoco saldría).
-            if (app(EnvioDirecto::class)->textoSiSale($caller, $this->welcome($caller)."\n\n".$pregunta)) {
-                Cache::put(self::ASKING_NAME.$phone, 'root', now()->addDays(3));
-
-                return ['text' => '', 'conversation_id' => null, 'tools_used' => ['pedir_nombre']];
-            }
-
-            Cache::forget(self::ASKED_NAME_TODAY.$phone);
-        }
 
         /*
          * Al empezar, se saluda como en el mostrador: el nombre si lo
@@ -492,15 +476,15 @@ final class GuidedEntry
     // -- Agendar -----------------------------------------------------------
 
     /** @return array{text: string, conversation_id: null, tools_used: list<string>}|null */
-    private function bookHere(AiCaller $caller, string $phone): ?array
+    private function bookHere(AiCaller $caller, string $phone, ?string $intro = null): ?array
     {
         $this->forgetMenu($phone);
 
-        if ($this->agenda->welcomeMenu($caller, '') !== null) {
+        if ($this->agenda->welcomeMenu($caller, '', $intro) !== null) {
             return ['text' => '', 'conversation_id' => null, 'tools_used' => ['menu_inicial']];
         }
 
-        return $this->reply($phone, '¡Claro! ¿Qué servicio te quieres hacer y para qué día? 💅', 'agendar');
+        return $this->reply($phone, ($intro !== null ? $intro."\n\n" : '').'¡Claro! ¿Qué servicio te quieres hacer y para qué día? 💅', 'agendar');
     }
 
     /** @return array{text: string, conversation_id: null, tools_used: list<string>}|null */
@@ -997,11 +981,9 @@ final class GuidedEntry
         if ($tocado === $this->plain(self::BOOK_APPOINTMENT)) {
             $this->noteOnClient($caller, 'Tocó «Agendar cita» en el aviso del número nuevo.');
 
-            // El mismo mensaje con que empieza toda conversación: agendar
-            // (aquí o en la web), mis citas, otra consulta, y la nota de
-            // "reiniciar". Así conoce el bot del número nuevo desde el
-            // principio, no a mitad de un flujo.
-            return $this->showMenu($caller, $phone, 'root');
+            // Directo a los servicios: tocó «Agendar cita», no hay que
+            // preguntarle otra vez qué quiere hacer ni cómo.
+            return $this->bookHere($caller, $phone, $this->welcome($caller));
         }
 
         if ($tocado === $this->plain(self::CANT_WRITE)) {
@@ -1035,38 +1017,9 @@ final class GuidedEntry
                 return $this->welcomeBack($caller, $phone, null);
             }
 
-            /*
-             * Se aprovecha que acaba de contestar para confirmar su nombre:
-             * muchas fichas vinieron de ManyChat con "?", "." o un apodo
-             * (35 de las 161 del aviso), y las demás pueden estar a medias.
-             * Si ya tenemos uno usable se le muestra, y un "sí" lo confirma.
-             * La respuesta siguiente la atiende fromNamePrompt.
-             */
-            /*
-             * Tres días y no unas horas: quien venía hablando con este número
-             * cuando era un WhatsApp normal puede tocar los botones pero no
-             * escribir ("no tiene WhatsApp") hasta que borra el chat y lo
-             * abre de nuevo -- y eso puede ser mañana.
-             */
-            Cache::put(self::ASKING_NAME.$phone, true, now()->addDays(3));
-
-            $actual = trim($caller->client->name.' '.$caller->client->last_name);
-            $inicio = "¡Qué alegría! 💅 Ya quedaste con nuestro número nuevo.\n\n";
-
-            if (NombreDePila::deSaludo($caller->client->name) === null) {
-                return $this->reply($phone, $inicio.'Para tenerte bien guardada, ¿cómo te llamas? ✍️', 'pedir_nombre');
-            }
-
-            /*
-             * Con un nombre que ya sirve, confirmarlo es un toque: tener que
-             * escribir otra vez el mismo nombre para decir "sí, es ese" era
-             * trabajo de más. Y se aclara qué hacer si no es.
-             */
-            $texto = $inicio."Te tenemos como *{$actual}*.\n\n"
-                .'Si está bien, toca «'.self::NAME_IS_MINE.'». Si no, escríbenos tu nombre completo ✍️';
-
-            return $this->send($caller, $phone, $texto, [self::NAME_IS_MINE], [], 'pedir_nombre')
-                ?? $this->reply($phone, $texto, 'pedir_nombre');
+            // Sin preguntarle el nombre: si el que tenemos no sirve, se le
+            // pregunta al final, antes de apartar la cita (ver showMenu).
+            return $this->welcomeBack($caller, $phone, NombreDePila::deSaludo($caller->client->name));
         }
 
         return null;
@@ -1116,6 +1069,19 @@ final class GuidedEntry
             }
 
             return $this->showMenu($caller, $phone, 'root');
+        }
+
+        // Estaba por confirmar la cita y su ficha no tenía un nombre que
+        // sirva: se guarda el que dio y se agenda lo que ya eligió.
+        if ($siguiente === 'agendar') {
+            $nombre = $this->nameFrom($texto);
+            if ($nombre === null) {
+                return null;
+            }
+
+            $this->noteOnClient($caller, 'Nos dio su nombre al confirmar la cita.', ['name' => $nombre, 'last_name' => null, 'name_confirmed_at' => now()]);
+
+            return app(Toques::class)->atender($conversacion->fresh(['business', 'client']), 'Sí, agendar');
         }
 
         if ($siguiente === 'root') {
@@ -1213,11 +1179,13 @@ final class GuidedEntry
      */
     private function welcomeBack(AiCaller $caller, string $phone, ?string $pila): array
     {
+        // Directo a los servicios, sin el paso de «¿aquí o en la web?».
         $texto = '¡Qué alegría'.($pila ? ", {$pila}" : '').'! 💅 Ya quedaste con nuestro número nuevo.'
-            ."\n\nRecuerda que por hacerte cualquier servicio te llevas un granizado gratis 🍧 ¿Te agendamos tu próxima cita?";
+            ."\n\nRecuerda que por hacerte cualquier servicio te llevas un granizado gratis 🍧";
 
-        return $this->send($caller, $phone, $texto, [self::HERE, self::WEB], ['menu' => 'agendar'], 'sigue_siendo_clienta', fresh: true)
-            ?? $this->reply($phone, $texto, 'sigue_siendo_clienta');
+        return $this->bookHere($caller, $phone, $texto) !== null
+            ? ['text' => '', 'conversation_id' => null, 'tools_used' => ['sigue_siendo_clienta']]
+            : $this->reply($phone, $texto, 'sigue_siendo_clienta');
     }
 
     /**

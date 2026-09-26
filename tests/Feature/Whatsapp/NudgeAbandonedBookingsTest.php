@@ -2,8 +2,10 @@
 
 namespace Tests\Feature\Whatsapp;
 
+use App\Ai\GuidedEntry;
 use App\Ai\ServiciosPendientes;
 use App\Ai\UltimoPedido;
+use App\Console\Commands\NudgeAbandonedBookings;
 use App\Models\Appointment;
 use App\Models\Client;
 use App\Models\Message;
@@ -81,6 +83,16 @@ class NudgeAbandonedBookingsTest extends TestCase
         );
     }
 
+    public function test_quien_se_quedo_en_el_nombre_recibe_el_empujon(): void
+    {
+        // Justo antes de apartar la cita: lo más cerca de agendar.
+        Cache::put(GuidedEntry::ASKING_NAME.$this->phone(), 'agendar', now()->addHours(8));
+
+        $this->artisan('bot:nudge-abandoned')->assertSuccessful();
+
+        Http::assertSent(fn ($r) => ($r->data()['text'] ?? '') === '¿Me regalas tu nombre para apartarte la cita? Solo me falta eso 😊');
+    }
+
     public function test_se_le_pregunta_una_sola_vez(): void
     {
         $this->artisan('bot:nudge-abandoned');
@@ -148,7 +160,7 @@ class NudgeAbandonedBookingsTest extends TestCase
 
     public function test_la_pregunta_depende_de_donde_quedo(): void
     {
-        $cmd = \App\Console\Commands\NudgeAbandonedBookings::class;
+        $cmd = NudgeAbandonedBookings::class;
 
         $this->assertSame('hours', $cmd::stage(['horas' => ['3 pm' => []]], []));
         $this->assertSame('day', $cmd::stage(['sin_horas' => ['dia' => 'sábado']], []));

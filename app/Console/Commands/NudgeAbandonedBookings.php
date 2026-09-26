@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Ai\AiCaller;
 use App\Ai\EnvioDirecto;
+use App\Ai\GuidedEntry;
 use App\Ai\ServiciosPendientes;
 use App\Ai\UltimoPedido;
 use App\Models\Appointment;
@@ -82,7 +83,11 @@ class NudgeAbandonedBookings extends Command
             }
 
             $phone = (string) $conversation->phone;
-            $stage = self::stage(UltimoPedido::ver($phone), ServiciosPendientes::ver($phone));
+            // Se quedó en «¿cómo te llamas?», justo antes de apartar la
+            // cita: lo más cerca de agendar que se puede quedar alguien.
+            $stage = Cache::has(GuidedEntry::ASKING_NAME.$phone)
+                ? 'name'
+                : self::stage(UltimoPedido::ver($phone), ServiciosPendientes::ver($phone));
 
             if ($stage === null || $this->bookedRecently($conversation)) {
                 continue;
@@ -144,6 +149,7 @@ class NudgeAbandonedBookings extends Command
     {
         $question = match ($stage) {
             'confirm' => '¿te aparto la cita? Solo me falta que me confirmes 😊',
+            'name' => '¿me regalas tu nombre para apartarte la cita? Solo me falta eso 😊',
             'hours' => '¿alguna de esas horas te sirvió? Si no, dime qué día y a qué hora te quedaría mejor y lo miramos 😊',
             'person' => '¿tienes preferencia con alguna de las chicas? Si te da igual, dime y te busco el espacio que mejor te quede 😊',
             'day' => '¿qué día te quedaría bien? Dime y te busco espacio 😊',
@@ -151,7 +157,8 @@ class NudgeAbandonedBookings extends Command
             default => '¿te ayudo a terminar de agendar tu cita? Cuéntame qué te quieres hacer y para qué día 😊',
         };
 
-        return $firstName === null
+        // A quien se le está pidiendo el nombre no se la saluda con uno.
+        return $firstName === null || $stage === 'name'
             ? mb_strtoupper(mb_substr($question, 0, 2)).mb_substr($question, 2)
             : $firstName.', '.$question;
     }

@@ -23,6 +23,7 @@ use App\Support\Money\LoyaltyCalculator;
 use App\Support\PermissionCatalog;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Tests\Feature\Scheduling\SchedulingScenario;
 use Tests\TestCase;
@@ -217,87 +218,51 @@ class GuidedEntryTest extends TestCase
     {
         $this->conversacion->client->forceFill(['name' => '🦋 Yess 🦋', 'name_confirmed_at' => null])->save();
 
-        $this->escribe('Hola');
+        $menu = $this->escribe('Hola');
 
-        // Sin un nombre con que saludarla, se le pregunta antes del menú.
-        Http::assertSent(fn ($r) => str_starts_with($r->data()['text'] ?? '', "¡Hola! 👋\nTe damos la bienvenida a *Spa de prueba*")
-            && str_contains($r->data()['text'] ?? '', '¿cómo te llamas?'));
+        $this->assertSame(['menu_root'], $menu['tools_used']);
+        Http::assertSent(fn ($r) => str_starts_with($r->data()['text'] ?? '', "¡Hola! 👋\nTe damos la bienvenida a *Spa de prueba*"));
     }
 
-    public function test_sin_nombre_se_lo_pregunta_al_empezar_y_despues_el_menu(): void
+    public function test_al_empezar_no_se_pregunta_el_nombre_ni_a_quien_no_lo_tiene(): void
     {
+        /*
+         * Se preguntaba «¿nos confirmas tu nombre completo?» y quien lo
+         * tenía bien no contestaba: después de la difusión del 26-sep, gente
+         * que quería agendar se quedó ahí. El nombre se pide al final, justo
+         * antes de apartar la cita, y solo si no tenemos uno que sirva.
+         */
         $this->conversacion->client->forceFill(['name' => '.', 'name_confirmed_at' => null])->save();
 
-        $pregunta = $this->escribe('Hola');
-        $this->assertSame(['pedir_nombre'], $pregunta['tools_used']);
+        $menu = $this->escribe('Hola');
+
+        $this->assertSame(['menu_root'], $menu['tools_used']);
+        $this->assertSame([GuidedEntry::BOOK, GuidedEntry::MY_APPOINTMENTS, GuidedEntry::OTHER], $this->ultimosBotones());
+        Http::assertNotSent(fn ($r) => str_contains($r->data()['text'] ?? '', '¿cómo te llamas?'));
+    }
+
+    public function test_el_nombre_sin_confirmar_se_usa_tal_cual(): void
+    {
+        // «Claus»: nunca nos lo confirmó, pero sirve para saludar.
+        $this->conversacion->client->forceFill(['name' => 'Claus', 'name_confirmed_at' => null])->save();
+
+        $menu = $this->escribe('Hola');
+
+        $this->assertSame(['menu_root'], $menu['tools_used']);
+        Http::assertSent(fn ($r) => str_starts_with($r->data()['text'] ?? '', '¡Hola, Claus! 👋'));
+        Http::assertNotSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'confirmas tu nombre'));
+    }
+
+    public function test_una_pregunta_de_nombre_vieja_todavia_se_atiende(): void
+    {
+        // Quien recibió la pregunta antes del cambio y contesta hoy.
+        $this->conversacion->client->forceFill(['name' => '.', 'name_confirmed_at' => null])->save();
+        Cache::put(GuidedEntry::ASKING_NAME.$this->phone(), 'root', now()->addDay());
 
         $menu = $this->escribe('Soy Liliana Gómez');
 
         $this->assertSame(['menu_root'], $menu['tools_used']);
         $this->assertSame('Liliana Gómez', $this->conversacion->client->fresh()->name);
-        Http::assertSent(fn ($r) => str_starts_with($r->data()['text'] ?? '', '¡Hola, Liliana! 👋'));
-        $this->assertSame([GuidedEntry::BOOK, GuidedEntry::MY_APPOINTMENTS, GuidedEntry::OTHER], $this->ultimosBotones());
-    }
-
-    public function test_a_quien_tiene_un_nombre_sin_confirmar_se_le_pide_una_vez(): void
-    {
-        // «Claus»: parece un nombre, pero nunca nos lo confirmó.
-        $this->conversacion->client->forceFill(['name' => 'Claus', 'name_confirmed_at' => null])->save();
-
-        $pregunta = $this->escribe('Hola');
-        $this->assertSame(['pedir_nombre'], $pregunta['tools_used']);
-        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'te tenemos como *Claus*'));
-
-        $menu = $this->escribe('Claudia Rodríguez');
-
-        $this->assertSame(['menu_root'], $menu['tools_used']);
-        $clienta = $this->conversacion->client->fresh();
-        $this->assertSame('Claudia Rodríguez', $clienta->name);
-        $this->assertNotNull($clienta->name_confirmed_at);
-
-        // Otro día, ya no se le pregunta.
-        $this->travel(2)->days();
-        $this->assertSame(['menu_root'], $this->escribe('Hola')['tools_used']);
-    }
-
-    public function test_un_si_confirma_el_nombre_sin_cambiarlo(): void
-    {
-        $this->conversacion->client->forceFill(['name' => 'Carolina', 'name_confirmed_at' => null])->save();
-
-        $this->escribe('Hola');
-        $menu = $this->escribe('Sí');
-
-        $this->assertSame(['menu_root'], $menu['tools_used']);
-        $clienta = $this->conversacion->client->fresh();
-        $this->assertSame('Carolina', $clienta->name);
-        $this->assertNotNull($clienta->name_confirmed_at);
-    }
-
-    public function test_quien_no_esta_en_el_spa_queda_con_ficha_al_decir_su_nombre(): void
-    {
-        $anterior = $this->conversacion->client_id;
-        $this->conversacion->forceFill(['client_id' => null])->save();
-        Client::withoutGlobalScopes()->whereKey($anterior)->forceDelete();
-
-        $this->escribe('Hola');
-        $menu = $this->escribe('Liliana');
-
-        $this->assertSame(['menu_root'], $menu['tools_used']);
-        $clienta = Client::withoutGlobalScopes()->where('business_id', $this->business->id)->where('phone', $this->phone())->first();
-        $this->assertNotNull($clienta);
-        $this->assertSame('Liliana', $clienta->name);
-    }
-
-    public function test_si_no_da_el_nombre_no_se_le_insiste_el_mismo_dia(): void
-    {
-        $this->conversacion->client->forceFill(['name' => '?', 'name_confirmed_at' => null])->save();
-
-        $this->escribe('Hola');
-        $this->escribe('quiero ver mis citas');
-        $otra = $this->escribe('Hola');
-
-        $this->assertNotSame(['pedir_nombre'], $otra['tools_used'] ?? []);
-        $this->assertSame('?', $this->conversacion->client->fresh()->name);
     }
 
     public function test_con_una_confirmacion_esperando_no_interrumpe(): void
@@ -901,19 +866,21 @@ class GuidedEntryTest extends TestCase
         $this->assertTrue((bool) $this->conversacion->client->fresh()->accepts_marketing);
     }
 
-    public function test_agendar_cita_del_aviso_abre_el_mensaje_de_inicio(): void
+    public function test_agendar_cita_del_aviso_va_directo_a_los_servicios(): void
     {
+        /*
+         * Tocó «Agendar cita» en la difusión: sin menú de inicio, sin
+         * «¿aquí o en la web?» y sin preguntarle el nombre. El saludo y los
+         * servicios, en un solo mensaje.
+         */
+        $this->conversacion->client->forceFill(['name_confirmed_at' => null])->save();
+
         $respuesta = $this->escribe(GuidedEntry::BOOK_APPOINTMENT);
 
-        // El mensaje con que empieza toda conversación, con sus tres botones
-        // y la nota de "reiniciar".
-        $this->assertSame(['menu_root'], $respuesta['tools_used']);
-        $this->assertSame([GuidedEntry::BOOK, GuidedEntry::MY_APPOINTMENTS, GuidedEntry::OTHER], $this->ultimosBotones());
-        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'reiniciar'));
-
-        // Y el toque siguiente se enruta desde ese menú: «Agendar» ofrece aquí o en la web.
-        $this->escribe(GuidedEntry::BOOK);
-        $this->assertSame([GuidedEntry::HERE, GuidedEntry::WEB], $this->ultimosBotones());
+        $this->assertSame(['menu_inicial'], $respuesta['tools_used']);
+        Http::assertSent(fn ($r) => str_starts_with($r->data()['text'] ?? '', '¡Hola, Carolina! 👋')
+            && str_contains($r->data()['text'] ?? '', 'Estos son los servicios que más nos piden'));
+        $this->assertContains('Tradicional', UltimoPedido::ver($this->phone())['opciones']);
         $this->assertStringContainsString('Agendar cita', (string) $this->conversacion->client->fresh()->notes);
     }
 
@@ -951,107 +918,37 @@ class GuidedEntryTest extends TestCase
         $this->assertSame(1, substr_count($this->conversacion->client->fresh()->notes, 'ya no viene'));
     }
 
-    public function test_si_ahi_nos_vemos_la_anota_y_le_pide_confirmar_el_nombre(): void
+    public function test_si_ahi_nos_vemos_la_anota_y_va_directo_a_los_servicios(): void
     {
         $this->conversacion->client->forceFill(['accepts_marketing' => true, 'notes' => 'Alérgica al acrílico'])->save();
 
-        $pregunta = $this->escribe(GuidedEntry::STILL_CLIENT);
+        $respuesta = $this->escribe(GuidedEntry::STILL_CLIENT);
 
-        // A TODAS se les pide: con el que tenemos a la vista.
-        $this->assertSame(['pedir_nombre'], $pregunta['tools_used']);
-        // Con el nombre a la vista, un botón para confirmarlo, y qué hacer si no es.
-        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'Te tenemos como *Carolina*')
-            && str_contains($r->data()['text'] ?? '', 'escríbenos tu nombre completo'));
-        $this->assertSame([GuidedEntry::NAME_IS_MINE], $this->ultimosBotones());
-
-        // Tocar el botón lo confirma sin reescribirlo.
-        $this->assertSame(['sigue_siendo_clienta'], $this->escribe(GuidedEntry::NAME_IS_MINE)['tools_used']);
-        $this->assertSame('Carolina', $this->conversacion->client->fresh()->name);
+        $this->assertSame(['sigue_siendo_clienta'], $respuesta['tools_used']);
+        Http::assertSent(fn ($r) => str_starts_with($r->data()['text'] ?? '', '¡Qué alegría, Carolina!')
+            && str_contains($r->data()['text'] ?? '', 'granizado gratis')
+            && str_contains($r->data()['text'] ?? '', 'Estos son los servicios que más nos piden'));
+        Http::assertNotSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'Te tenemos como'));
 
         $clienta = $this->conversacion->client->fresh();
+        $this->assertSame('Carolina', $clienta->name);
         $this->assertTrue((bool) $clienta->accepts_marketing);
         // Lo que ya tenía anotado se queda; la línea nueva va al final.
         $this->assertStringStartsWith('Alérgica al acrílico', $clienta->notes);
         $this->assertStringContainsString('sigue siendo clienta', $clienta->notes);
     }
 
-    public function test_un_si_confirma_el_nombre_que_tenemos_y_ofrece_agendar(): void
+    public function test_si_ahi_nos_vemos_sin_nombre_util_tampoco_se_le_pregunta(): void
     {
-        $this->escribe(GuidedEntry::STILL_CLIENT);
-
-        $respuesta = $this->escribe('Sí, correcto');
-
-        $this->assertSame(['sigue_siendo_clienta'], $respuesta['tools_used']);
-        $this->assertSame('Carolina', $this->conversacion->client->fresh()->name);
-        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', '¡Qué alegría, Carolina!')
-            && str_contains($r->data()['text'] ?? '', 'granizado gratis'));
-        $this->assertSame([GuidedEntry::HERE, GuidedEntry::WEB], $this->ultimosBotones());
-
-        // Y el toque siguiente se enruta como el menú de agendar.
-        $this->assertSame(['agenda_web'], $this->escribe(GuidedEntry::WEB)['tools_used'] ?? null);
-    }
-
-    public function test_el_nombre_completo_que_escribe_reemplaza_el_guardado(): void
-    {
-        $this->conversacion->client->forceFill(['name' => 'Caro', 'last_name' => 'Pérez'])->save();
-        $this->escribe(GuidedEntry::STILL_CLIENT);
-
-        $respuesta = $this->escribe('Carolina Pérez Gómez');
-
-        $this->assertSame(['sigue_siendo_clienta'], $respuesta['tools_used']);
-        $clienta = $this->conversacion->client->fresh();
-        $this->assertSame('Carolina Pérez Gómez', $clienta->name);
-        $this->assertNull($clienta->last_name);
-    }
-
-    public function test_una_orden_no_se_guarda_como_nombre(): void
-    {
-        // Alejandra contestó «Reiniciar» y quedó guardada con ese nombre.
+        // 35 de las 161 del aviso se llaman "?", "." o "Cc": se les pide al
+        // final, antes de apartar la cita.
         $this->conversacion->client->forceFill(['name' => '.', 'name_confirmed_at' => null])->save();
-        $this->escribe(GuidedEntry::STILL_CLIENT);
 
-        $this->escribe('Reiniciar');
+        $respuesta = $this->escribe(GuidedEntry::STILL_CLIENT);
 
+        $this->assertSame(['sigue_siendo_clienta'], $respuesta['tools_used']);
+        Http::assertSent(fn ($r) => str_starts_with($r->data()['text'] ?? '', '¡Qué alegría! 💅'));
         $this->assertSame('.', $this->conversacion->client->fresh()->name);
-    }
-
-    public function test_si_no_teniamos_su_nombre_se_lo_pregunta_y_lo_guarda(): void
-    {
-        // 35 de las 161 del aviso se llaman "?", "." o "Cc".
-        $this->conversacion->client->forceFill(['name' => '.', 'name_confirmed_at' => null])->save();
-
-        $pregunta = $this->escribe(GuidedEntry::STILL_CLIENT);
-
-        $this->assertSame(['pedir_nombre'], $pregunta['tools_used']);
-        $this->assertStringNotContainsString('Te tenemos como', $pregunta['text']);
-
-        $respuesta = $this->escribe('me llamo ana maría');
-
-        $this->assertSame(['sigue_siendo_clienta'], $respuesta['tools_used']);
-        $this->assertSame('Ana María', $this->conversacion->client->fresh()->name);
-        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', '¡Qué alegría, Ana!'));
-    }
-
-    public function test_sin_nombre_un_si_no_confirma_nada(): void
-    {
-        $this->conversacion->client->forceFill(['name' => '?', 'name_confirmed_at' => null])->save();
-        $this->escribe(GuidedEntry::STILL_CLIENT);
-
-        $respuesta = $this->escribe('si');
-
-        $this->assertNotSame(['sigue_siendo_clienta'], $respuesta['tools_used'] ?? []);
-        $this->assertSame('?', $this->conversacion->client->fresh()->name);
-    }
-
-    public function test_si_en_vez_del_nombre_pide_otra_cosa_no_se_guarda_como_nombre(): void
-    {
-        $this->conversacion->client->forceFill(['name' => '?', 'name_confirmed_at' => null])->save();
-        $this->escribe(GuidedEntry::STILL_CLIENT);
-
-        $respuesta = $this->escribe('quiero una cita mañana');
-
-        $this->assertNotSame(['sigue_siendo_clienta'], $respuesta['tools_used'] ?? []);
-        $this->assertSame('?', $this->conversacion->client->fresh()->name);
     }
 
     public function test_empezar_de_cero_abre_el_catalogo_sin_nada_pegado(): void

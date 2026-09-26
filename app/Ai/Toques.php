@@ -10,6 +10,7 @@ use App\Models\ResourceSchedule;
 use App\Models\WhatsappConversation;
 use App\Services\WhatsApp\NexoluCommsChannel;
 use App\Support\ChannelPhone;
+use App\Support\NombreDePila;
 use App\Support\PublicProfile;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Cache;
@@ -169,7 +170,13 @@ final class Toques
                      * Se le pregunta, y con la respuesta se agenda lo que
                      * ya había elegido (GuidedEntry::fromNamePrompt).
                      */
-                    if ($caller->client === null && ! isset($pedido['mudanza'])) {
+                    /*
+                     * Y con ficha pero sin un nombre que sirva ("?", ".", un
+                     * emoji): el nombre ya no se pregunta al empezar (ver
+                     * GuidedEntry::showMenu), así que este es el momento.
+                     */
+                    $sinNombre = $caller->client === null || NombreDePila::deSaludo((string) $caller->client->name) === null;
+                    if ($sinNombre && ! isset($pedido['mudanza'])) {
                         Cache::put(GuidedEntry::ASKING_NAME.$phone, 'agendar', now()->addHours(8));
 
                         return [
@@ -594,11 +601,16 @@ final class Toques
                 empty($hora['con']) ? '' : ' con *'.$hora['con'].'*',
             )
             : sprintf(
-                "Para finalizar, ¿te agendo la siguiente cita? 👇\n\n💅 *%s*\n📅 *%s* a las *%s*%s",
+                "Para finalizar, ¿te agendo la siguiente cita? 👇\n\n💅 *%s*\n📅 *%s* a las *%s*%s%s",
                 $this->nombreDe($pedido),
                 $pedido['dia'] ?? $pedido['fecha'],
                 $hora['hora'],
                 empty($hora['con']) ? '' : "\n👩 Con *".$hora['con'].'*',
+                // El nombre ya no se confirma al empezar: se muestra aquí, y
+                // si no es el suyo lo corrige quien la atienda.
+                ($cliente = $conversacion->client) !== null && NombreDePila::deSaludo((string) $cliente->name) !== null
+                    ? "\n🙋‍♀️ A nombre de *".trim($cliente->fullName()).'*'
+                    : '',
             );
 
         $enviado = $this->channel->sendOptions(
