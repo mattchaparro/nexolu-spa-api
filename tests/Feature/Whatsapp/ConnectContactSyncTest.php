@@ -35,6 +35,7 @@ class ConnectContactSyncTest extends TestCase
         config()->set('services.comms_core.base_url', 'http://comms.test');
 
         $this->luxury = $this->makeBusiness();
+        $this->luxury->forceFill(['whatsapp_phone_number_id' => '111222333'])->save();
     }
 
     private function visita(Client $clienta, string $cuando, ?string $atendio = null, bool $cobrada = true): void
@@ -83,8 +84,14 @@ class ConnectContactSyncTest extends TestCase
         $this->visita($ana, '2026-09-01 15:00', 'Alejandra');
         $this->visita($ana, '2026-09-20 15:00', null, cobrada: false); // agendada, no atendida
 
+        // La copia de pruebas del salon, con los mismos telefonos y sin
+        // WhatsApp: publicarla piso los datos reales el 26-sep.
+        $pruebas = $this->makeBusiness();
+        Client::create(['business_id' => $pruebas->id, 'name' => 'Ana', 'phone' => '3001112233', 'accepts_marketing' => false]);
+
         $this->artisan('connect:sincronizar-clientas')->assertSuccessful();
 
+        Http::assertSentCount(1);
         Http::assertSent(function (Request $request) {
             if ($request->method() !== 'PUT' || $request->url() !== 'http://comms.test/v1/contacts/bulk') {
                 return false;

@@ -22,7 +22,15 @@ class SyncConnectContacts extends Command
 
     public function handle(ConnectContactSync $sync): int
     {
+        /*
+         * Solo los salones con WhatsApp conectado. Los demás no tienen
+         * difusiones en Connect, y publicarlos es peligroso: "Luxury Nails
+         * (PRUEBAS)" es una copia de Luxury con los mismos teléfonos, y su
+         * corrida pisó los datos de las clientas reales (26-sep).
+         */
         $negocios = Business::query()
+            ->whereNotNull('whatsapp_phone_number_id')
+            ->where('whatsapp_phone_number_id', '!=', '')
             ->when($this->option('negocio'), fn ($q, $id) => $q->whereKey($id))
             ->get();
 
