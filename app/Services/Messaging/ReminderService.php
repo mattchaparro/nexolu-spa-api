@@ -54,42 +54,58 @@ class ReminderService
         $tz = $business->businessTimezone();
         $now ??= CarbonImmutable::now($tz);
         $hours = (int) $business->schedulingSetting('reminder_hours_before');
-
-        if ($hours <= 0) {
-            return ['queued' => 0, 'skipped' => 0];
-        }
+        $soon = (int) $business->schedulingSetting('reminder_soon_hours_before');
 
         $queued = 0;
         $skipped = 0;
 
-        foreach ($this->due($business, $now, $hours) as $appointment) {
-            $phone = $appointment->client_phone ?? $appointment->client?->phone;
+        /*
+         * Dos pasadas: el del día anterior y el de unas horas antes. El del
+         * día anterior deja fuera las citas que ya están dentro de la ventana
+         * corta: si la corrida se atrasó, le toca solo el de ahora y no los
+         * dos juntos.
+         */
+        $pasadas = array_filter([
+            [Message::KIND_REMINDER, $hours, $soon > 0 && $soon < $hours ? $soon : 0],
+            [Message::KIND_REMINDER_SOON, $soon, 0],
+        ], fn (array $p) => $p[1] > 0);
 
-            $message = $this->dispatcher->queue(
-                $business,
-                Message::KIND_REMINDER,
-                $phone,
-                StageMessage::render($this->template($business), $appointment),
-                $appointment,
-                null,
-                /*
-                 * Ademas del texto, la PLANTILLA. Un recordatorio lo inicia
-                 * el negocio horas despues de cualquier conversacion, asi que
-                 * fuera de la ventana de 24h Meta rechaza el texto libre. El
-                 * texto sigue existiendo para el modo manual y la bandeja.
-                 */
-                MessageTemplate::recordatorio(
-                    $appointment->client?->fullName() ?? $appointment->client_name ?? 'Hola',
-                    $business->name,
-                    $appointment->starts_at?->setTimezone($tz)->locale('es')->isoFormat('dddd D [de] MMMM') ?? '',
-                    $appointment->starts_at?->setTimezone($tz)->format('g:i a') ?? '',
-                ),
-            );
-
-            $message === null ? $skipped++ : $queued++;
+        foreach ($pasadas as [$kind, $horas, $noDentroDe]) {
+            foreach ($this->due($business, $now, $horas, $kind, $noDentroDe) as $appointment) {
+                $this->queueOne($business, $appointment, $kind, $tz) ? $queued++ : $skipped++;
+            }
         }
 
         return ['queued' => $queued, 'skipped' => $skipped];
+    }
+
+    /** Encola UN recordatorio; false si no salió (sin teléfono o ya avisada). */
+    private function queueOne(Business $business, Appointment $appointment, string $kind, string $tz): bool
+    {
+        $phone = $appointment->client_phone ?? $appointment->client?->phone;
+
+        $message = $this->dispatcher->queue(
+            $business,
+            $kind,
+            $phone,
+            StageMessage::render($this->template($business), $appointment),
+            $appointment,
+            null,
+            /*
+             * Ademas del texto, la PLANTILLA. Un recordatorio lo inicia
+             * el negocio horas despues de cualquier conversacion, asi que
+             * fuera de la ventana de 24h Meta rechaza el texto libre. El
+             * texto sigue existiendo para el modo manual y la bandeja.
+             */
+            MessageTemplate::recordatorio(
+                $appointment->client?->fullName() ?? $appointment->client_name ?? 'Hola',
+                $business->name,
+                $appointment->starts_at?->setTimezone($tz)->locale('es')->isoFormat('dddd D [de] MMMM') ?? '',
+                $appointment->starts_at?->setTimezone($tz)->format('g:i a') ?? '',
+            ),
+        );
+
+        return $message !== null;
     }
 
     /**
@@ -111,8 +127,14 @@ class ReminderService
      *
      * @return Collection<int, Appointment>
      */
-    public function due(Business $business, CarbonImmutable $now, int $hours): Collection
-    {
+    public function due(
+        Business $business,
+        CarbonImmutable $now,
+        int $hours,
+        string $kind = Message::KIND_REMINDER,
+        // Las que empiezan antes de esto le tocan al recordatorio corto.
+        int $notWithinHours = 0,
+    ): Collection {
         // El momento a partir del cual una cita entra en la ventana.
         $limite = $now->addHours($hours);
 
@@ -123,7 +145,9 @@ class ReminderService
              * cliente esta en la silla o no vino -- y lo que esta mas alla del
              * limite le toca en una corrida futura.
              */
-            ->where('starts_at', '>=', $now->utc())
+            // Con ventana corta, su borde es de ella: a las 3 h en punto le
+            // toca el corto, no los dos.
+            ->where('starts_at', $notWithinHours > 0 ? '>' : '>=', $now->addHours($notWithinHours)->utc())
             ->where('starts_at', '<=', $limite->utc())
             ->whereIn('status', [
                 Appointment::STATUS_PENDING,
@@ -143,7 +167,7 @@ class ReminderService
              * filtrarlo aca evita intentar -- y por lo tanto atrapar -- una
              * excepcion por cada cita ya avisada en cada corrida.
              */
-            ->whereDoesntHave('messages', fn ($q) => $q->where('kind', Message::KIND_REMINDER))
+            ->whereDoesntHave('messages', fn ($q) => $q->where('kind', $kind))
             ->with(['items.service', 'items.resource', 'client', 'business'])
             ->orderBy('starts_at')
             ->get();

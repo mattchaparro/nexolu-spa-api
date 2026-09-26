@@ -27,7 +27,11 @@ class Message extends Model
 
     public const STATUS_FAILED = 'fallido';
 
+    /** El recordatorio del día anterior (24 h antes). */
     public const KIND_REMINDER = 'recordatorio';
+
+    /** El de unas horas antes (3 h): otro tipo, para que el índice único deje mandar los dos. */
+    public const KIND_REMINDER_SOON = 'recordatorio_hoy';
 
     public const KIND_SURVEY = 'encuesta';
 

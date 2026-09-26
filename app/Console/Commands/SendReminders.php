@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\Business;
+use App\Models\Message;
 use App\Services\Messaging\ReminderService;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
@@ -43,22 +44,33 @@ class SendReminders extends Command
             }
 
             if ($this->option('dry-run')) {
-                $citas = $reminders->due(
-                    $business,
-                    CarbonImmutable::now($business->businessTimezone()),
-                    (int) $business->schedulingSetting('reminder_hours_before'),
-                );
+                $ahora = CarbonImmutable::now($business->businessTimezone());
+                $horas = (int) $business->schedulingSetting('reminder_hours_before');
+                $pronto = (int) $business->schedulingSetting('reminder_soon_hours_before');
 
-                foreach ($citas as $cita) {
-                    $this->line(sprintf(
-                        '  %s · %s · %s',
-                        $business->name,
-                        $cita->starts_at?->setTimezone($business->businessTimezone())->format('Y-m-d H:i'),
-                        $cita->client_name ?? 'sin nombre',
-                    ));
+                // Los dos: el del día anterior y el de unas horas antes.
+                foreach ([
+                    ['día anterior', $horas, Message::KIND_REMINDER, $pronto > 0 && $pronto < $horas ? $pronto : 0],
+                    ["{$pronto} h antes", $pronto, Message::KIND_REMINDER_SOON, 0],
+                ] as [$cual, $h, $kind, $noDentro]) {
+                    if ($h <= 0) {
+                        continue;
+                    }
+
+                    $citas = $reminders->due($business, $ahora, $h, $kind, $noDentro);
+
+                    foreach ($citas as $cita) {
+                        $this->line(sprintf(
+                            '  %s · %s · %s · %s',
+                            $business->name,
+                            $cual,
+                            $cita->starts_at?->setTimezone($business->businessTimezone())->format('Y-m-d H:i'),
+                            $cita->client_name ?? 'sin nombre',
+                        ));
+                    }
+
+                    $totalQueued += $citas->count();
                 }
-
-                $totalQueued += $citas->count();
 
                 continue;
             }

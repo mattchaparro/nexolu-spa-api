@@ -123,23 +123,48 @@ class ReminderTest extends TestCase
         $this->assertStringContainsString('Maria', $mensaje->body);
     }
 
-    public function test_con_el_valor_por_defecto_le_llega_a_quien_agendo_el_dia_anterior(): void
+    public function test_quien_agendo_el_dia_anterior_recibe_el_de_tres_horas(): void
     {
         /*
          * Claudia agendó a las 6 pm para las 4 pm del día siguiente (22 horas
-         * antes). Con 24 horas por defecto no le llegaba nada; con 3, le llega
-         * a la 1 pm.
+         * antes). No le toca el del día anterior -- lo decidió ayer --, pero
+         * sí el de tres horas antes, que con solo el de 24 no existía.
          */
-        $settings = $this->business->scheduling_settings;
-        unset($settings['reminder_hours_before']);
-        $this->business->update(['scheduling_settings' => $settings]);
-
-        $this->assertSame(3, (int) $this->business->fresh()->schedulingSetting('reminder_hours_before'));
-
         $cita = $this->agendar(enHoras: 2, creadaHaceHoras: 22);
 
-        $this->assertSame(['queued' => 1, 'skipped' => 0], $this->reminders()->run($this->business->fresh()));
-        $this->assertSame($cita->id, Message::withoutGlobalScopes()->value('appointment_id'));
+        $this->assertSame(['queued' => 1, 'skipped' => 0], $this->reminders()->run($this->business));
+        $mensaje = Message::withoutGlobalScopes()->first();
+        $this->assertSame($cita->id, $mensaje->appointment_id);
+        $this->assertSame(Message::KIND_REMINDER_SOON, $mensaje->kind);
+    }
+
+    public function test_quien_agendo_con_dias_recibe_los_dos(): void
+    {
+        $cita = $this->agendar(enHoras: 20, creadaHaceHoras: 72);
+
+        // El día anterior: el de 24 horas.
+        $this->assertSame(['queued' => 1, 'skipped' => 0], $this->reminders()->run($this->business));
+
+        // Tres horas antes: el corto, además.
+        $this->travel(18)->hours();
+        $this->assertSame(['queued' => 1, 'skipped' => 0], $this->reminders()->run($this->business));
+
+        $this->assertSame(
+            [Message::KIND_REMINDER, Message::KIND_REMINDER_SOON],
+            Message::withoutGlobalScopes()->where('appointment_id', $cita->id)->orderBy('id')->pluck('kind')->all(),
+        );
+    }
+
+    public function test_si_la_corrida_se_atraso_no_le_llegan_los_dos_juntos(): void
+    {
+        // Agendada hace días, y ya a dos horas: solo el corto, no los dos.
+        $cita = $this->agendar(enHoras: 2, creadaHaceHoras: 72);
+
+        $this->assertSame(['queued' => 1, 'skipped' => 0], $this->reminders()->run($this->business));
+        $this->assertSame(
+            [Message::KIND_REMINDER_SOON],
+            Message::withoutGlobalScopes()->where('appointment_id', $cita->id)->pluck('kind')->all(),
+        );
     }
 
     public function test_el_recordatorio_lleva_como_mover_la_cita(): void
