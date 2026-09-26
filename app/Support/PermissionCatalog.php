@@ -92,6 +92,7 @@ class PermissionCatalog
             // apagado -- y eso lo escondia de la pantalla de permisos.
             ['name' => 'caja.cobrar', 'category' => 'caja', 'label' => 'Cobrar', 'description' => 'Cerrar y cobrar un servicio prestado.'],
             ['name' => 'caja.turno', 'category' => 'caja', 'label' => 'Abrir y cerrar turno', 'description' => 'Manejar el turno de caja propio.', 'feature' => 'cash_shift'],
+            ['name' => 'caja.corregir', 'category' => 'caja', 'label' => 'Corregir cobros', 'description' => 'Cambiar el servicio, el valor o el medio de un servicio ya cobrado, deshacer el cobro o eliminarlo. No le avisa a nadie.'],
             ['name' => 'caja.cierre', 'category' => 'caja', 'label' => 'Cerrar caja del dia', 'description' => 'Hacer el cierre diario del negocio.', 'feature' => 'cash_closing'],
 
             // Finanzas

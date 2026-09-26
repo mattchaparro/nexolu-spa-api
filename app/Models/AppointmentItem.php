@@ -15,9 +15,19 @@ class AppointmentItem extends Model
     protected $fillable = [
         'business_id', 'appointment_id', 'service_id', 'resource_id',
         'starts_at', 'ends_at', 'service_starts_at', 'service_ends_at',
-        'price', 'final_price', 'commission_rate', 'commission_amount', 'sort_order',
+        'price', 'final_price', 'charged_amount', 'commission_rate', 'commission_amount', 'sort_order',
         'is_warranty', 'warranty_for_resource_id', 'warranty_for_item_id', 'warranty_note',
     ];
+
+    /**
+     * Lo que de verdad se cobró por esta línea, con el descuento de la cuenta
+     * ya repartido. `final_price` es ANTES del descuento: sumarlo como
+     * "cobrado" inflaba Ventas, el Resumen y la Nómina.
+     */
+    public function charged(): float
+    {
+        return (float) ($this->charged_amount ?? $this->final_price ?? 0);
+    }
 
     protected function casts(): array
     {
@@ -29,6 +39,7 @@ class AppointmentItem extends Model
             'price' => 'decimal:2',
             'commission_rate' => 'decimal:4',
             'final_price' => 'decimal:2',
+            'charged_amount' => 'decimal:2',
             'commission_amount' => 'decimal:2',
             'is_warranty' => 'boolean',
         ];

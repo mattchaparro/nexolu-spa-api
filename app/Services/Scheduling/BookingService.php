@@ -229,6 +229,18 @@ class BookingService
             $item = $items->first();
             $resource = $newResource ?? $item->resource;
             $service = $item->service;
+            $cambiaDePersona = $resource->id !== $item->resource_id;
+
+            /*
+             * Cobrada, la comisión ya quedó congelada a nombre de quien la
+             * hizo. Arrastrarla a otra columna se la pasaba a otra persona
+             * -- y si la primera ya estaba liquidada, cobraban las dos.
+             */
+            if ($cambiaDePersona && $appointment->checked_out_at !== null) {
+                throw new \DomainException(
+                    'Esta cita ya se cobró. Para cambiar quién la hizo, corrígela desde el Resumen del día.'
+                );
+            }
 
             /*
              * El hueco VIEJO se captura antes de mover, porque despues del
@@ -270,6 +282,14 @@ class BookingService
 
             $item->update([
                 'resource_id' => $resource->id,
+                /*
+                 * El porcentaje es de la PERSONA: se había congelado el de
+                 * quien la tenía al agendar, y al pasarla a otra seguía
+                 * cobrando el de la primera.
+                 */
+                ...($cambiaDePersona ? ['commission_rate' => $item->is_warranty
+                    ? 0
+                    : $service->commissionRateFor($resource)] : []),
                 'starts_at' => $window['starts_at'],
                 'ends_at' => $window['ends_at'],
                 'service_starts_at' => $window['service_starts_at'],

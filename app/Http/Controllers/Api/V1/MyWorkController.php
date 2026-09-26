@@ -241,7 +241,7 @@ class MyWorkController
 
         return [
             'services' => $items->count(),
-            'charged' => round((float) $items->sum('final_price'), 2),
+            'charged' => round((float) $items->sum(fn ($i) => $i->charged()), 2),
             'commission' => round((float) $items->sum('commission_amount'), 2),
         ];
     }

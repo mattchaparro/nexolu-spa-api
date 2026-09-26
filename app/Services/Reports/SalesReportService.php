@@ -7,6 +7,7 @@ use App\Models\Business;
 use App\Models\Resource;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 /**
  * El reporte de ventas: cuanto entro, de quien, y por que medio.
@@ -103,9 +104,12 @@ class SalesReportService
                 'appointments.location_id',
                 'locations.name as location_name',
                 'appointment_items.service_id',
-                // `final_price` es lo que de verdad se cobro, con el descuento
-                // ya repartido. `price` es el de lista y sumaria de mas.
+                // Lo cobrado de verdad, con el descuento ya repartido.
+                // `final_price` es el precio de la linea ANTES del descuento
+                // (sirve para ver si se cobro distinto a la carta) y
+                // sumarlo como cobrado inflaba el reporte.
                 'appointment_items.final_price',
+                DB::raw('COALESCE(appointment_items.charged_amount, appointment_items.final_price) as charged_amount'),
                 /*
                  * El de la CARTA, para poder decir cuando se cobro distinto.
                  * No suma en ningun total: sirve solo para comparar.
@@ -124,7 +128,7 @@ class SalesReportService
     /** @param Collection<int, object> $items */
     private function totals(Collection $items): array
     {
-        $charged = (float) $items->sum(fn ($i) => (float) ($i->final_price ?? 0));
+        $charged = (float) $items->sum(fn ($i) => (float) ($i->charged_amount ?? 0));
         $commission = (float) $items->sum(fn ($i) => (float) ($i->commission_amount ?? 0));
 
         return [
@@ -136,7 +140,7 @@ class SalesReportService
             // se llama asi y no "ganancia".
             'after_commission' => round($charged - $commission, 2),
             'cash' => round((float) $items->where('counts_as_cash', true)
-                ->sum(fn ($i) => (float) ($i->final_price ?? 0)), 2),
+                ->sum(fn ($i) => (float) ($i->charged_amount ?? 0)), 2),
             'average_ticket' => $items->isEmpty() ? 0.0 : round($charged / $items->count(), 2),
             'off_catalog' => $this->fueraDeCarta($items),
         ];
@@ -198,7 +202,7 @@ class SalesReportService
         return $items
             ->groupBy('location_id')
             ->map(function (Collection $group) {
-                $charged = (float) $group->sum(fn ($i) => (float) ($i->final_price ?? 0));
+                $charged = (float) $group->sum(fn ($i) => (float) ($i->charged_amount ?? 0));
 
                 return [
                     'location_id' => $group->first()->location_id,
@@ -225,7 +229,7 @@ class SalesReportService
         return $items
             ->groupBy('resource_id')
             ->map(function (Collection $group) {
-                $charged = (float) $group->sum(fn ($i) => (float) ($i->final_price ?? 0));
+                $charged = (float) $group->sum(fn ($i) => (float) ($i->charged_amount ?? 0));
                 $commission = (float) $group->sum(fn ($i) => (float) ($i->commission_amount ?? 0));
 
                 return [
@@ -255,7 +259,7 @@ class SalesReportService
                 'name' => $group->first()->method_name ?? 'Sin método',
                 'counts_as_cash' => (bool) $group->first()->counts_as_cash,
                 'services' => $group->count(),
-                'charged' => round((float) $group->sum(fn ($i) => (float) ($i->final_price ?? 0)), 2),
+                'charged' => round((float) $group->sum(fn ($i) => (float) ($i->charged_amount ?? 0)), 2),
             ])
             ->sortByDesc('charged')
             ->values()
@@ -271,7 +275,7 @@ class SalesReportService
                 'service_id' => $group->first()->service_id,
                 'name' => $group->first()->service_name ?? 'Sin servicio',
                 'services' => $group->count(),
-                'charged' => round((float) $group->sum(fn ($i) => (float) ($i->final_price ?? 0)), 2),
+                'charged' => round((float) $group->sum(fn ($i) => (float) ($i->charged_amount ?? 0)), 2),
             ])
             ->sortByDesc('charged')
             ->values()
@@ -293,7 +297,7 @@ class SalesReportService
             ->map(fn (Collection $group, string $date) => [
                 'date' => $date,
                 'services' => $group->count(),
-                'charged' => round((float) $group->sum(fn ($i) => (float) ($i->final_price ?? 0)), 2),
+                'charged' => round((float) $group->sum(fn ($i) => (float) ($i->charged_amount ?? 0)), 2),
                 'commission' => round((float) $group->sum(fn ($i) => (float) ($i->commission_amount ?? 0)), 2),
             ])
             ->sortBy('date')

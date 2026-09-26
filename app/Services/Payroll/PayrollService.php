@@ -623,7 +623,7 @@ class PayrollService
                 'charged_at' => CarbonImmutable::parse($item->checked_out_at)->setTimezone($tz)->toIso8601String(),
                 'service_name' => $item->service?->name ?? 'Servicio',
                 'client_name' => $item->appointment_client_name,
-                'charged' => (float) ($item->final_price ?? $item->price),
+                'charged' => (float) ($item->charged_amount ?? $item->final_price ?? $item->price),
                 'commission_rate' => $item->commission_rate === null ? null : (float) $item->commission_rate,
                 'commission_amount' => (float) ($item->commission_amount ?? 0),
             ]);

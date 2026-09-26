@@ -129,6 +129,74 @@ class CashRegisterTest extends TestCase
         return $id;
     }
 
+    public function test_con_descuento_cada_pantalla_dice_lo_mismo_que_la_caja(): void
+    {
+        /*
+         * Ventas, el Resumen por persona y la Nómina sumaban el precio de la
+         * línea ANTES del descuento: 50.000 cobrados en 40.000 salían como
+         * 50.000 en todos lados menos en la caja.
+         */
+        $fecha = $this->laboral()->toDateString();
+
+        $id = $this->postJson('/api/v1/appointments', [
+            'service_id' => $this->service->id,
+            'resource_id' => $this->maria->id,
+            'starts_at' => "{$fecha} 10:00:00",
+            'client_name' => 'Con descuento',
+        ])->assertCreated()->json('id');
+
+        $this->postJson("/api/v1/appointments/{$id}/checkout", [
+            'payment_method_id' => $this->efectivo->id,
+            'discount_amount' => 10000,
+        ])->assertOk();
+
+        $resumen = $this->getJson("/api/v1/daily-summary?date={$fecha}")->assertOk();
+        $this->assertEqualsWithDelta(40000, $resumen->json('by_resource.0.charged'), 0.01);
+        $this->assertEqualsWithDelta(40000, $resumen->json('totals.total_charged'), 0.01);
+
+        $this->assertEqualsWithDelta(
+            40000,
+            (float) \App\Models\AppointmentItem::where('appointment_id', $id)->value('charged_amount'),
+            0.01,
+        );
+    }
+
+    public function test_un_gasto_de_mañana_no_baja_la_caja_de_hoy(): void
+    {
+        $fecha = $this->laboral(1);
+        $this->postJson('/api/v1/expenses', [
+            'date' => $fecha->addDay()->toDateString(), 'description' => 'Del día siguiente', 'value' => 7000,
+            'scope' => Expense::SCOPE_OPERATIONAL, 'payment_method_id' => $this->efectivo->id,
+        ])->assertCreated();
+
+        $this->getJson('/api/v1/cash/closing/preview?date='.$fecha->toDateString())
+            ->assertOk()
+            ->assertJsonPath('total_expenses', 0);
+    }
+
+    public function test_el_producto_vendido_en_efectivo_entra_a_la_caja(): void
+    {
+        /*
+         * La pantalla de cobro dice «a cobrar en total» servicio + crema. Si
+         * la crema no entra al cierre, el cajón queda largo cada vez.
+         */
+        $fecha = $this->laboral();
+        $crema = \App\Models\Product::create([
+            'business_id' => $this->business->id, 'name' => 'Crema', 'price' => 20000, 'cost' => 8000, 'stock' => 5,
+        ]);
+        \App\Models\ProductSale::create([
+            'business_id' => $this->business->id, 'product_id' => $crema->id, 'quantity' => 1,
+            'unit_price' => 20000, 'unit_cost' => 8000, 'total' => 20000,
+            'payment_method_id' => $this->efectivo->id, 'sold_by_user_id' => $this->admin->id,
+            'sold_at' => $fecha->setTime(12, 0),
+        ]);
+
+        $caja = $this->getJson('/api/v1/cash/closing/preview?date='.$fecha->toDateString())->assertOk();
+
+        $this->assertEqualsWithDelta(20000, $caja->json('total_charged'), 0.01);
+        $this->assertEqualsWithDelta(20000, $caja->json('expected_cash'), 0.01);
+    }
+
     public function test_el_turno_suma_solo_lo_que_cobro_esa_persona(): void
     {
         $this->postJson('/api/v1/cash/shift/open', ['opening_cash' => 50000])->assertCreated();
@@ -401,14 +469,10 @@ class CashRegisterTest extends TestCase
             'client_name' => 'Atendida sin cobrar',
         ])->assertCreated()->json('id');
 
-        $this->postJson("/api/v1/appointments/{$cita}/stage", [
-            'status' => Appointment::STATUS_COMPLETED,
-        ])->assertOk();
-
-        $this->assertNull(
-            Appointment::withoutGlobalScope('business')->find($cita)->checked_out_at,
-            'Mover de etapa no debe cobrar.',
-        );
+        // Ya no se puede desde los botones de estado, pero las hay de antes
+        // (María, 25-sep) y el aviso tiene que seguir viéndolas.
+        Appointment::withoutGlobalScope('business')->whereKey($cita)
+            ->update(['status' => Appointment::STATUS_COMPLETED]);
 
         $this->getJson("/api/v1/daily-summary?date={$fecha}")
             ->assertOk()

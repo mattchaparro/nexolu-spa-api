@@ -5,6 +5,7 @@ namespace App\Services\Reports;
 use App\Models\Appointment;
 use App\Models\Business;
 use App\Models\ProductSale;
+use App\Models\PayrollSettlementItem;
 use App\Services\Cash\CashTotalsService;
 use Carbon\CarbonImmutable;
 
@@ -38,10 +39,11 @@ class DailySummaryService
          * 25.000" conviviera con una tabla por persona en ceros.
          */
         $cobradas = Appointment::query()
-            ->with(['items.resource'])
+            ->with(['items.resource', 'items.service', 'paymentMethod'])
             ->when($sedes !== null, fn ($q) => $q->whereIn('location_id', $sedes))
             ->whereNotNull('checked_out_at')
-            ->whereBetween('checked_out_at', [$date->startOfDay()->utc(), $date->addDay()->startOfDay()->utc()])
+            ->where('checked_out_at', '>=', $date->startOfDay()->utc())
+            ->where('checked_out_at', '<', $date->addDay()->startOfDay()->utc())
             ->get();
 
         $byResource = [];
@@ -52,12 +54,48 @@ class DailySummaryService
 
                 $byResource[$name] ??= ['name' => $name, 'appointments' => 0, 'charged' => 0.0, 'commission' => 0.0];
                 $byResource[$name]['appointments']++;
-                $byResource[$name]['charged'] += (float) ($item->final_price ?? 0);
+                $byResource[$name]['charged'] += $item->charged();
                 $byResource[$name]['commission'] += (float) ($item->commission_amount ?? 0);
             }
         }
 
         usort($byResource, fn ($a, $b) => $b['charged'] <=> $a['charged']);
+
+        /*
+         * Cada servicio cobrado, uno por uno: qué se hizo, quién, cuánto se
+         * cobró, por dónde y cuánto se lleva de comisión. Es la lista que
+         * se revisa al final del día para encontrar lo que se subió de más
+         * o con el valor equivocado, y desde donde se corrige.
+         */
+        $tz = $business->businessTimezone();
+        $itemIds = $cobradas->flatMap(fn ($a) => $a->items->pluck('id'));
+        $liquidadas = PayrollSettlementItem::withoutGlobalScope('business')
+            ->whereIn('appointment_item_id', $itemIds)
+            ->pluck('appointment_item_id')
+            ->flip();
+
+        $lines = $cobradas
+            ->sortBy('checked_out_at')
+            ->flatMap(fn (Appointment $a) => $a->items->map(fn ($item) => [
+                'appointment_id' => $a->id,
+                'item_id' => $item->id,
+                'charged_at' => CarbonImmutable::parse($a->checked_out_at)->setTimezone($tz)->format('H:i'),
+                'client_name' => $a->client_name,
+                'service_id' => $item->service_id,
+                'service_name' => $item->service?->name ?? 'Servicio',
+                'resource_name' => $item->resource?->name ?? 'Sin asignar',
+                'price' => (float) $item->price,
+                'charged' => $item->charged(),
+                'payment_method_id' => $a->payment_method_id,
+                'payment_method' => $a->paymentMethod?->name ?? 'Sin método',
+                'commission' => (float) ($item->commission_amount ?? 0),
+                'discount_reason' => $a->discount_reason,
+                'items_in_appointment' => $a->items->count(),
+                // Ya pagada en una nómina: no se corrige desde aquí.
+                'settled' => $liquidadas->has($item->id),
+            ]))
+            ->values()
+            ->all();
 
         /*
          * La venta de producto tambien es ingreso del dia.
@@ -79,7 +117,8 @@ class DailySummaryService
             ->when($sedes !== null, fn ($q) => $q->where(
                 fn ($qq) => $qq->whereIn('location_id', $sedes)->orWhereNull('location_id'),
             ))
-            ->whereBetween('sold_at', [$date->startOfDay()->utc(), $date->addDay()->startOfDay()->utc()])
+            ->where('sold_at', '>=', $date->startOfDay()->utc())
+            ->where('sold_at', '<', $date->addDay()->startOfDay()->utc())
             ->get();
 
         return [
@@ -117,6 +156,7 @@ class DailySummaryService
                     ->count(),
             ],
             'by_resource' => array_values($byResource),
+            'lines' => $lines,
         ];
     }
 }

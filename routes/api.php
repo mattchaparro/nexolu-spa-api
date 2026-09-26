@@ -222,7 +222,9 @@ Route::prefix('v1')->group(function () {
                 ->middleware('permission:clientes.identificar');
 
             Route::post('/{appointment}/checkout', [CheckoutController::class, 'store'])->middleware(['permission:caja.cobrar', 'silenciable']);
-            Route::delete('/{appointment}/checkout', [CheckoutController::class, 'destroy'])->middleware(['permission:caja.cobrar', 'silenciable']);
+            Route::delete('/{appointment}/checkout', [CheckoutController::class, 'destroy'])->middleware(['permission:caja.corregir', 'silenciable']);
+            Route::put('/{appointment}/checkout', [CheckoutController::class, 'update'])->middleware('permission:caja.corregir');
+            Route::post('/{appointment}/checkout/quote', [CheckoutController::class, 'quote'])->middleware('permission:caja.cobrar');
 
             // El abono con que el cliente separo. Mismo permiso que cobrar:
             // es plata que entra y tiene que quedar en una cuenta.

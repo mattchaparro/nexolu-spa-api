@@ -112,7 +112,7 @@ class DailyClosingService
 
         foreach ($items as $item) {
             $name = $item->resource?->name ?? 'Sin asignar';
-            $charged = (float) ($item->final_price ?? 0);
+            $charged = $item->charged();
             $isCash = (bool) ($item->appointment?->paymentMethod?->counts_as_cash ?? false);
 
             $rows[$name] ??= [

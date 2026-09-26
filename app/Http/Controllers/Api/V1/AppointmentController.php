@@ -10,6 +10,7 @@ use App\Services\Messaging\AvisoCitaNueva;
 use App\Services\Messaging\ConfirmacionDelPanel;
 use App\Services\Messaging\MessageDispatcher;
 use App\Services\Scheduling\BookingService;
+use App\Services\Scheduling\CheckoutService;
 use App\Services\Scheduling\Exceptions\SlotUnavailableException;
 use App\Support\AgendaScope;
 use App\Support\ChannelPhone;
@@ -298,12 +299,25 @@ class AppointmentController
     {
         $data = $request->validate([
             'reason' => ['nullable', 'string', 'max:500'],
+            // Desde el Resumen del día: «la subieron de más». Deshace el cobro
+            // y la borra en un solo paso, con el permiso de corregir cobros.
+            'undo_checkout' => ['nullable', 'boolean'],
         ]);
 
         if ($appointment->checked_out_at !== null) {
-            return response()->json([
-                'message' => 'Esta cita ya está cobrada. Deshaz el cobro antes de eliminarla.',
-            ], 422);
+            if (! ($data['undo_checkout'] ?? false) || ! $request->user()->hasBusinessPermission('caja.corregir')) {
+                return response()->json([
+                    'message' => 'Esta cita ya está cobrada. Deshaz el cobro antes de eliminarla.',
+                ], 422);
+            }
+
+            try {
+                MessageDispatcher::silently(fn () => app(CheckoutService::class)->undo($appointment, $request->user()));
+            } catch (\DomainException $e) {
+                return response()->json(['message' => $e->getMessage()], 422);
+            }
+
+            $appointment->refresh();
         }
 
         $motivo = trim('Eliminada: '.($data['reason'] ?? 'cargada por error'));
@@ -321,13 +335,18 @@ class AppointmentController
         return response()->json(null, 204);
     }
 
-    public function cancel(Request $request, Appointment $appointment): AppointmentResource
+    public function cancel(Request $request, Appointment $appointment): AppointmentResource|JsonResponse
     {
         $data = $request->validate([
             'reason' => ['nullable', 'string', 'max:500'],
         ]);
 
-        $this->booking->cancel($appointment, $request->user()->id, $data['reason'] ?? null);
+        try {
+            $this->booking->cancel($appointment, $request->user()->id, $data['reason'] ?? null);
+        } catch (\DomainException $e) {
+            // Una cobrada, o una que ya no se puede cancelar: se dice por qué.
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
 
         return new AppointmentResource($appointment->fresh(['items.service', 'items.resource']));
     }

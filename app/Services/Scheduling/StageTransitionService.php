@@ -141,6 +141,16 @@ class StageTransitionService
             throw new \DomainException($reason);
         }
 
+        /*
+         * Cobrada, sigue contando como venta y comisión: cancelarla o
+         * marcarla «no asistió» la dejaba en la caja y en la nómina y fuera
+         * de las citas atendidas. Primero se deshace el cobro.
+         */
+        if ($appointment->checked_out_at !== null
+            && in_array($toStatus, [Appointment::STATUS_CANCELLED, Appointment::STATUS_NO_SHOW, Appointment::STATUS_PENDING], true)) {
+            throw new \DomainException('Esta cita ya se cobró. Para corregirla, deshaz el cobro primero.');
+        }
+
         $appointment->loadMissing(['items.service', 'items.resource.user', 'client', 'business']);
 
         $results = [];

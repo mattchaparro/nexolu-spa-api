@@ -5,6 +5,8 @@ namespace App\Services\Scheduling;
 use App\Models\Appointment;
 use App\Models\AppointmentItem;
 use App\Models\PaymentMethod;
+use App\Models\Service;
+use App\Models\PayrollSettlementItem;
 use App\Models\User;
 use App\Services\Loyalty\LoyaltyService;
 use App\Support\Money\DiscountAllocator;
@@ -131,6 +133,8 @@ class CheckoutService
             $commissionTotal = 0.0;
 
             foreach ($items as $i => $item) {
+                // Lo cobrado de verdad por la línea: el reparto del descuento.
+                $item->charged_amount = $charged[$i];
                 $item->commission_amount = $commissionAmounts[$i];
                 $commissionTotal += $commissionAmounts[$i];
                 $item->save();
@@ -178,6 +182,113 @@ class CheckoutService
     }
 
     /**
+     * Corrige un cobro ya hecho: el servicio, lo cobrado o el medio.
+     *
+     * Para cuando se equivocaron al cobrar -- subieron Semi en vez de Semi +
+     * Rubber, 45.000 en vez de 50.000, Efectivo en vez de Bold. Deshacer y
+     * volver a cobrar movía el cobro al día de HOY; esto lo deja en su día.
+     *
+     * Lo que se escribe por línea ES lo cobrado: la cuenta queda sin
+     * descuento aparte, y la comisión sale de ese valor con el porcentaje de
+     * quien lo hizo (el del servicio nuevo, si se cambió).
+     *
+     * @param  array<int, array{service_id?: int|null, charged: float}>  $lines  Por id de línea.
+     */
+    public function correct(Appointment $appointment, PaymentMethod $paymentMethod, array $lines, User $by): Appointment
+    {
+        if ($appointment->checked_out_at === null) {
+            throw new \DomainException('Esta cita no ha sido cobrada: cóbrala desde la agenda.');
+        }
+
+        $this->assertNotSettled($appointment);
+
+        return DB::transaction(function () use ($appointment, $paymentMethod, $lines, $by) {
+            $items = $appointment->items()->with(['service', 'resource'])->lockForUpdate()->get();
+            $antes = (float) $appointment->total;
+
+            foreach ($items as $item) {
+                $linea = $lines[$item->id] ?? null;
+
+                if ($linea === null) {
+                    continue;
+                }
+
+                $nuevo = isset($linea['service_id']) && (int) $linea['service_id'] !== $item->service_id
+                    ? Service::where('business_id', $appointment->business_id)->findOrFail($linea['service_id'])
+                    : null;
+
+                if ($nuevo !== null) {
+                    $item->service_id = $nuevo->id;
+                    $item->price = $item->is_warranty ? 0 : $nuevo->price;
+                    $item->commission_rate = $item->is_warranty ? 0 : $nuevo->commissionRateFor($item->resource);
+                }
+
+                $item->final_price = round(max(0, (float) $linea['charged']));
+            }
+
+            $cobrado = $items->map(fn (AppointmentItem $i) => (float) $i->final_price)->all();
+            $comisiones = DiscountAllocator::commissions(
+                $cobrado,
+                $items->map(fn (AppointmentItem $i) => $i->commission_rate === null ? null : (float) $i->commission_rate)->all(),
+            );
+
+            foreach ($items->values() as $i => $item) {
+                $item->charged_amount = $cobrado[$i];
+                $item->commission_amount = $comisiones[$i];
+                $item->save();
+            }
+
+            $total = round(array_sum($cobrado), 2);
+            $nota = sprintf(
+                '[%s] Cobro corregido por %s: %s → %s (%s).',
+                now()->timezone('America/Bogota')->format('d/m/Y H:i'),
+                $by->name,
+                number_format($antes, 0, ',', '.'),
+                number_format($total, 0, ',', '.'),
+                $paymentMethod->name,
+            );
+
+            $appointment->update([
+                'payment_method_id' => $paymentMethod->id,
+                'subtotal' => $total,
+                'discount_amount' => 0,
+                'discount_reason' => null,
+                'total' => $total,
+                'commission_total' => round(array_sum($comisiones), 2),
+                'notes' => trim(($appointment->notes ? $appointment->notes."\n" : '').$nota),
+            ]);
+
+            return $appointment->fresh(['items.service', 'items.resource', 'paymentMethod']);
+        });
+    }
+
+    /**
+     * Que la comisión de esta cita no esté ya pagada en una nómina.
+     *
+     * Deshacer (o corregir) un cobro ya liquidado deja la nómina diciendo que
+     * se le pagó a alguien por un servicio que ya no existe, o por otro valor;
+     * y el cobro nuevo no vuelve a entrar a la nómina porque la línea ya
+     * figura como pagada.
+     */
+    public function assertNotSettled(Appointment $appointment): void
+    {
+        $pagada = PayrollSettlementItem::withoutGlobalScope('business')
+            ->whereIn('appointment_item_id', $appointment->items()->pluck('id'))
+            ->with('settlement.resource')
+            ->first();
+
+        if ($pagada !== null) {
+            $quien = $pagada->settlement?->resource?->name ?? 'quien la atendió';
+            $cuando = $pagada->settlement?->created_at?->timezone('America/Bogota')->format('d/m');
+
+            throw new \DomainException(
+                "La comisión de este servicio ya se le pagó a {$quien}".($cuando ? " (nómina del {$cuando})" : '')
+                .'. Para corregirlo, ajusta esa nómina.'
+            );
+        }
+    }
+
+    /**
      * Deshace un cobro.
      *
      * NO borra la cita ni libera el horario: el servicio se presto igual. Solo
@@ -190,9 +301,12 @@ class CheckoutService
             throw new \DomainException('Esta cita no ha sido cobrada.');
         }
 
+        $this->assertNotSettled($appointment);
+
         return DB::transaction(function () use ($appointment, $by) {
             $appointment->items()->update([
                 'final_price' => null,
+                'charged_amount' => null,
                 'commission_amount' => null,
             ]);
 

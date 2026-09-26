@@ -6,6 +6,7 @@ use App\Models\Appointment;
 use App\Models\AppointmentItem;
 use App\Models\Expense;
 use App\Models\PaymentMethod;
+use App\Models\ProductSale;
 use App\Support\Money\CashSummary;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
@@ -72,6 +73,15 @@ class CashTotalsService
          * si esa persona se traslado, la caja de ese dia no puede cambiar de
          * local a posteriori.
          */
+        /*
+         * El borde de arriba: un dia completo llega como [00:00, 00:00 del
+         * siguiente) y se cierra ANTES de `to` -- con whereBetween, un cobro a
+         * medianoche en punto entraba en los dos dias. Un turno llega hasta
+         * AHORA y ahi `to` si cuenta: lo que se cobro en este segundo es de
+         * este turno.
+         */
+        $antesDe = $to->equalTo($to->startOfDay()) ? '<' : '<=';
+
         $porSede = fn ($q) => $q->when(
             $locationIds !== null,
             fn ($qq) => $qq->whereIn('location_id', $locationIds),
@@ -80,7 +90,8 @@ class CashTotalsService
         $appointments = Appointment::withoutGlobalScope('business')
             ->where('business_id', $businessId)
             ->whereNotNull('checked_out_at')
-            ->whereBetween('checked_out_at', [$from->utc(), $to->utc()])
+            ->where('checked_out_at', '>=', $from->utc())
+            ->where('checked_out_at', $antesDe, $to->utc())
             ->tap($porSede)
             // Por quien COBRO, no por quien agendo: el efectivo de un turno es
             // lo que esa persona recibio en su ventana.
@@ -118,7 +129,16 @@ class CashTotalsService
                     // Sin metodo se asume efectivo, igual que abajo.
                     ->orWhereNull('payment_method_id');
             })
-            ->whereBetween('date', [$from->toDateString(), $to->toDateString()])
+            /*
+             * Hasta el dia ANTERIOR a `to` cuando `to` es medianoche. El dia
+             * completo llega como [hoy 00:00, mañana 00:00), y el whereBetween
+             * por fecha metia tambien los gastos de MAÑANA: un gasto fechado
+             * mañana se descontaba en los dos cierres.
+             */
+            ->whereBetween('date', [
+                $from->toDateString(),
+                ($to->equalTo($to->startOfDay()) ? $to->subDay() : $to)->toDateString(),
+            ])
             ->with('paymentMethod')
             ->get();
 
@@ -139,12 +159,32 @@ class CashTotalsService
             : Appointment::withoutGlobalScope('business')
                 ->where('business_id', $businessId)
                 ->whereNotNull('deposit_paid_at')
-                ->whereBetween('deposit_paid_at', [$from->utc(), $to->utc()])
+                ->where('deposit_paid_at', '>=', $from->utc())
+                ->where('deposit_paid_at', $antesDe, $to->utc())
                 ->tap($porSede)
                 ->with('depositPaymentMethod')
                 ->get();
 
-        return $this->build($businessId, $appointments, $expenses, $openingCash, $deposits);
+        /*
+         * El producto que se vendio en la ventana.
+         *
+         * No entraba en la caja: la pantalla de cobro le dice a quien cobra
+         * «a cobrar en total» servicio + crema, la crema se pagaba en
+         * efectivo, y el cajon quedaba largo por esa plata sin que el
+         * cierre la esperara. Las sin sede cuentan, igual que en el resumen:
+         * nula es "del negocio", no "de ninguno".
+         */
+        $products = ProductSale::withoutGlobalScope('business')
+            ->where('business_id', $businessId)
+            ->where('sold_at', '>=', $from->utc())
+            ->where('sold_at', $antesDe, $to->utc())
+            ->when($locationIds !== null, fn ($q) => $q->where(
+                fn ($qq) => $qq->whereIn('location_id', $locationIds)->orWhereNull('location_id'),
+            ))
+            ->when($userId, fn ($q) => $q->where('sold_by_user_id', $userId))
+            ->get();
+
+        return $this->build($businessId, $appointments, $expenses, $openingCash, $deposits, $products);
     }
 
     /**
@@ -174,6 +214,7 @@ class CashTotalsService
         Collection $expenses,
         float $openingCash,
         Collection $deposits = new Collection,
+        Collection $products = new Collection,
     ): array {
         $methods = PaymentMethod::withoutGlobalScope('business')
             ->where('business_id', $businessId)
@@ -213,6 +254,17 @@ class CashTotalsService
                 'amount' => (float) $abono->deposit_amount,
                 'method_id' => $method?->id,
                 'method_label' => $method?->name ?? 'Abono sin método',
+                'counts_as_cash' => (bool) ($method?->counts_as_cash ?? false),
+            ];
+        }
+
+        foreach ($products as $venta) {
+            $method = $venta->payment_method_id !== null ? $methods->get($venta->payment_method_id) : null;
+
+            $charges[] = [
+                'amount' => (float) $venta->total,
+                'method_id' => $method?->id,
+                'method_label' => $method?->name ?? 'Sin método',
                 'counts_as_cash' => (bool) ($method?->counts_as_cash ?? false),
             ];
         }

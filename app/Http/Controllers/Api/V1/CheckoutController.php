@@ -8,6 +8,7 @@ use App\Models\LoyaltyReward;
 use App\Models\PaymentMethod;
 use App\Services\Discounts\CampaignService;
 use App\Services\Loyalty\LoyaltyService;
+use App\Services\Messaging\MessageDispatcher;
 use App\Services\Scheduling\CheckoutService;
 use App\Support\Money\CommissionPolicy;
 use App\Support\Money\LoyaltyCalculator;
@@ -111,12 +112,16 @@ class CheckoutController
         ?LoyaltyReward $reward,
         float $discount,
         ?string $reason,
+        array $itemPrices = [],
     ): array {
         if ($reward === null) {
             return [$discount, $reason, 0.0];
         }
 
-        $subtotal = (float) $appointment->items()->sum('price');
+        // Con los precios que se escribieron al cobrar, no los de la carta:
+        // si una línea se bajó, el premio no puede descontar más que el total.
+        $subtotal = (float) $appointment->items()->get()
+            ->sum(fn ($i) => (float) ($itemPrices[$i->id] ?? $i->price));
         $premio = $reward->reward_type === LoyaltyCalculator::REWARD_FREE_SERVICE
             // El servicio gratis vale lo que valga ESA linea en ESTA cita: se
             // descuenta la mas cara que coincida, no un precio de catalogo que
@@ -146,6 +151,53 @@ class CheckoutController
         return response()->json($methods);
     }
 
+    /**
+     * Cuánto se va a cobrar, antes de cobrar.
+     *
+     * El combo, la campaña y el premio los calcula el servidor. La pantalla
+     * no los conocía: decía «Cobrar $100.000», la clienta pagaba 100.000 y
+     * la venta quedaba en 85.000 -- la caja salía larga por el descuento.
+     * Ahora la pantalla pregunta aquí y muestra lo mismo que se va a guardar.
+     */
+    public function quote(Request $request, Appointment $appointment): JsonResponse
+    {
+        $data = $request->validate([
+            'discount_amount' => ['nullable', 'numeric', 'min:0'],
+            'discount_reason' => ['nullable', 'string', 'max:255'],
+            'item_prices' => ['nullable', 'array'],
+            'item_prices.*' => ['numeric', 'min:0'],
+            'loyalty_reward_id' => ['nullable', 'integer'],
+        ]);
+
+        $precios = $data['item_prices'] ?? [];
+        $subtotal = (float) $appointment->items()->get()
+            ->sum(fn ($i) => round((float) ($precios[$i->id] ?? $i->price)));
+
+        // El que pondría el sistema solo (combo o campaña), aparte: la
+        // pantalla lo muestra aunque se elija uno a mano, para que se vea
+        // que el de a mano lo reemplaza.
+        [$automatico, $motivoAutomatico] = $this->discountFor($appointment, []);
+
+        [$base, $reason] = $this->discountFor($appointment, $data);
+        [$discount, $reason] = $this->withReward(
+            $appointment, $this->rewardFor($request, $appointment, $data), $base, $reason, $precios,
+        );
+
+        $discount = min($discount, $subtotal);
+        $total = round($subtotal - $discount, 2);
+        $abono = $appointment->depositPaid();
+
+        return response()->json([
+            'subtotal' => round($subtotal, 2),
+            'auto_discount' => $automatico > 0 ? ['amount' => round($automatico, 2), 'reason' => $motivoAutomatico] : null,
+            'discount' => round($discount, 2),
+            'discount_reason' => $reason,
+            'total' => $total,
+            'deposit_paid' => round($abono, 2),
+            'to_charge' => round(max(0, $total - $abono), 2),
+        ]);
+    }
+
     public function store(Request $request, Appointment $appointment): JsonResponse
     {
         $data = $request->validate([
@@ -170,10 +222,10 @@ class CheckoutController
          * No se suman: un combo con 60.000 de rebaja al que ademas se le
          * escriben 20.000 terminaria descontando 80.000 sin que nadie lo haya
          * decidido. Lo que se escriba MANDA sobre lo que el combo trae, y la
-         * pantalla lo muestra prellenado para que se vea que se esta pisando.
+         * pantalla lo muestra (ver `quote`) para que se vea que se esta pisando.
          */
         [$base, $reason, $source] = $this->discountFor($appointment, $data);
-        [$discount, $reason, $premio] = $this->withReward($appointment, $reward, $base, $reason);
+        [$discount, $reason, $premio] = $this->withReward($appointment, $reward, $base, $reason, $data['item_prices'] ?? []);
 
         /*
          * Cuanto del descuento le baja la comision a quien atendio.
@@ -227,11 +279,42 @@ class CheckoutController
     public function destroy(Request $request, Appointment $appointment): JsonResponse
     {
         try {
-            $revertida = $this->checkout->undo($appointment, $request->user());
+            // Deshacer un cobro es corregir el sistema, no un hecho para la
+            // clienta: volver a «confirmada» no le manda la confirmación otra vez.
+            $revertida = MessageDispatcher::silently(fn () => $this->checkout->undo($appointment, $request->user()));
         } catch (\DomainException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
 
         return response()->json(new AppointmentResource($revertida));
+    }
+
+    /** Corregir un cobro: servicio, lo cobrado por línea y el medio. */
+    public function update(Request $request, Appointment $appointment): JsonResponse
+    {
+        $data = $request->validate([
+            'payment_method_id' => ['required', 'integer'],
+            'lines' => ['required', 'array', 'min:1'],
+            'lines.*.id' => ['required', 'integer'],
+            'lines.*.service_id' => ['nullable', 'integer'],
+            'lines.*.charged' => ['required', 'numeric', 'min:0'],
+        ]);
+
+        // Inactivos también: corregir un cobro de antes con el medio que se usó.
+        $method = PaymentMethod::where('business_id', $request->user()->business_id)
+            ->findOrFail($data['payment_method_id']);
+
+        try {
+            $corregida = MessageDispatcher::silently(fn () => $this->checkout->correct(
+                $appointment,
+                $method,
+                collect($data['lines'])->keyBy('id')->all(),
+                $request->user(),
+            ));
+        } catch (\DomainException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        return response()->json(new AppointmentResource($corregida));
     }
 }
