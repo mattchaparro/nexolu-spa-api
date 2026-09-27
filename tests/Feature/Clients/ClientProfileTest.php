@@ -305,6 +305,26 @@ class ClientProfileTest extends TestCase
         $this->getJson("/api/v1/clients/{$client->id}")->assertStatus(403);
     }
 
+    public function test_el_buscador_encuentra_por_nombre_y_apellido_juntos(): void
+    {
+        /*
+         * En el mostrador se escribe «Carolina Pér»: «Carolina» está en el
+         * nombre y «Pér» en el apellido. Buscando la frase entera en un solo
+         * campo no salía nadie.
+         */
+        foreach ([['Carolina', 'Pérez', '573001112233'], ['Carolina', 'Gómez', '573004445566'], ['Laura', 'Pérez', null]] as [$n, $a, $t]) {
+            \App\Models\Client::create(['business_id' => $this->business->id, 'name' => $n, 'last_name' => $a, 'phone' => $t, 'is_active' => true]);
+        }
+
+        $nombres = fn (string $q) => collect($this->getJson('/api/v1/clients/search?q='.urlencode($q))->assertOk()->json())
+            ->pluck('full_name')->all();
+
+        $this->assertSame(['Carolina Pérez'], $nombres('Carolina Pér'));
+        $this->assertSame(['Carolina Pérez'], $nombres('caro 300111'));
+        $this->assertSame(['Laura Pérez'], $nombres('laura perez'));
+        $this->assertSame([], $nombres('Carolina Ruiz'));
+    }
+
     public function test_no_se_puede_ver_la_ficha_de_un_cliente_de_otro_negocio(): void
     {
         $otroNegocio = $this->makeBusiness();

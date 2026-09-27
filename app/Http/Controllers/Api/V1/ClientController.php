@@ -25,20 +25,43 @@ class ClientController
             ->where('is_active', true)
             ->when(
                 mb_strlen($term) >= 2,
-                fn ($q) => $q->where(function ($sub) use ($term) {
-                    $sub->where('name', 'like', "%{$term}%")
-                        ->orWhere('last_name', 'like', "%{$term}%");
+                /*
+                 * Palabra por palabra: CADA una tiene que estar en el nombre,
+                 * el apellido o el teléfono. Antes se buscaba el término
+                 * entero en un solo campo, y «Carolina Pér» -- que es como se
+                 * escribe en el mostrador -- no encontraba a Carolina Pérez:
+                 * «Carolina» está en el nombre y «Pér» en el apellido.
+                 */
+                function ($q) use ($term) {
+                    /*
+                     * Sin la bandera /u: los espacios son ASCII, y con /u un
+                     * término mal codificado hacía fallar la división -- sin
+                     * palabras no quedaba ningún filtro y salían TODAS.
+                     */
+                    $palabras = array_values(array_filter(preg_split('/\s+/', $term) ?: []));
 
-                    // Solo se busca por telefono si el termino TIENE digitos.
-                    // Sin esta guarda, un nombre sin numeros deja la condicion
-                    // en LIKE '%%', que matchea a todo cliente con telefono:
-                    // buscar "Carolina" devolvia a Laura.
-                    $digits = preg_replace('/\D/', '', $term) ?? '';
-
-                    if ($digits !== '') {
-                        $sub->orWhere('phone', 'like', "%{$digits}%");
+                    if ($palabras === []) {
+                        $q->whereRaw('1 = 0');
                     }
-                }),
+
+                    foreach ($palabras as $palabra) {
+                        $q->where(function ($sub) use ($palabra) {
+                            $sub->where('name', 'like', "%{$palabra}%")
+                                ->orWhere('last_name', 'like', "%{$palabra}%");
+
+                            // Solo se busca por telefono si la palabra TIENE
+                            // digitos. Sin esta guarda, un nombre sin numeros
+                            // deja la condicion en LIKE '%%', que matchea a
+                            // todo cliente con telefono: buscar "Carolina"
+                            // devolvia a Laura.
+                            $digits = preg_replace('/\D/', '', $palabra) ?? '';
+
+                            if ($digits !== '') {
+                                $sub->orWhere('phone', 'like', "%{$digits}%");
+                            }
+                        });
+                    }
+                },
                 fn ($q) => $q->whereRaw('1 = 0'),
             )
             ->orderBy('name')
