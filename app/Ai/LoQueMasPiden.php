@@ -80,7 +80,7 @@ final class LoQueMasPiden
      *
      * @return array<int, int>
      */
-    private static function cuantasVeces(int $businessId): array
+    public static function cuantasVeces(int $businessId): array
     {
         return Cache::remember(
             "ia:lo-que-mas-piden:{$businessId}",

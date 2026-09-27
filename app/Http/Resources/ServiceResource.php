@@ -36,6 +36,11 @@ class ServiceResource extends JsonResource
             'is_bookable_online' => (bool) $this->is_bookable_online,
             'earns_stamps' => $this->earns_stamps === null ? true : (bool) $this->earns_stamps,
             'is_active' => (bool) $this->is_active,
+            // Veces pedido en el último año; solo en el listado general.
+            'times_requested' => $this->when(
+                $this->resource->getAttribute('times_requested') !== null,
+                fn () => (int) $this->resource->getAttribute('times_requested'),
+            ),
             'category' => $this->whenLoaded('category', fn () => [
                 'id' => $this->category->id,
                 'name' => $this->category->name,

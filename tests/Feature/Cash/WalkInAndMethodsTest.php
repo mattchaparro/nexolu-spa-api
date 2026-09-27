@@ -240,6 +240,44 @@ class WalkInAndMethodsTest extends TestCase
         $this->assertEqualsWithDelta(13500, $response->json('commission_total'), 0.01);
     }
 
+    public function test_un_servicio_sin_cita_no_obliga_a_dar_el_cliente(): void
+    {
+        // A veces la persona no da sus datos: el servicio se hizo y se cobra igual.
+        Sanctum::actingAs($this->manicurista);
+
+        $efectivo = PaymentMethod::withoutGlobalScope('business')
+            ->where('business_id', $this->business->id)->where('name', 'Efectivo')->first();
+
+        $response = $this->postJson('/api/v1/walk-in', [
+            'service_id' => $this->service->id,
+            'payment_method_id' => $efectivo->id,
+            'discount_amount' => 4500,
+        ])->assertCreated();
+
+        $this->assertNull($response->json('client_id'));
+        $this->assertTrue($response->json('is_paid'));
+        // 45.000 con 10 % de descuento.
+        $this->assertEqualsWithDelta(40500, $response->json('total'), 0.01);
+    }
+
+    public function test_los_servicios_dicen_cuantas_veces_se_han_pedido(): void
+    {
+        Sanctum::actingAs($this->manicurista);
+
+        $efectivo = PaymentMethod::withoutGlobalScope('business')
+            ->where('business_id', $this->business->id)->where('name', 'Efectivo')->first();
+        $this->postJson('/api/v1/walk-in', [
+            'service_id' => $this->service->id,
+            'payment_method_id' => $efectivo->id,
+        ])->assertCreated();
+        \App\Ai\LoQueMasPiden::olvidar($this->business->id);
+
+        $servicio = collect($this->getJson('/api/v1/services')->assertOk()->json())
+            ->firstWhere('id', $this->service->id);
+
+        $this->assertSame(1, $servicio['times_requested']);
+    }
+
     public function test_un_servicio_sin_cita_le_crea_ficha_al_cliente(): void
     {
         Sanctum::actingAs($this->manicurista);

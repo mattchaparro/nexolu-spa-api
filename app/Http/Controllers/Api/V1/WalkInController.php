@@ -45,7 +45,9 @@ class WalkInController
             'resource_id' => ['nullable', 'integer'],
             'started_at' => ['nullable', 'date'],
             'client_id' => ['nullable', 'integer'],
-            'client_name' => ['required_without:client_id', 'nullable', 'string', 'max:255'],
+            // Opcional: a veces la persona no da sus datos. Sin nombre ni
+            // ficha, queda como «Sin nombre» y cuenta igual para la caja.
+            'client_name' => ['nullable', 'string', 'max:255'],
             'client_phone' => ['nullable', 'string', 'max:32'],
             'notes' => ['nullable', 'string', 'max:2000'],
 
