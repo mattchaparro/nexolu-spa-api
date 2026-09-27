@@ -184,11 +184,21 @@ class PermissionsTest extends TestCase
         ])->assertForbidden();
     }
 
-    public function test_una_profesional_no_puede_listar_ni_abrir_clientes(): void
+    public function test_una_profesional_busca_clientas_pero_no_se_lleva_el_numero(): void
     {
+        /*
+         * Busca por nombre o teléfono para identificarla al cobrar o registrar
+         * un servicio (decisión de Alejandro, 27-sep). Pero el número llega
+         * enmascarado -- solo los últimos cuatro -- y la ficha no se abre.
+         */
         Sanctum::actingAs($this->manicurista->fresh());
 
-        $this->getJson('/api/v1/clients/search?q=Caro')->assertForbidden();
+        $resultado = $this->getJson('/api/v1/clients/search?q=Caro')->assertOk()->json('0');
+        $this->assertSame($this->client->id, $resultado['id']);
+        $this->assertSame('··· 2233', $resultado['phone']);
+        $this->assertStringNotContainsString('3001112233', $resultado['label']);
+        $this->assertNull($resultado['email']);
+
         $this->getJson('/api/v1/clients/'.$this->client->id)->assertForbidden();
     }
 

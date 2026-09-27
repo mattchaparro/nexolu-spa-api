@@ -419,8 +419,12 @@ Route::prefix('v1')->group(function () {
         });
 
         Route::prefix('clients')->middleware('feature:clients')->group(function () {
-            // Buscador del mostrador: minimo, para elegir en un desplegable.
-            Route::get('/search', [ClientController::class, 'index'])->middleware('permission:clientes.ver');
+            /*
+             * Buscador del mostrador: minimo, para elegir en un desplegable.
+             * Tambien para quien atiende (`clientes.identificar`): busca por
+             * nombre o telefono, pero sin ver el numero completo (ver index).
+             */
+            Route::get('/search', [ClientController::class, 'index'])->middleware('permission:clientes.ver,clientes.identificar');
 
             /*
              * Identificar a quien se tiene delante, SIN abrir la base.

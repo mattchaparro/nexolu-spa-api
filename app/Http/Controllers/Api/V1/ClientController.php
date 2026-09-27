@@ -68,18 +68,32 @@ class ClientController
             ->limit(20)
             ->get(['id', 'name', 'last_name', 'phone', 'email']);
 
+        /*
+         * Quien atiende (sin `clientes.ver`) busca por nombre o teléfono y
+         * elige, pero no se lleva el número: le llegan solo los últimos
+         * cuatro dígitos, que alcanzan para distinguir a dos Carolinas y no
+         * para armarse una lista de contactos.
+         */
+        $completo = $request->user()->hasBusinessPermission('clientes.ver');
+
         return response()->json(
-            $clients->map(fn (Client $c) => [
-                'id' => $c->id,
-                'name' => $c->name,
-                'last_name' => $c->last_name,
-                'full_name' => $c->fullName(),
-                'phone' => $c->phone,
-                'email' => $c->email,
-                // Lo que el desplegable muestra: el telefono es lo que
-                // distingue a dos clientes que se llaman igual.
-                'label' => trim($c->fullName().($c->phone ? " · {$c->phone}" : '')),
-            ])
+            $clients->map(function (Client $c) use ($completo) {
+                $telefono = $completo
+                    ? $c->phone
+                    : ($c->phone ? '··· '.substr(preg_replace('/\D/', '', $c->phone), -4) : null);
+
+                return [
+                    'id' => $c->id,
+                    'name' => $c->name,
+                    'last_name' => $c->last_name,
+                    'full_name' => $c->fullName(),
+                    'phone' => $telefono,
+                    'email' => $completo ? $c->email : null,
+                    // Lo que el desplegable muestra: el telefono es lo que
+                    // distingue a dos clientes que se llaman igual.
+                    'label' => trim($c->fullName().($telefono ? " · {$telefono}" : '')),
+                ];
+            })
         );
     }
 

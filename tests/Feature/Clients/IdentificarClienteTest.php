@@ -97,8 +97,10 @@ class IdentificarClienteTest extends TestCase
         // Con un prefijo saldria un listado, que es justo lo que no puede ser.
         $this->getJson('/api/v1/clients/lookup?phone=300')->assertStatus(422);
 
-        // Y el buscador de verdad le sigue estando prohibido.
-        $this->getJson('/api/v1/clients/search?q=Laura')->assertForbidden();
+        // El buscador sí (desde el 27-sep busca por nombre), pero sin el
+        // número completo; el listado de la base le sigue prohibido.
+        $laura = $this->getJson('/api/v1/clients/search?q=Laura')->assertOk()->json('0');
+        $this->assertStringStartsWith('···', (string) $laura['phone']);
         $this->getJson('/api/v1/clients')->assertForbidden();
     }
 
