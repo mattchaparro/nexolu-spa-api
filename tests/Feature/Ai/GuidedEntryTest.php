@@ -291,6 +291,81 @@ class GuidedEntryTest extends TestCase
         $this->assertContains('Semipermanente', UltimoPedido::ver($this->phone())['opciones']);
     }
 
+    /** Una categoría Pedicure con dos servicios: «pies» da para los dos. */
+    private function pedicures(): void
+    {
+        $maria = \App\Models\Resource::withoutGlobalScopes()->where('business_id', $this->business->id)->where('name', 'Maria')->first();
+        $pies = ServiceCategory::create(['business_id' => $this->business->id, 'name' => 'Pedicure', 'is_active' => true]);
+
+        foreach (['Pedi Jelly Spa', 'Pedi Semipermanente'] as $nombre) {
+            $this->makeService($this->business, 60, [$maria], name: $nombre)
+                ->update(['service_category_id' => $pies->id]);
+        }
+    }
+
+    /** Los títulos de las filas que salieron, en cualquier mensaje con botones. */
+    private function todosLosBotones(): array
+    {
+        $titulos = [];
+        Http::assertSent(function ($request) use (&$titulos) {
+            foreach ($request->data()['whatsapp_options']['options'] ?? [] as $o) {
+                $titulos[] = $o['title'];
+            }
+
+            return true;
+        });
+
+        return $titulos;
+    }
+
+    public function test_el_primer_mensaje_con_un_servicio_va_directo_a_esa_categoria(): void
+    {
+        /*
+         * Jessie (28-sep): «Buenas tardes / quería consultar si tienen turno de
+         * uñas pies». Recibía el menú de inicio y tenía que volver a decirlo.
+         */
+        $this->pedicures();
+
+        $respuesta = $this->escribe("Buenas tardes
+Es tan amable, quería consultar si tienen turno de uñas pies");
+
+        $this->assertSame(['agendar_directo'], $respuesta['tools_used']);
+        $this->assertContains('Pedi Jelly Spa', $this->todosLosBotones());
+        $this->assertNotContains(GuidedEntry::BOOK, $this->todosLosBotones());
+        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'Te damos la bienvenida'));
+    }
+
+    public function test_escribir_un_servicio_en_el_menu_de_agendar_lo_agenda(): void
+    {
+        // En «¿Cómo prefieres agendar?» escribió «Pies» en vez de tocar un botón.
+        $this->pedicures();
+        $this->escribe('Hola');
+        $this->escribe(GuidedEntry::BOOK);
+
+        $respuesta = $this->escribe('Pies');
+
+        $this->assertSame(['agendar_directo'], $respuesta['tools_used']);
+        $this->assertContains('Pedi Semipermanente', $this->todosLosBotones());
+    }
+
+    public function test_con_un_servicio_en_curso_preguntar_disponibilidad_no_repite_el_menu(): void
+    {
+        // «¿En este momento tiene disponibilidad? ¿Para ir?» volvía a
+        // «¿Cómo prefieres agendar?»: ahora son las horas de hoy.
+        $this->pedicures();
+        UltimoPedido::guardar($this->phone(), ['servicios' => ['Pedi Jelly Spa']]);
+        $this->elBotAcabaDeHablar();
+
+        $texto = "En este momento tiene disponibilidad?
+Para ir?";
+        \App\Ai\DateInText::remember($this->phone(), $texto);
+        $respuesta = $this->escribe($texto);
+
+        $this->assertSame(['agendar_directo'], $respuesta['tools_used']);
+        $this->assertNotContains(GuidedEntry::HERE, $this->todosLosBotones());
+        $this->assertSame('hoy', UltimoPedido::ver($this->phone())['fecha'] ?? null);
+    }
+
     public function test_agendar_en_la_web_manda_el_link(): void
     {
         $this->escribe('quiero agendar');
@@ -321,10 +396,12 @@ class GuidedEntryTest extends TestCase
         $this->assertSame([GuidedEntry::HERE, GuidedEntry::WEB], $this->ultimosBotones());
     }
 
-    public function test_si_ya_dijo_el_servicio_va_por_el_camino_normal(): void
+    public function test_si_ya_dijo_el_servicio_va_directo_a_agendarlo(): void
     {
-        $this->assertNull($this->escribe('Quiero una cita de manicure'));
-        $this->assertNull($this->escribe('cita para semipermanente mañana'));
+        // Ya dijo qué: la lista de esa categoría o las horas, sin menú y
+        // sin depender de que el modelo decida mostrarlas (28-sep).
+        $this->assertSame(['agendar_directo'], $this->escribe('Quiero una cita de manicure')['tools_used']);
+        $this->assertSame(['agendar_directo'], $this->escribe('cita para semipermanente mañana')['tools_used']);
     }
 
     public function test_la_fecha_dicha_llega_hasta_las_horas(): void

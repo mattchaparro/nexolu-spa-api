@@ -4,6 +4,7 @@ namespace App\Services\WhatsApp;
 
 use App\Models\Client;
 use App\Models\User;
+use App\Models\WhatsappConversation;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -104,6 +105,26 @@ class ConnectChat
             'phone' => (string) $client->phone,
             'business_id' => (string) $client->business_id,
             'name' => trim($client->name.' '.($client->last_name ?? '')),
+        ])->throw();
+    }
+
+    /**
+     * Hasta cuándo está callado el bot con esta clienta, para que el chat de
+     * Connect lo muestre con su «Reactivar bot». Null = el bot atiende.
+     * Lanza si falla, para que el job reintente.
+     */
+    public function setBotPause(WhatsappConversation $conversacion): void
+    {
+        if (! $this->isConfigured() || empty($conversacion->phone)) {
+            return;
+        }
+
+        $hasta = $conversacion->agentIsPaused() ? $conversacion->agent_paused_until : null;
+
+        $this->http()->put('/v1/contacts/bot-pause', [
+            'phone' => (string) $conversacion->phone,
+            'business_id' => (string) $conversacion->business_id,
+            'paused_until' => $hasta?->copy()->utc()->toIso8601String(),
         ])->throw();
     }
 

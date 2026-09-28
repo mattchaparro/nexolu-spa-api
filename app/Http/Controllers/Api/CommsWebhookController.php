@@ -68,6 +68,8 @@ class CommsWebhookController
                  * contestando encima de la persona que esta atendiendo.
                  */
                 'human_reply' => $this->humanReply($payload),
+                // Alguien tocó «Reactivar bot» en el chat de Connect.
+                'agent_resume' => $this->agentResume($payload),
                 /*
                  * Alguien corrigió el nombre del contacto en el chat de
                  * Connect: la ficha de la clienta es de acá, así que se
@@ -337,6 +339,38 @@ class CommsWebhookController
             'event' => 'contact_updated',
             'updated' => $clientas->count(),
         ]);
+    }
+
+    /**
+     * «Reactivar bot» desde el chat de Connect: el bot vuelve a atender a
+     * esta clienta, sin esperar a que venza la pausa. Queda una nota en el
+     * hilo para que se sepa por qué volvió a contestar.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    private function agentResume(array $payload): JsonResponse
+    {
+        $conversacion = $this->conversacionDe($payload);
+
+        if ($conversacion === null) {
+            return response()->json(['ok' => true, 'handled' => false]);
+        }
+
+        $conversacion->resumeAgent();
+
+        Message::create([
+            'business_id' => $conversacion->business_id,
+            'conversation_id' => $conversacion->id,
+            'client_id' => $conversacion->client_id,
+            'kind' => Message::KIND_STAFF,
+            'direction' => Message::DIRECTION_OUT,
+            'to' => $conversacion->phone,
+            'body' => '⚑ El bot se reactivó desde Connect: vuelve a contestar.',
+            'status' => Message::STATUS_SENT,
+            'sent_at' => now(),
+        ]);
+
+        return response()->json(['ok' => true, 'handled' => true, 'event' => 'agent_resume']);
     }
 
     private function humanReply(array $payload): JsonResponse

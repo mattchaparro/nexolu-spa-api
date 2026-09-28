@@ -58,6 +58,14 @@ final class DateInText
             }
         }
 
+        /*
+         * «¿En este momento tiene disponibilidad? ¿Para ir?» es HOY. Jessie
+         * lo preguntó así y el bot no lo entendió como día (28-sep).
+         */
+        if ($fecha === null && preg_match('/\b(en este momento|ahora|ahorita|ahoritica|ya mismo|de una)\b/u', $sinFranja)) {
+            $fecha = 'hoy';
+        }
+
         if ($fecha === null && preg_match('/\b(lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b/u', $sinFranja, $m)) {
             $fecha = $m[1];
         }

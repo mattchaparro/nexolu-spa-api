@@ -264,8 +264,23 @@ final class GuidedEntry
             }
 
             // Escribió otra cosa: la marca se va para no atrapar lo que siga.
+            $menu = $pedido['menu'];
             unset($pedido['menu'], $pedido['citas'], $pedido['cita_id'], $pedido['acepta_multa']);
             UltimoPedido::guardar($phone, $pedido);
+
+            /*
+             * En vez de tocar un botón escribió un servicio: «Pies» en
+             * «¿Cómo prefieres agendar?». Jessie lo hizo y el modelo le
+             * preguntó el día en texto, sin mostrarle cuál de los pedicures
+             * quería. Se agenda eso, directo.
+             */
+            if (in_array($menu, ['root', 'agendar'], true) && $this->namesService($caller, $texto)) {
+                $directo = $this->bookThis($caller, $phone, $texto);
+
+                if ($directo !== null) {
+                    return $directo;
+                }
+            }
         }
 
         // 2) Atajos: lo que dijo ya elige la rama.
@@ -294,12 +309,30 @@ final class GuidedEntry
         }
 
         if ($this->wantsBooking($texto)) {
-            // "quiero semi mañana" ya dijo qué: el camino normal lo lleva mejor.
+            // "quiero semi mañana" ya dijo qué: se agenda eso, directo. Si es
+            // el primer mensaje, con el saludo antes.
+            if ($this->namesService($caller, $texto)) {
+                return $this->bookThis(
+                    $caller,
+                    $phone,
+                    $texto,
+                    $this->startsWithGreeting($texto) || $this->isNewSession($conversacion) ? $this->welcome($caller) : null,
+                );
+            }
+
+            /*
+             * Ya hay un agendamiento en curso (se eligió o se mostró un
+             * servicio): «¿en este momento tiene disponibilidad?» es sobre
+             * ESE, no un pedido nuevo. Antes volvía «¿Cómo prefieres
+             * agendar?» y la clienta empezaba de cero.
+             */
+            if (! empty($pedido['servicios']) || ! empty($pedido['opciones']) || ServiciosPendientes::ver($phone) !== []) {
+                return empty($pedido['servicios']) ? null : $this->bookThis($caller, $phone, '');
+            }
+
             // Si es el primer mensaje ("Hola, quiero agendar"), se saluda
             // antes de preguntar: ir al grano sin un hola es descortés.
-            return $this->agenda->mentionsService($caller, $texto)
-                ? null
-                : $this->showMenu(
+            return $this->showMenu(
                     $caller,
                     $phone,
                     'agendar',
@@ -317,6 +350,18 @@ final class GuidedEntry
          * Un saludo explícito sí abre el menú: ahí está pidiendo empezar.
          */
         $nueva = $this->isNewSession($conversacion) && UltimoPedido::ver($phone) === [];
+
+        /*
+         * El primer mensaje ya dice qué quiere: «buenas tardes, ¿tienen
+         * turno de uñas pies?». Recibía el menú de inicio y tenía que tocar
+         * Agendar → Agendar aquí para volver a decirlo. Se le muestran de
+         * una los de pies.
+         */
+        if (! $explicitOnly && $nueva && ! $this->isGreeting($texto) && $this->namesService($caller, $texto)) {
+            // Ya saludó: si la agenda no pudo encaminarlo, sigue el modelo
+            // (no el menú, que la volvería a saludar).
+            return $this->bookThis($caller, $phone, $texto, $this->welcome($caller));
+        }
 
         if (! $explicitOnly && ($this->isGreeting($texto) || $nueva)) {
             return $this->showMenu($caller, $phone, 'root');
@@ -485,6 +530,59 @@ final class GuidedEntry
         }
 
         return $this->reply($phone, ($intro !== null ? $intro."\n\n" : '').'¡Claro! ¿Qué servicio te quieres hacer y para qué día? 💅', 'agendar');
+    }
+
+    /**
+     * ¿Nombró un servicio o una categoría? Sin los artículos: «una pregunta,
+     * ¿aceptan tarjeta?» tiene «una», que sin tilde es «uña», y mandaba a
+     * agendar a quien solo preguntaba.
+     */
+    private function namesService(AiCaller $caller, string $texto): bool
+    {
+        return $this->agenda->mentionsService(
+            $caller,
+            (string) preg_replace('/\b(una|un|unas|unos)\b/iu', ' ', $texto),
+        );
+    }
+
+    /**
+     * Agendar lo que dijo, sin pasar por el modelo.
+     *
+     * La agenda decide qué mandar, siempre con botones: los servicios de esa
+     * categoría si da para varios, «¿Para qué día?» si no dijo cuándo, o las
+     * horas. Null si no se pudo encaminar (no se entendió el servicio, o el
+     * canal no mandó): ahí sigue el modelo, como antes.
+     *
+     * @return array{text: string, conversation_id: null, tools_used: list<string>}|null
+     */
+    private function bookThis(AiCaller $caller, string $phone, string $texto, ?string $intro = null): ?array
+    {
+        $this->forgetMenu($phone);
+
+        // Sin las palabras de agendar: «turno de uñas pies» → «uñas pies».
+        $servicio = trim((string) preg_replace(
+            '/\b(quisiera|quiero|queria|consultar|si|tienen|tiene|hay|un|una|el|la|de|para|cita|citas|turno|turnos|agendar|agendarme|reservar|reserva|disponibilidad|cupo|espacio|en este momento|ahora|hoy|manana|por favor)\b/u',
+            ' ',
+            $this->plain($texto),
+        ));
+
+        // El saludo va ANTES de los botones, si este es el primer mensaje.
+        if ($intro !== null) {
+            app(EnvioDirecto::class)->textoSiSale($caller, $intro);
+        }
+
+        try {
+            $resultado = $this->agenda->execute($caller, $servicio !== '' ? ['servicio' => $servicio] : []);
+        } catch (AiArgumentException) {
+            return null;
+        }
+
+        $mandado = ! empty($resultado['eligiendo_servicio']) || ! empty($resultado['ofrecidas'])
+            || ! empty($resultado['eligiendo_fecha']) || ! empty($resultado['eligiendo_empleado']);
+
+        return $mandado
+            ? ['text' => '', 'conversation_id' => null, 'tools_used' => ['agendar_directo']]
+            : null;
     }
 
     /** @return array{text: string, conversation_id: null, tools_used: list<string>}|null */

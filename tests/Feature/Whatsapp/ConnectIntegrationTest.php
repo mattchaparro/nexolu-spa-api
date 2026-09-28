@@ -238,6 +238,26 @@ class ConnectIntegrationTest extends TestCase
             ->where('kind', Message::KIND_AGENT)->count());
     }
 
+    public function test_reactivar_el_bot_desde_connect_lo_despierta(): void
+    {
+        // «Reactivar bot» en el chat de Connect: sin esto había que esperar
+        // las dos horas de la pausa (28-sep).
+        \Illuminate\Support\Facades\Queue::fake();
+        $this->firmado($this->humanReplyPayload())->assertOk();
+        $this->assertTrue(WhatsappConversation::withoutGlobalScopes()->first()->agentIsPaused());
+
+        $this->firmado([
+            'object' => 'nexolu-comms',
+            'event' => 'agent_resume',
+            'business_id' => (string) $this->luxury->id,
+            'contact' => ['name' => 'Valentina', 'phone' => '573001112233'],
+        ])->assertOk()->assertJsonPath('event', 'agent_resume');
+
+        $this->assertFalse(WhatsappConversation::withoutGlobalScopes()->first()->agentIsPaused());
+        // Y Connect se entera de los dos cambios, para mostrar la pausa y quitarla.
+        \Illuminate\Support\Facades\Queue::assertPushed(\App\Jobs\PushBotPauseToConnectJob::class, 2);
+    }
+
     public function test_lo_contestado_en_connect_queda_en_el_hilo_del_spa(): void
     {
         /*

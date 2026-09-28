@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Jobs\PushBotPauseToConnectJob;
 use App\Traits\BelongsToBusiness;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Model;
@@ -94,12 +95,20 @@ class WhatsappConversation extends Model
         $minutos ??= (int) config('spa.defaults.whatsapp_agent_pause_min');
 
         $this->update(['agent_paused_until' => now()->addMinutes(max(1, $minutos))]);
+        $this->avisarAConnect();
     }
 
     /** Devolverle la conversacion al agente. */
     public function resumeAgent(): void
     {
         $this->update(['agent_paused_until' => null, 'assigned_user_id' => null]);
+        $this->avisarAConnect();
+    }
+
+    /** El chat de Connect muestra la pausa y la deja quitar (ver PushBotPauseToConnectJob). */
+    private function avisarAConnect(): void
+    {
+        PushBotPauseToConnectJob::dispatch($this->id)->afterCommit();
     }
 
     /**
