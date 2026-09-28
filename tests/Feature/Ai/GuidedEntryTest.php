@@ -656,6 +656,17 @@ class GuidedEntryTest extends TestCase
         $this->assertSame(0, Message::withoutGlobalScope('business')->where('kind', Message::KIND_CONFIRMATION)->count());
     }
 
+    public function test_reagendar_del_recordatorio_pregunta_el_dia(): void
+    {
+        // El tercer botón del recordatorio: sin él, «Reagendar» caía al
+        // modelo como si fuera una conversación suelta.
+        $this->cita('Semipermanente', $this->manana(11));
+
+        $this->escribe(GuidedEntry::RESCHEDULE);
+
+        $this->assertSame(['Hoy', 'Mañana', 'Otro día'], $this->ultimosBotones());
+    }
+
     public function test_cancelar_cita_pregunta_antes_de_cancelar(): void
     {
         // Con una sola cita va directo a la pregunta; cancelar sin preguntar

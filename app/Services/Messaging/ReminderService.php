@@ -5,6 +5,7 @@ namespace App\Services\Messaging;
 use App\Models\Appointment;
 use App\Models\Business;
 use App\Models\Message;
+use App\Support\NombreDePila;
 use App\Support\Scheduling\StageMessage;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
@@ -98,7 +99,9 @@ class ReminderService
              * texto sigue existiendo para el modo manual y la bandeja.
              */
             MessageTemplate::recordatorio(
-                $appointment->client?->fullName() ?? $appointment->client_name ?? 'Hola',
+                // «Hola Sara», no «Hola Sara Vasquez»; y si el nombre no
+                // sirve para saludar ("?", "."), sin nombre.
+                NombreDePila::deSaludo($appointment->client?->name ?? $appointment->client_name) ?? '💅',
                 $business->name,
                 $appointment->starts_at?->setTimezone($tz)->locale('es')->isoFormat('dddd D [de] MMMM') ?? '',
                 $appointment->starts_at?->setTimezone($tz)->format('g:i a') ?? '',

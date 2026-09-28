@@ -764,6 +764,12 @@ final class GuidedEntry
             return $this->startCancel($caller, $phone);
         }
 
+        // «Reagendar» también está en el menú de una cita (tapped): ahí
+        // mueve ESA cita, así que acá solo cuando no hay una abierta.
+        if ($tocado === $this->plain(self::RESCHEDULE) && (UltimoPedido::ver($phone)['menu'] ?? null) !== 'cita') {
+            return $this->startMove($caller, $phone);
+        }
+
         return null;
     }
 

@@ -21,9 +21,13 @@ final class MessageTemplate
      * retoque como texto le quita «Agendar retoque», que es justamente el
      * atajo que hace que ese mensaje sirva.
      *
+     * El recordatorio de cita, igual: dentro de la ventana salía como texto
+     * libre, con un enlace larguísimo y sin «Confirmo que voy /
+     * Reagendar / Cancelar cita» (Sara, 27-sep). Mismo formato siempre.
+     *
      * @var list<string>
      */
-    private const CON_BOTONES = ['retoque_recordatorio'];
+    private const CON_BOTONES = ['retoque_recordatorio', 'recordatorio_cita'];
 
     /** @param  string|null  $name  el `template_name` de la fila de la bandeja */
     public static function hasButtons(?string $name): bool

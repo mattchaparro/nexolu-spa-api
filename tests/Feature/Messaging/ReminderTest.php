@@ -8,6 +8,7 @@ use App\Models\Client;
 use App\Models\Message;
 use App\Models\Resource;
 use App\Models\Service;
+use App\Models\WhatsappConversation;
 use App\Services\Messaging\Contracts\MessagingChannel;
 use App\Services\Messaging\ReminderService;
 use App\Services\Scheduling\BookingService;
@@ -349,6 +350,34 @@ class ReminderTest extends TestCase
         // llega del telefono del spa, asi que el texto tiene que decir de
         // quien es.
         $this->assertContains($this->business->name, $enviado['params']);
+    }
+
+    public function test_con_la_ventana_abierta_sale_igual_la_plantilla_con_su_nombre(): void
+    {
+        /*
+         * Sara había escrito el día antes: con la ventana abierta le llegó el
+         * texto libre, con un enlace larguísimo y sin «Confirmo que voy /
+         * Reagendar / Cancelar cita». Mismo formato siempre, y saludada por
+         * su nombre de pila.
+         */
+        $canal = new FakeMessagingChannel;
+        $this->app->instance(MessagingChannel::class, $canal);
+        $this->business->update(['messaging_mode' => 'auto']);
+
+        WhatsappConversation::withoutGlobalScope('business')->create([
+            'business_id' => $this->business->id,
+            'phone' => '573001112233',
+            'client_id' => $this->carolina->id,
+            'last_message_at' => now(),
+            'last_inbound_at' => now(),
+            'status' => WhatsappConversation::STATUS_OPEN,
+        ]);
+
+        $this->agendar(enHoras: 20);
+        $this->reminders()->run($this->business->fresh());
+
+        $this->assertSame('recordatorio_cita', $canal->sent[0]['template']);
+        $this->assertSame('Carolina', $canal->sent[0]['params'][0]);
     }
 
     public function test_el_texto_sigue_existiendo_para_el_modo_manual(): void
