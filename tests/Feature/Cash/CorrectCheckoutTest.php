@@ -124,6 +124,34 @@ class CorrectCheckoutTest extends TestCase
         $this->assertNull($cita->fresh()->deposit_paid_at);
     }
 
+    public function test_al_cobrar_se_puede_cambiar_el_servicio_que_se_hizo(): void
+    {
+        // Agendó Semipermanente (45.000) y se hizo Semi + Rubber: se cobra ese,
+        // con el valor que se acordó (55.000) y la comisión sobre eso.
+        $id = $this->postJson('/api/v1/appointments', [
+            'service_id' => $this->semi->id,
+            'resource_id' => $this->marcela->id,
+            'starts_at' => "{$this->fecha} 10:00:00",
+            'client_name' => 'María',
+        ])->assertCreated()->json('id');
+        $cita = Appointment::withoutGlobalScope('business')->find($id);
+        $linea = $this->linea($cita);
+
+        $this->postJson("/api/v1/appointments/{$id}/checkout", [
+            'payment_method_id' => $this->efectivo->id,
+            'item_services' => [$linea->id => $this->rubber->id],
+            'item_prices' => [$linea->id => 55000],
+        ])->assertOk();
+
+        $linea->refresh();
+        $this->assertSame($this->rubber->id, $linea->service_id);
+        // La carta es la del servicio nuevo; lo cobrado, lo acordado.
+        $this->assertEqualsWithDelta(60000, (float) $linea->price, 0.01);
+        $this->assertEqualsWithDelta(55000, (float) $linea->charged_amount, 0.01);
+        $this->assertEqualsWithDelta(22000, (float) $linea->commission_amount, 0.01);
+        $this->assertEqualsWithDelta(55000, (float) $cita->fresh()->total, 0.01);
+    }
+
     public function test_el_resumen_lista_cada_servicio_cobrado(): void
     {
         $cita = $this->cobrada();

@@ -51,6 +51,15 @@ class CheckoutService
         bool $transition = true,
         ?float $commissionDiscount = null,
         ?CarbonImmutable $cobradoEn = null,
+        /*
+         * El servicio que de verdad se hizo, por línea: agendó Semipermanente
+         * (45.000) y terminó haciéndose Semi + Rubber (55.000). La línea toma
+         * el servicio nuevo, su precio de carta y el porcentaje de quien la
+         * atendió para ESE servicio.
+         *
+         * @var array<int, int>
+         */
+        array $itemServices = [],
     ): Appointment {
         if ($appointment->checked_out_at !== null) {
             throw new \DomainException('Esta cita ya fue cobrada.');
@@ -77,8 +86,23 @@ class CheckoutService
          */
         $cobradoEn ??= CarbonImmutable::now();
 
-        return DB::transaction(function () use ($appointment, $paymentMethod, $by, $discountAmount, $discountReason, $itemPrices, $transition, $commissionDiscount, $cobradoEn) {
-            $items = $appointment->items()->lockForUpdate()->get();
+        return DB::transaction(function () use ($appointment, $paymentMethod, $by, $discountAmount, $discountReason, $itemPrices, $transition, $commissionDiscount, $cobradoEn, $itemServices) {
+            $items = $appointment->items()->with('resource')->lockForUpdate()->get();
+
+            foreach ($items as $item) {
+                $nuevo = $itemServices[$item->id] ?? null;
+
+                if ($nuevo === null || (int) $nuevo === (int) $item->service_id) {
+                    continue;
+                }
+
+                $servicio = Service::where('business_id', $appointment->business_id)->findOrFail($nuevo);
+                $item->service_id = $servicio->id;
+                // Una garantía sigue valiendo 0 y sin comisión, sea cual sea el servicio.
+                $item->price = $item->is_warranty ? 0 : $servicio->price;
+                $item->commission_rate = $item->is_warranty ? 0 : $servicio->commissionRateFor($item->resource);
+                $item->save();
+            }
 
             $subtotal = 0.0;
 

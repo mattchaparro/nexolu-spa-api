@@ -206,6 +206,9 @@ class CheckoutController
             'discount_reason' => ['nullable', 'string', 'max:255'],
             'item_prices' => ['nullable', 'array'],
             'item_prices.*' => ['numeric', 'min:0'],
+            // El servicio que de verdad se hizo, por línea (ver CheckoutService).
+            'item_services' => ['nullable', 'array'],
+            'item_services.*' => ['integer'],
             // Un premio de la tarjeta de sellos que la clienta quiere usar hoy.
             'loyalty_reward_id' => ['nullable', 'integer'],
         ]);
@@ -249,6 +252,8 @@ class CheckoutController
                 $data['item_prices'] ?? [],
                 true,
                 $commissionDiscount,
+                null,
+                array_map('intval', $data['item_services'] ?? []),
             );
 
             // Se marca DESPUES de cobrar: si el cobro falla, el premio tiene
