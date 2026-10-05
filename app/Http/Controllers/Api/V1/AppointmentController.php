@@ -358,6 +358,10 @@ class AppointmentController
             // Arrastrar a otra columna del calendario mueve la cita de
             // profesional, no solo de hora.
             'resource_id' => ['nullable', 'integer'],
+            // «Reagendar» en la cita: también el servicio.
+            'service_id' => ['nullable', 'integer'],
+            // Fuera del turno, solo quien gestiona horarios (igual que al agendar).
+            'outside_schedule' => ['nullable', 'boolean'],
         ]);
 
         $business = $request->user()->business;
@@ -366,12 +370,23 @@ class AppointmentController
         $resource = isset($data['resource_id'])
             ? \App\Models\Resource::where('business_id', $business->id)->findOrFail($data['resource_id'])
             : null;
+        $service = isset($data['service_id'])
+            ? \App\Models\Service::where('business_id', $business->id)->findOrFail($data['service_id'])
+            : null;
+
+        $fueraDeTurno = (bool) ($data['outside_schedule'] ?? false);
+
+        if ($fueraDeTurno && ! $request->user()->hasBusinessPermission('horarios.gestionar')) {
+            return response()->json(['message' => 'Solo quien gestiona horarios puede poner una cita fuera del turno.'], 403);
+        }
 
         try {
             $moved = $this->booking->reschedule(
                 $appointment,
                 self::interpret($data['starts_at'], $tz),
                 $resource,
+                $service,
+                ! $fueraDeTurno,
             );
         } catch (SlotUnavailableException $e) {
             return response()->json(['message' => $e->getMessage()], 409);

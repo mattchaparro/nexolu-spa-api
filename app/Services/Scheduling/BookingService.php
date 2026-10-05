@@ -184,8 +184,19 @@ class BookingService
         });
     }
 
-    public function reschedule(Appointment $appointment, CarbonImmutable $newStart, ?Resource $newResource = null): Appointment
-    {
+    public function reschedule(
+        Appointment $appointment,
+        CarbonImmutable $newStart,
+        ?Resource $newResource = null,
+        /*
+         * Cambiarle también el servicio (desde «Reagendar» en la cita):
+         * agendó Semipermanente y quiere Semi + Rubber. Cambia la duración,
+         * así que el hueco se vuelve a calcular con el servicio nuevo.
+         */
+        ?Service $newService = null,
+        // El admin puede ponerla fuera del turno, como al agendar.
+        bool $enforceSchedule = true,
+    ): Appointment {
         $business = $appointment->business;
         $tz = $business->businessTimezone();
         $granularity = (int) $business->schedulingSetting('slot_granularity_min');
@@ -202,7 +213,7 @@ class BookingService
             'starts_at' => CarbonImmutable::parse($appointment->starts_at),
         ];
 
-        $movida = DB::transaction(function () use ($appointment, $newStart, $newResource, $business, $tz, $granularity) {
+        $movida = DB::transaction(function () use ($appointment, $newStart, $newResource, $newService, $enforceSchedule, $business, $tz, $granularity) {
             $items = $appointment->items()->with(['service', 'resource'])->orderBy('sort_order')->get();
 
             if ($items->count() > 1) {
@@ -216,10 +227,10 @@ class BookingService
                  * cual de los tres se refiere. Para eso se cancela y se vuelve
                  * a reservar.
                  */
-                if ($newResource !== null) {
+                if ($newResource !== null || $newService !== null) {
                     throw new \DomainException(
-                        'Una cita de varios servicios se mueve de hora, no de persona. '
-                        .'Si hay que cambiar quién atiende, cancélala y vuelve a agendarla.'
+                        'Una cita de varios servicios se mueve de hora, no de persona ni de servicio. '
+                        .'Si hay que cambiar eso, cancélala y vuelve a agendarla.'
                     );
                 }
 
@@ -228,8 +239,19 @@ class BookingService
 
             $item = $items->first();
             $resource = $newResource ?? $item->resource;
-            $service = $item->service;
+            $service = $newService ?? $item->service;
             $cambiaDePersona = $resource->id !== $item->resource_id;
+            $cambiaDeServicio = $service->id !== $item->service_id;
+
+            if ($cambiaDeServicio && $appointment->checked_out_at !== null) {
+                throw new \DomainException(
+                    'Esta cita ya se cobró. Para cambiar el servicio, corrígela desde el Resumen del día.'
+                );
+            }
+
+            if ($cambiaDeServicio && ! $service->resources()->whereKey($resource->id)->exists()) {
+                throw new \DomainException("{$resource->name} no tiene asignado «{$service->name}». Elige a otra persona.");
+            }
 
             /*
              * Cobrada, la comisión ya quedó congelada a nombre de quien la
@@ -277,8 +299,11 @@ class BookingService
             $window = $this->windowFor($service, $resource, $start);
 
             // Arrastrar en el calendario entra por aca. Sin este chequeo, una
-            // cita se puede soltar encima del almuerzo con el raton.
-            $this->assertWorkable($business, $resource, $window, $tz);
+            // cita se puede soltar encima del almuerzo con el raton. El
+            // admin, a propósito, puede saltárselo (como al agendar).
+            if ($enforceSchedule) {
+                $this->assertWorkable($business, $resource, $window, $tz);
+            }
 
             $item->update([
                 'resource_id' => $resource->id,
@@ -287,9 +312,14 @@ class BookingService
                  * quien la tenía al agendar, y al pasarla a otra seguía
                  * cobrando el de la primera.
                  */
-                ...($cambiaDePersona ? ['commission_rate' => $item->is_warranty
+                ...($cambiaDePersona || $cambiaDeServicio ? ['commission_rate' => $item->is_warranty
                     ? 0
                     : $service->commissionRateFor($resource)] : []),
+                // El servicio nuevo con su precio de carta (una garantía sigue en 0).
+                ...($cambiaDeServicio ? [
+                    'service_id' => $service->id,
+                    'price' => $item->is_warranty ? 0 : $service->price,
+                ] : []),
                 'starts_at' => $window['starts_at'],
                 'ends_at' => $window['ends_at'],
                 'service_starts_at' => $window['service_starts_at'],

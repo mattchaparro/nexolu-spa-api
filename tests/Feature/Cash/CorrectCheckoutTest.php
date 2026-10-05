@@ -152,6 +152,53 @@ class CorrectCheckoutTest extends TestCase
         $this->assertEqualsWithDelta(55000, (float) $cita->fresh()->total, 0.01);
     }
 
+    public function test_reagendar_cambia_servicio_hora_y_persona(): void
+    {
+        // Desde «Reagendar» en la cita: agendó Semipermanente a las 10 con
+        // Marcela; la pasan a Semi + Rubber a las 3 con Alejandra.
+        $id = $this->postJson('/api/v1/appointments', [
+            'service_id' => $this->semi->id,
+            'resource_id' => $this->marcela->id,
+            'starts_at' => "{$this->fecha} 10:00:00",
+            'client_name' => 'María',
+        ])->assertCreated()->json('id');
+
+        $this->patchJson("/api/v1/appointments/{$id}/reschedule", [
+            'starts_at' => "{$this->fecha} 15:00:00",
+            'resource_id' => $this->alejandra->id,
+            'service_id' => $this->rubber->id,
+        ])->assertOk()
+            ->assertJsonPath('items.0.service_name', 'Semi + Rubber')
+            ->assertJsonPath('items.0.resource_name', 'Alejandra');
+
+        $linea = AppointmentItem::where('appointment_id', $id)->first();
+        $this->assertEqualsWithDelta(60000, (float) $linea->price, 0.01);
+        $this->assertSame('15:00', $linea->service_starts_at->setTimezone('America/Bogota')->format('H:i'));
+    }
+
+    public function test_no_se_reagenda_el_servicio_de_una_cobrada_ni_a_quien_no_lo_hace(): void
+    {
+        $cobrada = $this->cobrada();
+        $this->patchJson("/api/v1/appointments/{$cobrada->id}/reschedule", [
+            'starts_at' => "{$this->fecha} 10:00:00",
+            'service_id' => $this->rubber->id,
+        ])->assertStatus(422);
+
+        // Un servicio que solo hace Marcela no se le pasa a Alejandra.
+        $soloMarcela = $this->makeService($this->business, 60, [$this->marcela], name: 'Acrílico');
+        $id = $this->postJson('/api/v1/appointments', [
+            'service_id' => $this->semi->id,
+            'resource_id' => $this->alejandra->id,
+            'starts_at' => "{$this->fecha} 12:00:00",
+            'client_name' => 'Ana',
+        ])->assertCreated()->json('id');
+
+        $this->patchJson("/api/v1/appointments/{$id}/reschedule", [
+            'starts_at' => "{$this->fecha} 12:00:00",
+            'service_id' => $soloMarcela->id,
+        ])->assertStatus(422)->assertJsonFragment(['message' => 'Alejandra no tiene asignado «Acrílico». Elige a otra persona.']);
+    }
+
     public function test_el_resumen_lista_cada_servicio_cobrado(): void
     {
         $cita = $this->cobrada();
