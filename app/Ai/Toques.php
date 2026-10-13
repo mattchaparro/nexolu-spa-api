@@ -234,10 +234,7 @@ final class Toques
 
                 // Salidas del "no me quedan horas" (AvailabilityCapability::sinHoras).
                 if (! empty($pedido['sin_horas']) && $plano === $this->plano(AvailabilityCapability::OTRA_PERSONA)) {
-                    unset($pedido['eligiendo_fecha'], $pedido['sin_horas'], $pedido['empleado'], $pedido['empleado_preguntado']);
-                    UltimoPedido::guardar($phone, $pedido);
-
-                    return $this->respuestaDe($this->disponibilidad->execute($caller, []), 'otra_persona');
+                    return $this->conOtraPersona($caller, $phone, $pedido);
                 }
 
                 if (! empty($pedido['sin_horas']) && $plano === $this->plano(self::CONSULTAR)) {
@@ -309,11 +306,7 @@ final class Toques
                 }
 
                 if ($plano === $this->plano(AvailabilityCapability::OTRA_PERSONA)) {
-                    // Se vuelve a preguntar con quién, sin la de antes fijada.
-                    unset($pedido['horas'], $pedido['empleado'], $pedido['empleado_preguntado']);
-                    UltimoPedido::guardar($phone, $pedido);
-
-                    return $this->respuestaDe($this->disponibilidad->execute($caller, []), 'otra_persona');
+                    return $this->conOtraPersona($caller, $phone, $pedido);
                 }
             }
         }
@@ -890,6 +883,50 @@ final class Toques
 
         // La confirmacion del cambio ya la mando la herramienta de mover.
         return ['text' => '', 'conversation_id' => null, 'tools_used' => ['reagendar_cita']];
+    }
+
+    /**
+     * «Con otra persona»: de verdad otra.
+     *
+     * La de antes queda descartada para este pedido. Si queda una sola que
+     * haga el servicio, van directo sus horas; si no queda nadie, se dice.
+     * Antes la lista volvía a ofrecer a la misma (auditoría del 13-oct).
+     *
+     * @param  array<string, mixed>  $pedido
+     * @return array{text: string, conversation_id: null, tools_used: list<string>}|null
+     */
+    private function conOtraPersona(AiCaller $caller, string $phone, array $pedido): ?array
+    {
+        $antes = $pedido['empleado'] ?? null;
+        $descartadas = array_values(array_unique(array_filter([...($pedido['descartadas'] ?? []), $antes])));
+
+        unset($pedido['horas'], $pedido['empleado'], $pedido['empleado_preguntado'], $pedido['eligiendo_fecha'], $pedido['sin_horas']);
+        $pedido['descartadas'] = $descartadas;
+        UltimoPedido::guardar($phone, $pedido);
+
+        $otras = $this->disponibilidad->otrasPersonas($caller, (array) ($pedido['servicios'] ?? []), $descartadas, $pedido['sede'] ?? null);
+
+        if ($otras === []) {
+            return [
+                'text' => sprintf(
+                    'Para *%s* no hay nadie más del equipo que lo haga 😕 ¿Te busco otro día%s?',
+                    $this->nombreDe($pedido),
+                    $antes ? ' con *'.$antes.'*' : '',
+                ),
+                'conversation_id' => null,
+                'tools_used' => ['otra_persona'],
+            ];
+        }
+
+        if ($otras !== null && count($otras) === 1) {
+            $pedido['empleado'] = $otras[0];
+            $pedido['empleado_preguntado'] = true;
+            UltimoPedido::guardar($phone, $pedido);
+
+            return $this->respuestaDe($this->disponibilidad->execute($caller, ['empleado' => $otras[0]]), 'otra_persona');
+        }
+
+        return $this->respuestaDe($this->disponibilidad->execute($caller, []), 'otra_persona');
     }
 
     /**

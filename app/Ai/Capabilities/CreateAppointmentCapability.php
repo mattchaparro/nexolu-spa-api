@@ -461,15 +461,46 @@ class CreateAppointmentCapability implements Capability
             ! $caller->isCustomer()
             || $caller->client === null
             || (bool) ($arguments['otra_mas'] ?? false)
-            || (bool) ($arguments['juntas'] ?? false)
-            // Para otra persona sí puede haber dos: la suya y la de la mamá.
-            || trim((string) ($arguments['para_quien'] ?? '')) !== ''
         ) {
             return null;
         }
 
         $ids = collect($servicios)->pluck('id');
         $tz = $caller->business->businessTimezone();
+
+        /*
+         * Para varias personas o para otra persona SÍ puede haber dos citas
+         * el mismo día (la suya y la de la mamá). Pero no dos agendadas en
+         * la misma conversación para el mismo día: Laura pidió «Tradicional
+         * para 2» a las 4 pm, quedó agendado, y diez minutos después el
+         * modelo agendó otras dos a las 5 pm -- cuatro citas (10-oct). Si
+         * acaba de agendar para ese día, se pregunta antes de crear más.
+         */
+        if ((bool) ($arguments['juntas'] ?? false) || trim((string) ($arguments['para_quien'] ?? '')) !== '') {
+            $reciente = $this->portal->upcoming($caller->client, $caller->business)
+                ->first(fn (Appointment $c) => $c->starts_at->setTimezone($tz)->isSameDay($inicio)
+                    && $c->created_at !== null
+                    && $c->created_at->greaterThan(now()->subHours(6)));
+
+            if ($reciente === null) {
+                return null;
+            }
+
+            $hora = HoraLegible::de($reciente->starts_at, $tz);
+
+            return [
+                'agendada' => false,
+                'ya_tiene_cita' => ['id' => $reciente->id, 'hora' => $hora],
+                'motivo' => sprintf(
+                    'OJO: hace un rato YA quedaron agendadas para ese día a las %s (cita #%d y las '
+                    .'de su grupo). No agendes otras: si quiere cambiar la hora, muévelas con '
+                    .'reagendar_cita. Solo si dice explícitamente que son personas ADICIONALES, '
+                    .'repite crear_cita con otra_mas=true.',
+                    $hora,
+                    $reciente->id,
+                ),
+            ];
+        }
 
         /*
          * Cuenta como "la misma": mismo servicio en cualquier fecha, o

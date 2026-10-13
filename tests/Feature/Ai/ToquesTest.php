@@ -182,10 +182,47 @@ class ToquesTest extends TestCase
         $this->assertSame(['Otro día', 'Con otra persona'], array_slice($titulos, -2));
         $this->assertLessThanOrEqual(10, count($titulos));
 
-        // Con otra persona: vuelve a preguntar con quién.
+        /*
+         * Con otra persona: de verdad otra. Antes volvía a preguntar «¿con
+         * quién?» con Maria en la lista (auditoría del 13-oct). Lucia es la
+         * única que queda: van directo sus horas.
+         */
         $this->toques()->atender($this->conversacion, 'Con otra persona');
-        $this->assertContains('Cualquiera', array_column($this->ultimaLista(), 'title'));
-        $this->assertArrayNotHasKey('empleado', UltimoPedido::ver($tel));
+        $pedido = UltimoPedido::ver($tel);
+        $this->assertSame('Lucia', $pedido['empleado'] ?? null);
+        $this->assertSame(['Maria'], $pedido['descartadas'] ?? null);
+        $this->assertNotContains('Maria', array_column($this->ultimaLista(), 'title'));
+    }
+
+    public function test_si_nadie_mas_hace_el_servicio_se_dice(): void
+    {
+        $tel = (string) ChannelPhone::normalize(self::PHONE);
+        $this->invoke('disponibilidad', ['servicio' => 'Semipermanente', 'fecha' => $this->manana(), 'empleado' => 'Maria']);
+        $this->toques()->atender($this->conversacion, 'Con otra persona');
+
+        // Con Lucia tampoco: ya no queda nadie más.
+        $respuesta = $this->toques()->atender($this->conversacion, 'Con otra persona');
+
+        $this->assertStringContainsString('no hay nadie más del equipo', $respuesta['text']);
+        $this->assertEqualsCanonicalizing(['Maria', 'Lucia'], UltimoPedido::ver($tel)['descartadas']);
+    }
+
+    public function test_sin_horas_en_la_franja_muestra_las_del_resto_del_dia(): void
+    {
+        /*
+         * «sábado en la noche» sin nada en la noche era un callejón: «no
+         * hay horas». Ahora van las horas que SÍ hay ese día, dicho así.
+         */
+        $respuesta = $this->invoke('disponibilidad', [
+            'servicio' => 'Semipermanente',
+            'fecha' => $this->manana(),
+            'empleado' => 'Maria',
+            'franja' => 'noche',
+        ])->assertOk();
+
+        $this->assertTrue((bool) $respuesta->json('data.fuera_de_franja'));
+        $this->assertNotEmpty($respuesta->json('data.horas'));
+        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'En ese horario no me queda'));
     }
 
     public function test_otro_dia_desde_la_lista_de_horas_ofrece_los_dias_siguientes(): void

@@ -365,7 +365,20 @@ class AvailabilityCapability implements Capability
             $slots = $this->availability->slotsForChain($business, $servicios, $fecha, null, $persona?->id, $sede?->id);
         }
 
+        $todoElDia = $slots;
         $slots = $this->deLaFranja($slots, $arguments['franja'] ?? null, $tz);
+
+        /*
+         * En la franja que pidió no hay, pero el día sí tiene horas: se le
+         * muestran ésas, diciéndolo. Antes era «no me quedan horas» -- falso
+         * --, y la clienta se iba (auditoría del 13-oct).
+         */
+        $fueraDeFranja = false;
+
+        if ($slots === [] && $todoElDia !== [] && ! empty($arguments['franja'])) {
+            $slots = $todoElDia;
+            $fueraDeFranja = true;
+        }
 
         $horas = collect($slots)->map(fn (array $s) => array_filter([
             // `hora` es para MOSTRAR ("3 pm") y `hora_24` para volver a
@@ -427,7 +440,11 @@ class AvailabilityCapability implements Capability
             && ($previo['servicios'] ?? null) === $nombreServicios
             && ($previo['franja'] ?? null) === ($arguments['franja'] ?? null)
             && isset($previo['mostrado_at'])
-            && now()->diffInMinutes(Carbon::parse($previo['mostrado_at'])) < 10;
+            && now()->diffInMinutes(Carbon::parse($previo['mostrado_at'])) < 10
+            // Y las MISMAS horas: «Con otra persona» pide el mismo día y
+            // servicio con otra profesional, y esas horas no las ha visto.
+            && array_keys($previo['todas'] ?? []) === $horas->take(12)
+                ->map(fn ($h) => mb_strtolower(trim($h['hora'])))->values()->all();
 
         if ($repetida) {
             return [
@@ -444,7 +461,7 @@ class AvailabilityCapability implements Capability
             ];
         }
 
-        $mostrado = $this->mostrar($caller, $nombreServicios, $fecha, $ofrecidas, ! empty($arguments['empleado']));
+        $mostrado = $this->mostrar($caller, $nombreServicios, $fecha, $ofrecidas, ! empty($arguments['empleado']), $fueraDeFranja);
 
         // Lo que se acaba de entender queda guardado: la siguiente llamada
         // -- "6 pm" tocado, sin mas -- ya sabe de que servicio y de que dia.
@@ -466,6 +483,9 @@ class AvailabilityCapability implements Capability
                 // que sobrevivir a la lista de horas: el «Sí» de este
                 // pedido reagenda, no crea (ver GuidedEntry y Toques).
                 'mudanza' => UltimoPedido::ver($phoneCtx)['mudanza'] ?? null,
+                // Las que ya descartó con «Con otra persona», mientras siga
+                // siendo el mismo servicio.
+                'descartadas' => ($previo['servicios'] ?? null) === $nombreServicios ? ($previo['descartadas'] ?? null) : null,
                 'servicios' => $nombreServicios,
                 'fecha' => $arguments['fecha'],
                 'fecha_iso' => $fecha->format('Y-m-d'),
@@ -505,6 +525,8 @@ class AvailabilityCapability implements Capability
              * modelo lo repite al confirmar para que lo pueda cambiar.
              */
             'supuse' => $supuestos === [] ? null : $supuestos,
+            // En la franja pedida no había: las horas son las del resto del día.
+            'fuera_de_franja' => $fueraDeFranja ?: null,
             'horas' => $horas->take(12)->all(),
             'instruccion' => $mostrado
                 ? 'Las horas YA le llegaron como botones y las está viendo. SOLO POR ESTA VEZ '
@@ -560,7 +582,10 @@ class AvailabilityCapability implements Capability
             return null;
         }
 
-        $gente = $this->quienesPrestan($caller->business->id, $servicios[0]->id, $arguments['sede'] ?? null);
+        $gente = $this->sinDescartadas(
+            $this->quienesPrestan($caller->business->id, $servicios[0]->id, $arguments['sede'] ?? null),
+            $pedido['descartadas'] ?? [],
+        );
 
         if (count($gente) < 2) {
             return null;
@@ -594,6 +619,60 @@ class AvailabilityCapability implements Capability
                 .'»): ya los está viendo. SOLO POR ESTA VEZ responde con una cadena vacía. Cuando '
                 .'toque a alguien, vuelve a llamarme con ese nombre en `empleado`.',
         ];
+    }
+
+    /**
+     * Quiénes MÁS hacen este servicio, sin las que ya descartó.
+     *
+     * «Con otra persona» volvía a ofrecer a la misma (auditoría del 13-oct,
+     * conversaciones 222 y 229): la lista se armaba con todas.
+     *
+     * @param  list<string>  $servicios
+     * @param  list<string>  $descartadas
+     * @return list<string>|null null si el servicio no es uno solo (no se sabe)
+     */
+    public function otrasPersonas(AiCaller $caller, array $servicios, array $descartadas, ?string $sede = null): ?array
+    {
+        try {
+            [$resueltos] = $this->resolveServices($caller->business->id, $servicios);
+        } catch (AiArgumentException) {
+            return null;
+        }
+
+        if (count($resueltos) !== 1) {
+            return null;
+        }
+
+        return array_map(
+            fn ($r) => $r->name,
+            $this->sinDescartadas($this->quienesPrestan($caller->business->id, $resueltos[0]->id, $sede), $descartadas),
+        );
+    }
+
+    /**
+     * @param  list<\App\Models\Resource>  $gente
+     * @param  list<string>  $descartadas
+     * @return list<\App\Models\Resource>
+     */
+    private function sinDescartadas(array $gente, array $descartadas): array
+    {
+        $fuera = array_filter(array_map(fn ($d) => mb_strtolower(trim((string) $d)), $descartadas));
+
+        if ($fuera === []) {
+            return $gente;
+        }
+
+        return array_values(array_filter($gente, function ($persona) use ($fuera) {
+            $nombre = mb_strtolower($persona->name);
+
+            foreach ($fuera as $d) {
+                if (str_contains($nombre, $d) || str_contains($d, $nombre)) {
+                    return false;
+                }
+            }
+
+            return true;
+        }));
     }
 
     /**
@@ -1059,7 +1138,7 @@ class AvailabilityCapability implements Capability
      * @param  list<string>  $servicios
      * @param  list<array{hora: string, hora_24: string, con?: string}>  $horas
      */
-    private function mostrar(AiCaller $caller, array $servicios, CarbonImmutable $fecha, array $horas, bool $conPersona = false): bool
+    private function mostrar(AiCaller $caller, array $servicios, CarbonImmutable $fecha, array $horas, bool $conPersona = false, bool $fueraDeFranja = false): bool
     {
         $phone = ChannelPhone::normalize((string) $caller->phone, $caller->business->country_code ?? 'CO');
 
@@ -1111,7 +1190,9 @@ class AvailabilityCapability implements Capability
                 empty($mudanza['desde']) ? '' : ' (quedó '.$mudanza['desde'].')',
                 $dia,
             )
-            : sprintf('Para *%s* el *%s* tengo estas horas 👇', $queServicio, $dia);
+            : ($fueraDeFranja
+                ? sprintf('En ese horario no me queda 😕, pero para *%s* el *%s* tengo estas 👇', $queServicio, $dia)
+                : sprintf('Para *%s* el *%s* tengo estas horas 👇', $queServicio, $dia));
 
         /*
          * Las salidas, al final de la lista: si ninguna hora le sirve, que

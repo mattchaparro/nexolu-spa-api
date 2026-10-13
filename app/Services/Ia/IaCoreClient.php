@@ -136,6 +136,15 @@ class IaCoreClient
                             $conversation->phone,
                             $conversation->client,
                         ),
+                        /*
+                         * Lo que ya pasó: lo que eligió tocando botones (no
+                         * pasa por el modelo), sus citas de hoy y los
+                         * últimos mensajes de todos. Ver ConversationState.
+                         */
+                        'conversation_state' => rescue(
+                            fn () => app(ConversationState::class)->for($conversation),
+                            null,
+                        ),
                         'timezone' => $business->businessTimezone(),
                         'locale' => 'es',
                     ],

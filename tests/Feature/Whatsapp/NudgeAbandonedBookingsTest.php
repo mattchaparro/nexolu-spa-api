@@ -193,4 +193,29 @@ class NudgeAbandonedBookingsTest extends TestCase
     {
         return Http::recorded(fn ($r) => str_contains((string) ($r->data()['text'] ?? ''), '😊'))->count();
     }
+
+    public function test_si_se_despidio_no_se_le_pregunta(): void
+    {
+        /*
+         * Cristina (13-oct): confirmó su cita, dijo «Gracias» y le llegó
+         * «¿pudiste encontrar el servicio?» por una página vieja del catálogo.
+         */
+        $this->mensaje(Message::DIRECTION_IN, 'Gracias 🙏');
+        $this->mensaje(Message::DIRECTION_OUT, '¡Con gusto! Te esperamos.');
+
+        $this->artisan('bot:nudge-abandoned');
+
+        $this->assertSame(0, $this->enviados());
+    }
+
+    public function test_que_cuenta_como_cerrar_el_tema(): void
+    {
+        foreach (['Gracias', 'listo', 'Ok', 'luego te confirmo', 'más tarde miro', '👍'] as $texto) {
+            $this->assertTrue(NudgeAbandonedBookings::closedTheTopic($texto), $texto);
+        }
+
+        foreach (['Muéstrame más servicios', 'y para pies?', 'cuánto vale'] as $texto) {
+            $this->assertFalse(NudgeAbandonedBookings::closedTheTopic($texto), $texto);
+        }
+    }
 }

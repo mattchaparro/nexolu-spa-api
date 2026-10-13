@@ -101,6 +101,12 @@ final class ComoLoPide
         'acrilicos' => ['acrilic'],
         'esculpidas' => ['acrilic', 'extension'],
         'postizas' => ['acrilic', 'press-on'],
+        // «¿hacen press on?»: no se reconocía y el modelo dijo que no se
+        // hacía (13-oct). Se busca «press» en el nombre (Press-On + Semi,
+        // Retiro Acrigel - Press On).
+        'press' => ['press'],
+        'presson' => ['press'],
+        'preson' => ['press'],
         'retoque' => ['retoque'],
         'retiro' => ['retiro'],
         'quitar' => ['retiro'],

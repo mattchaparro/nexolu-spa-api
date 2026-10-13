@@ -17,6 +17,8 @@ use App\Models\Resource;
 use App\Models\Service;
 use App\Models\ServiceCategory;
 use App\Models\WhatsappConversation;
+use App\Services\Ia\BusinessProfile;
+use App\Services\Ia\ConversationState;
 use App\Services\Scheduling\BookingService;
 use App\Support\ChannelPhone;
 use App\Support\Money\LoyaltyCalculator;
@@ -326,8 +328,8 @@ class GuidedEntryTest extends TestCase
          */
         $this->pedicures();
 
-        $respuesta = $this->escribe("Buenas tardes
-Es tan amable, quería consultar si tienen turno de uñas pies");
+        $respuesta = $this->escribe('Buenas tardes
+Es tan amable, quería consultar si tienen turno de uñas pies');
 
         $this->assertSame(['agendar_directo'], $respuesta['tools_used']);
         $this->assertContains('Pedi Jelly Spa', $this->todosLosBotones());
@@ -356,9 +358,9 @@ Es tan amable, quería consultar si tienen turno de uñas pies");
         UltimoPedido::guardar($this->phone(), ['servicios' => ['Pedi Jelly Spa']]);
         $this->elBotAcabaDeHablar();
 
-        $texto = "En este momento tiene disponibilidad?
-Para ir?";
-        \App\Ai\DateInText::remember($this->phone(), $texto);
+        $texto = 'En este momento tiene disponibilidad?
+Para ir?';
+        DateInText::remember($this->phone(), $texto);
         $respuesta = $this->escribe($texto);
 
         $this->assertSame(['agendar_directo'], $respuesta['tools_used']);
@@ -385,7 +387,7 @@ Para ir?";
     {
         $this->business->update(['public_profile' => ['maps_url' => 'https://maps.app.goo.gl/luxury']]);
 
-        $perfil = app(\App\Services\Ia\BusinessProfile::class)->for($this->business->fresh());
+        $perfil = app(BusinessProfile::class)->for($this->business->fresh());
 
         $this->assertStringContainsString('https://maps.app.goo.gl/luxury', $perfil);
         $this->assertStringNotContainsString('no registrada', $perfil);
@@ -1100,5 +1102,95 @@ Para ir?";
         $this->assertArrayNotHasKey('servicios', $pedido);
         // Y ve el catálogo completo, como quien llega nueva.
         $this->assertContains('Tradicional', $pedido['opciones']);
+    }
+
+    // -- Auditoría del 13-oct ----------------------------------------------
+
+    public function test_estoy_afuera_avisa_al_equipo_de_su_cita_de_hoy(): void
+    {
+        /*
+         * Andrea escribió a las 2:03 «estoy afuera y está cerrado» para su
+         * cita de las 2 y el bot le contestó «No tienes citas próximas».
+         */
+        $this->cita('Semipermanente', CarbonImmutable::now('America/Bogota')->setTime(9, 0));
+        $this->travelTo(CarbonImmutable::now('America/Bogota')->setTime(9, 3));
+        $this->elBotAcabaDeHablar();
+
+        $respuesta = $this->escribe('Hola, estoy afuera del local para mi cita y está cerrado');
+
+        $this->assertSame(['aviso_cita_hoy'], $respuesta['tools_used']);
+        $this->assertStringContainsString('*Maria*', $respuesta['text']);
+        $this->assertStringContainsString('9:00 am', $respuesta['text']);
+        $this->assertTrue($this->conversacion->fresh()->agentIsPaused());
+        $this->assertDatabaseHas('messages', [
+            'conversation_id' => $this->conversacion->id,
+            'kind' => Message::KIND_STAFF,
+        ]);
+    }
+
+    public function test_voy_tarde_sin_cita_hoy_sigue_el_camino_de_siempre(): void
+    {
+        $this->elBotAcabaDeHablar();
+
+        $respuesta = $this->escribe('voy tarde');
+
+        $this->assertNotSame(['aviso_cita_hoy'], $respuesta['tools_used'] ?? null);
+        $this->assertFalse($this->conversacion->fresh()->agentIsPaused());
+    }
+
+    public function test_preguntar_si_hacen_un_servicio_muestra_el_catalogo_no_un_no(): void
+    {
+        // Conversación 225: «tú haces uñas en press on» -- el modelo dijo que no.
+        $maria = Resource::withoutGlobalScope('business')->where('name', 'Maria')->sole();
+        $this->makeService($this->business, 90, [$maria], name: 'Press-On + Semipermanente')
+            ->update(['service_category_id' => ServiceCategory::withoutGlobalScopes()->where('name', 'Manicure')->value('id')]);
+        $this->elBotAcabaDeHablar();
+
+        $respuesta = $this->escribe('tú haces uñas en press on?');
+
+        $this->assertSame(['precios'], $respuesta['tools_used']);
+        // El título del botón se corta a 24 caracteres.
+        $this->assertNotEmpty(array_filter($this->todosLosBotones(), fn ($t) => str_starts_with($t, 'Press-On')));
+    }
+
+    public function test_dos_botones_del_gracias_pegados_atienden_el_ultimo(): void
+    {
+        // Tocó «Calificar servicio» y «Mi tarjeta» seguidos: llegaron juntos.
+        $respuesta = $this->escribe(GuidedEntry::RATE."\n".GuidedEntry::MY_CARD);
+
+        $this->assertSame(['mi_tarjeta'], $respuesta['tools_used']);
+    }
+
+    public function test_ver_mas_servicios_de_una_lista_vieja_vuelve_al_catalogo(): void
+    {
+        $this->elBotAcabaDeHablar();
+
+        $respuesta = $this->escribe('Muéstrame más servicios');
+
+        $this->assertSame(['menu_inicial'], $respuesta['tools_used']);
+        $this->assertContains('Semipermanente', $this->todosLosBotones());
+    }
+
+    public function test_la_ia_sabe_lo_que_eligio_con_botones_y_su_cita_de_hoy(): void
+    {
+        $this->cita('Tradicional', CarbonImmutable::now('America/Bogota')->setTime(15, 0));
+        UltimoPedido::guardar($this->phone(), ['servicios' => ['Semi + Rubber'], 'dia' => 'sábado', 'empleado' => 'Maria']);
+        Message::create([
+            'business_id' => $this->business->id,
+            'conversation_id' => $this->conversacion->id,
+            'kind' => Message::KIND_INBOUND,
+            'direction' => Message::DIRECTION_IN,
+            'to' => $this->conversacion->phone,
+            'body' => 'Semi + Rubber',
+            'status' => Message::STATUS_SENT,
+        ]);
+
+        $estado = app(ConversationState::class)->for($this->conversacion->fresh());
+
+        $this->assertStringContainsString('HOY 3:00 pm: Tradicional con Maria', $estado);
+        $this->assertStringContainsString('Servicio(s) ya elegido(s): Semi + Rubber', $estado);
+        $this->assertStringContainsString('Día: sábado', $estado);
+        $this->assertStringContainsString('Clienta: Semi + Rubber', $estado);
+        $this->assertLessThanOrEqual(3800, mb_strlen($estado));
     }
 }

@@ -18,6 +18,7 @@ use App\Support\ChannelPhone;
 use App\Support\NombreDePila;
 use App\Support\Scheduling\ThankYouMessage;
 use App\Support\TituloCorto;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 
@@ -159,7 +160,7 @@ final class GuidedEntry
     private const PENDING = ['confirmar', 'decidir_mover', 'mudanza', 'eligiendo_fecha', 'eligiendo_empleado'];
 
     /** Lo que deja una gestión anterior y un comienzo nuevo borra. */
-    private const LEFTOVERS = ['servicios', 'opciones', 'horas', 'todas', 'fechas', 'mostrado_at', 'fecha_iso', 'dia', 'menu', 'citas', 'cita_id', 'acepta_multa', 'empleado', 'empleados', 'eligiendo_empleado', 'empleado_preguntado', 'preludio'];
+    private const LEFTOVERS = ['servicios', 'opciones', 'horas', 'todas', 'fechas', 'mostrado_at', 'fecha_iso', 'dia', 'menu', 'citas', 'cita_id', 'acepta_multa', 'empleado', 'empleados', 'eligiendo_empleado', 'empleado_preguntado', 'preludio', 'descartadas'];
 
     public function __construct(
         private readonly AvailabilityCapability $agenda,
@@ -284,6 +285,31 @@ final class GuidedEntry
         }
 
         // 2) Atajos: lo que dijo ya elige la rama.
+
+        /*
+         * Tocó «Muéstrame más servicios» de una lista vieja (la página
+         * guardada ya venció): se le muestra el catálogo de nuevo, no el
+         * menú de inicio.
+         */
+        if (ServiciosPendientes::pideVerMas($this->lastLine($texto)) && ServiciosPendientes::ver($phone) === []
+            && $this->agenda->welcomeMenu($caller, '') !== null) {
+            return ['text' => '', 'conversation_id' => null, 'tools_used' => ['menu_inicial']];
+        }
+        /*
+         * «Estoy afuera y está cerrado», «voy tarde», «no alcanzo a llegar»:
+         * es sobre SU cita de hoy, y lo que sirve es que alguien del local se
+         * entere YA. Andrea escribió a las 2:03 que estaba afuera para su cita
+         * de las 2 y el bot le contestó «No tienes citas próximas» (la cita
+         * ya había «empezado»).
+         */
+        if ($this->aboutTodaysVisit($texto)) {
+            $aviso = $this->tellTeamAboutVisit($caller, $conversacion, $phone, $texto);
+
+            if ($aviso !== null) {
+                return $aviso;
+            }
+        }
+
         if ($this->wantsToMove($texto)) {
             return $this->startMove($caller, $phone);
         }
@@ -314,7 +340,14 @@ final class GuidedEntry
          * uno con su precio y duración. El modelo escribía el catálogo
          * entero como un texto largo (13-oct).
          */
-        if ($this->wantsPrices($texto)) {
+        /*
+         * También «¿hacen press on?», «¿manejan acrílicas?»: si lo nombró y
+         * está en el catálogo, se le muestra con su precio. El modelo le dijo
+         * a una clienta que no hacían press on (sí: Press-On + Semi) y se fue.
+         */
+        $preguntaSiHacen = $this->asksIfOffered($texto) && $this->namesService($caller, $texto);
+
+        if ($this->wantsPrices($texto) || $preguntaSiHacen) {
             $titulo = 'Estos son nuestros servicios, con su precio y duración 💅 Toca uno para agendarlo.';
             $mandado = $this->namesService($caller, $texto)
                 ? $this->agenda->priceList($caller, $this->withoutArticles($texto), $titulo)
@@ -359,11 +392,11 @@ final class GuidedEntry
             // Si es el primer mensaje ("Hola, quiero agendar"), se saluda
             // antes de preguntar: ir al grano sin un hola es descortés.
             return $this->showMenu(
-                    $caller,
-                    $phone,
-                    'agendar',
-                    welcome: $this->startsWithGreeting($texto) || $this->isNewSession($conversacion),
-                );
+                $caller,
+                $phone,
+                'agendar',
+                welcome: $this->startsWithGreeting($texto) || $this->isNewSession($conversacion),
+            );
         }
 
         /*
@@ -985,14 +1018,22 @@ final class GuidedEntry
      */
     private function fromThankYou(AiCaller $caller, string $phone, string $texto): ?array
     {
-        $tocado = $this->plain($texto);
+        /*
+         * Línea por línea, de la última a la primera: tocó «Calificar
+         * servicio» y «Mi tarjeta» seguidos, el debounce los pegó en un solo
+         * mensaje, y comparado entero no era ninguno -- recibió el menú de
+         * inicio (auditoría del 13-oct).
+         */
+        foreach (array_reverse(preg_split('/\R/u', trim($texto)) ?: []) as $linea) {
+            $tocado = $this->plain($linea);
 
-        if ($tocado === $this->plain(self::MY_CARD) || $tocado === 'mi tarjeta virtual' || $tocado === 'tarjeta') {
-            return $this->loyaltyCard($caller, $phone);
-        }
+            if ($tocado === $this->plain(self::MY_CARD) || $tocado === 'mi tarjeta virtual' || $tocado === 'tarjeta') {
+                return $this->loyaltyCard($caller, $phone);
+            }
 
-        if ($tocado === $this->plain(self::RATE)) {
-            return $this->surveyLink($caller, $phone);
+            if ($tocado === $this->plain(self::RATE)) {
+                return $this->surveyLink($caller, $phone);
+            }
         }
 
         return null;
@@ -1786,6 +1827,64 @@ final class GuidedEntry
         return (bool) preg_match('/\b(mis citas|mi cita|mis turnos|mi turno|tengo cita|cuando es mi|cancelar mi|cancelar la cita|cancelar cita)\b/u', $t);
     }
 
+    /** "estoy afuera", "ya llegué", "está cerrado", "voy tarde", "no alcanzo" */
+    private function aboutTodaysVisit(string $texto): bool
+    {
+        return (bool) preg_match(
+            '/\b(estoy afuera|estoy aqui afuera|ya llegue|ya estoy (aqui|alla|en el local)|esta cerrado|no hay nadie|nadie abre|voy tarde|llego tarde|voy a llegar tarde|me voy a demorar|me demoro|voy retrasad[ao]|un poquito tarde|un poco tarde|no alcanzo|no voy a alcanzar|no llego a tiempo)\b/u',
+            $this->plain($texto),
+        );
+    }
+
+    /**
+     * Avisarle al equipo de su cita de hoy y decírselo a ella.
+     *
+     * Solo si tiene una cita hoy (la que empezó hace hasta 3 horas también
+     * cuenta). Sin cita, null: sigue el camino de siempre.
+     *
+     * @return array{text: string, conversation_id: null, tools_used: list<string>}|null
+     */
+    private function tellTeamAboutVisit(AiCaller $caller, WhatsappConversation $conversacion, string $phone, string $texto): ?array
+    {
+        if ($caller->client === null) {
+            return null;
+        }
+
+        $tz = $caller->business->businessTimezone();
+        $ahora = CarbonImmutable::now($tz);
+
+        $cita = Appointment::withoutGlobalScopes()
+            ->where('business_id', $caller->business->id)
+            ->where('client_id', $caller->client->id)
+            ->whereIn('status', [Appointment::STATUS_PENDING, Appointment::STATUS_CONFIRMED, Appointment::STATUS_IN_PROGRESS])
+            ->where('starts_at', '>=', $ahora->subHours(3)->utc())
+            ->where('starts_at', '<', $ahora->endOfDay()->utc())
+            ->with('items.resource')
+            ->orderBy('starts_at')
+            ->first();
+
+        if ($cita === null) {
+            return null;
+        }
+
+        $quien = $cita->items->map(fn ($i) => $i->resource?->name)->filter()->unique()->implode(' y ');
+        $hora = CarbonImmutable::parse($cita->starts_at)->setTimezone($tz)->format('g:i a');
+
+        AlEquipo::pasar($conversacion, sprintf(
+            'Sobre su cita de HOY a las %s%s: «%s»',
+            $hora,
+            $quien ? ' con '.$quien : '',
+            mb_substr(trim($texto), 0, 200),
+        ));
+
+        return $this->reply(
+            $phone,
+            '¡Gracias por avisar! 🙏 Ya le avisé '.($quien ? 'a *'.explode(' ', $quien)[0].'*' : 'al equipo')
+                .' de tu cita de las *'.$hora.'*. Te escriben enseguida.',
+            'aviso_cita_hoy',
+        );
+    }
+
     /** "¿me regalas la dirección?", "¿dónde quedan?", "¿cómo llego?" */
     private function wantsLocation(string $texto): bool
     {
@@ -1793,6 +1892,16 @@ final class GuidedEntry
             '/\b(direccion|ubicacion|ubicados|ubicadas|donde (estan|quedan|queda|es|son|los encuentro)|como llego|como llegar|google maps|el mapa|la ubicacion)\b/u',
             $this->plain($texto),
         );
+    }
+
+    /** "¿hacen…?", "¿haces…?", "¿manejan…?", "¿tienen…?" */
+    private function asksIfOffered(string $texto): bool
+    {
+        $plano = $this->plain($texto);
+
+        // «¿tienen turno de pies?» pide una cita, no pregunta si lo hacemos.
+        return (bool) preg_match('/\b(hacen|haces|hace|manejan|manejas|maneja|tienen|tienes|ofrecen|trabajan|trabajas|realizan)\b/u', $plano)
+            && ! preg_match('/\b(turno|turnos|cita|citas|espacio|cupo|cupos|hora|horas|hoy|manana|agenda|disponible|disponibilidad)\b/u', $plano);
     }
 
     /** "¿qué precio manejan?", "¿cuánto vale…?", "¿qué servicios tienen?" */

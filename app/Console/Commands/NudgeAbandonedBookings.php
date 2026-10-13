@@ -82,6 +82,22 @@ class NudgeAbandonedBookings extends Command
                 continue;
             }
 
+            /*
+             * Se despidió o dijo que confirma después: no está a medias, está
+             * pensando o ya terminó. A Cristina le llegó «¿pudiste encontrar
+             * el servicio?» después de confirmar su cita y decir «Gracias»:
+             * quedaba guardada una página del catálogo de esa mañana.
+             */
+            $suyo = Message::withoutGlobalScopes()
+                ->where('conversation_id', $conversation->id)
+                ->where('direction', Message::DIRECTION_IN)
+                ->latest('id')
+                ->value('body');
+
+            if (self::closedTheTopic((string) $suyo)) {
+                continue;
+            }
+
             $phone = (string) $conversation->phone;
             // Se quedó en «¿cómo te llamas?», justo antes de apartar la
             // cita: lo más cerca de agendar que se puede quedar alguien.
@@ -120,6 +136,17 @@ class NudgeAbandonedBookings extends Command
         $this->info("Agendamientos a medias: {$sent}.");
 
         return self::SUCCESS;
+    }
+
+    /** "gracias", "listo", "confirmo que voy", "luego te confirmo"... */
+    public static function closedTheTopic(string $texto): bool
+    {
+        $t = mb_strtolower(strtr(trim($texto), ['á' => 'a', 'é' => 'e', 'í' => 'i', 'ó' => 'o', 'ú' => 'u']));
+
+        return (bool) preg_match(
+            '/\b(gracias|muchas gracias|listo|ok|okey|(?<!cuanto )vale|perfecto|confirmo|confirmo que voy|dale|bueno|chao|luego|despues|mas tarde|en un rato|ahorita te|te confirmo|te aviso|lo pienso|lo voy a pensar)\b|👍|🙏/u',
+            $t,
+        );
     }
 
     /**

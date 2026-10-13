@@ -225,4 +225,25 @@ class CitasSimultaneasTest extends TestCase
                 && ! str_contains($texto, 'Manicure y Manicure');
         });
     }
+
+    public function test_recien_agendadas_para_dos_no_se_agendan_otras_dos(): void
+    {
+        /*
+         * Laura (10-oct): «Tradicional para 2» quedó a las 10 y diez minutos
+         * después el modelo agendó otras dos a las 11 -- cuatro citas.
+         */
+        $base = ['servicios' => ['Manicure', 'Pedicure'], 'fecha' => $this->manana(), 'juntas' => true, 'nombres' => ['Carolina', 'Sofía']];
+
+        $this->invoke('crear_cita', [...$base, 'hora' => '10:00'])->assertJsonPath('data.agendada', true);
+        $segunda = $this->invoke('crear_cita', [...$base, 'hora' => '11:00'])->assertOk();
+
+        $segunda->assertJsonPath('data.agendada', false);
+        $this->assertStringContainsString('reagendar_cita', $segunda->json('data.motivo'));
+        $this->assertSame(2, Appointment::withoutGlobalScopes()->count());
+
+        // Si de verdad son otras dos personas, se puede.
+        $this->invoke('crear_cita', [...$base, 'hora' => '11:00', 'otra_mas' => true])
+            ->assertJsonPath('data.agendada', true);
+        $this->assertSame(4, Appointment::withoutGlobalScopes()->count());
+    }
 }
