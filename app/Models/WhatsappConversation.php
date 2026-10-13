@@ -108,7 +108,14 @@ class WhatsappConversation extends Model
     /** El chat de Connect muestra la pausa y la deja quitar (ver PushBotPauseToConnectJob). */
     private function avisarAConnect(): void
     {
-        PushBotPauseToConnectJob::dispatch($this->id)->afterCommit();
+        /*
+         * Que Connect no se entere nunca puede tumbar la pausa: con la cola
+         * síncrona (o si encolar falla) el error se reporta y la pausa
+         * sigue. Es una vista en otro lado, no la pausa en sí.
+         */
+        // Bus::dispatch y no ::dispatch(): este último encola al destruirse,
+        // fuera del rescue.
+        rescue(fn () => \Illuminate\Support\Facades\Bus::dispatch(new PushBotPauseToConnectJob($this->id)));
     }
 
     /**

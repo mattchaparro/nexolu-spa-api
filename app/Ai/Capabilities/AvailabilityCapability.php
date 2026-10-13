@@ -818,6 +818,36 @@ class AvailabilityCapability implements Capability
      *
      * @return array<string, mixed>|null
      */
+    /**
+     * «¿Cuánto vale el semi?»: los servicios que encajan, cada uno con su
+     * precio y duración, tocables (tocar uno lo agenda). Null si no nombró
+     * nada del catálogo o no se pudo mandar.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function priceList(AiCaller $caller, string $texto, string $titulo): ?array
+    {
+        if ($caller->isStaff()) {
+            return null;
+        }
+
+        $nombres = ComoLoPide::candidatos($this->catalogoEnLinea($caller->business->id), $texto)
+            ->pluck('name')->values()->all();
+
+        if ($nombres === []) {
+            return null;
+        }
+
+        $lista = $this->queEligaServicio($caller, $nombres, $titulo);
+        $phone = ChannelPhone::normalize((string) $caller->phone, $caller->business->country_code ?? 'CO');
+
+        if ($lista !== null && $phone !== null) {
+            UltimoPedido::guardar($phone, [...UltimoPedido::ver($phone), 'opciones' => $nombres]);
+        }
+
+        return $lista;
+    }
+
     public function welcomeMenu(AiCaller $caller, string $texto, ?string $intro = null): ?array
     {
         if ($caller->isStaff()) {

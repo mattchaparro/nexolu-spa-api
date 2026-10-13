@@ -5,6 +5,7 @@ namespace App\Services\Ia;
 use App\Models\Business;
 use App\Models\Location;
 use App\Models\ResourceSchedule;
+use App\Support\PublicProfile;
 use Carbon\CarbonImmutable;
 
 /**
@@ -122,8 +123,21 @@ class BusinessProfile
 
         if ($sedes->count() === 1) {
             $sede = $sedes->first();
+            $direccion = $sede->address ?: $business->address;
+            /*
+             * El link de Google Maps de «Mi página». Luxury no tiene la
+             * dirección escrita, solo el link, y aquí decía «no registrada»:
+             * a una clienta que pidió la dirección el bot le contestó que no
+             * la sabía (13-oct).
+             */
+            $mapa = PublicProfile::resolve($business)['maps_url'] ?? $sede->maps_url ?? null;
 
-            return 'Dirección: '.($sede->address ?: $business->address ?: 'no registrada').'.';
+            if (! $direccion && ! $mapa) {
+                return 'Dirección: no registrada.';
+            }
+
+            return trim(($direccion ? 'Dirección: '.$direccion.'.' : '')
+                .($mapa ? ' Ubicación en Google Maps: '.$mapa.' (si preguntan dónde quedan o la dirección, MÁNDALES ESE LINK tal cual).' : ''));
         }
 
         /*

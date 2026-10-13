@@ -173,6 +173,29 @@ final class InfoPostCita
      *
      * @return array<string, string>
      */
+    /**
+     * El link de Maps y la dirección, para el atajo «¿dónde quedan?».
+     *
+     * @return array{mapa: string, direccion: ?string}|null
+     */
+    public function dondeQueda(AiCaller $caller): ?array
+    {
+        $business = $caller->business;
+        $perfil = PublicProfile::resolve($business);
+        $sede = Location::withoutGlobalScopes()->where('business_id', $business->id)
+            ->whereNotNull('maps_url')->orderBy('id')->first();
+        $mapa = $perfil['maps_url'] ?? $sede?->maps_url;
+
+        if (empty($mapa)) {
+            return null;
+        }
+
+        $principal = Location::withoutGlobalScopes()->where('business_id', $business->id)
+            ->orderByDesc('is_primary')->first();
+
+        return ['mapa' => (string) $mapa, 'direccion' => $sede?->address ?? $principal?->address ?? $business->address];
+    }
+
     private function ubicacion(AiCaller $caller): array
     {
         $business = $caller->business;

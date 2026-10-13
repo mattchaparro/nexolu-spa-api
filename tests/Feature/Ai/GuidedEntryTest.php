@@ -366,6 +366,54 @@ Para ir?";
         $this->assertSame('hoy', UltimoPedido::ver($this->phone())['fecha'] ?? null);
     }
 
+    public function test_la_direccion_va_con_el_link_de_maps(): void
+    {
+        /*
+         * 13-oct: «Me regalas la dirección exacta donde están porfa» y el bot
+         * contestó que no la sabía. Estaba el link de Maps en «Mi página».
+         */
+        $this->business->update(['public_profile' => ['maps_url' => 'https://maps.app.goo.gl/luxury']]);
+        $this->elBotAcabaDeHablar();
+
+        $respuesta = $this->escribe('Me regalas la dirección exacta donde están porfa');
+
+        $this->assertSame(['ubicacion'], $respuesta['tools_used']);
+        Http::assertSent(fn ($r) => str_contains(json_encode($r->data()), 'maps.app.goo.gl'));
+    }
+
+    public function test_la_ia_recibe_el_link_de_maps(): void
+    {
+        $this->business->update(['public_profile' => ['maps_url' => 'https://maps.app.goo.gl/luxury']]);
+
+        $perfil = app(\App\Services\Ia\BusinessProfile::class)->for($this->business->fresh());
+
+        $this->assertStringContainsString('https://maps.app.goo.gl/luxury', $perfil);
+        $this->assertStringNotContainsString('no registrada', $perfil);
+    }
+
+    public function test_preguntar_precios_manda_la_lista_con_precios(): void
+    {
+        // 13-oct: el modelo escribió el catálogo entero como un texto largo.
+        $this->elBotAcabaDeHablar();
+
+        $respuesta = $this->escribe('Para saber que servicios de uñas manejan, resina y eso manejan y que precio manejan?');
+
+        $this->assertSame(['precios'], $respuesta['tools_used']);
+        $this->assertContains('Semipermanente', $this->todosLosBotones());
+        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'con su precio y duración'));
+    }
+
+    public function test_cuanto_vale_un_servicio_muestra_ese_con_su_precio(): void
+    {
+        $this->elBotAcabaDeHablar();
+
+        $respuesta = $this->escribe('cuanto vale el semipermanente?');
+
+        $this->assertSame(['precios'], $respuesta['tools_used']);
+        $this->assertContains('Semipermanente', $this->todosLosBotones());
+        $this->assertNotContains(GuidedEntry::HERE, $this->todosLosBotones());
+    }
+
     public function test_agendar_en_la_web_manda_el_link(): void
     {
         $this->escribe('quiero agendar');

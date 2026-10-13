@@ -300,6 +300,32 @@ final class GuidedEntry
             return $this->askWarrantyScope($caller, $phone);
         }
 
+        // «¿Me regalas la dirección?»: el link de Maps, con botón, sin modelo.
+        if ($this->wantsLocation($texto)) {
+            $donde = $this->sendLocation($caller, $phone);
+
+            if ($donde !== null) {
+                return $donde;
+            }
+        }
+
+        /*
+         * «¿Qué servicios manejan y qué precio?»: la lista para tocar, cada
+         * uno con su precio y duración. El modelo escribía el catálogo
+         * entero como un texto largo (13-oct).
+         */
+        if ($this->wantsPrices($texto)) {
+            $titulo = 'Estos son nuestros servicios, con su precio y duración 💅 Toca uno para agendarlo.';
+            $mandado = $this->namesService($caller, $texto)
+                ? $this->agenda->priceList($caller, $this->withoutArticles($texto), $titulo)
+                : $this->agenda->welcomeMenu($caller, '', $titulo);
+            $precios = $mandado !== null ? ['text' => '', 'conversation_id' => null, 'tools_used' => ['precios']] : null;
+
+            if ($precios !== null) {
+                return $precios;
+            }
+        }
+
         if ($this->wantsHuman($texto)) {
             // En pausa ya se pidió una persona: repetir el aviso solo
             // llenaría la bandeja de notas iguales.
@@ -539,10 +565,12 @@ final class GuidedEntry
      */
     private function namesService(AiCaller $caller, string $texto): bool
     {
-        return $this->agenda->mentionsService(
-            $caller,
-            (string) preg_replace('/\b(una|un|unas|unos)\b/iu', ' ', $texto),
-        );
+        return $this->agenda->mentionsService($caller, $this->withoutArticles($texto));
+    }
+
+    private function withoutArticles(string $texto): string
+    {
+        return (string) preg_replace('/\b(una|un|unas|unos)\b/iu', ' ', $texto);
     }
 
     /**
@@ -1756,6 +1784,46 @@ final class GuidedEntry
         $t = $this->plain($texto);
 
         return (bool) preg_match('/\b(mis citas|mi cita|mis turnos|mi turno|tengo cita|cuando es mi|cancelar mi|cancelar la cita|cancelar cita)\b/u', $t);
+    }
+
+    /** "¿me regalas la dirección?", "¿dónde quedan?", "¿cómo llego?" */
+    private function wantsLocation(string $texto): bool
+    {
+        return (bool) preg_match(
+            '/\b(direccion|ubicacion|ubicados|ubicadas|donde (estan|quedan|queda|es|son|los encuentro)|como llego|como llegar|google maps|el mapa|la ubicacion)\b/u',
+            $this->plain($texto),
+        );
+    }
+
+    /** "¿qué precio manejan?", "¿cuánto vale…?", "¿qué servicios tienen?" */
+    private function wantsPrices(string $texto): bool
+    {
+        return (bool) preg_match(
+            '/\b(precio|precios|tarifa|tarifas|cuanto (vale|valen|cuesta|cuestan|cobran|sale|es)|que servicios|servicios (manejan|tienen|hacen|ofrecen)|lista de precios|catalogo)\b/u',
+            $this->plain($texto),
+        );
+    }
+
+    /**
+     * La ubicación con un botón que abre Google Maps.
+     *
+     * @return array{text: string, conversation_id: null, tools_used: list<string>}|null
+     */
+    private function sendLocation(AiCaller $caller, string $phone): ?array
+    {
+        $donde = app(InfoPostCita::class)->dondeQueda($caller);
+
+        if ($donde === null) {
+            return null;
+        }
+
+        $texto = '📍 '.($donde['direccion'] ? 'Estamos en '.$donde['direccion'].'.' : '¡Claro! Aquí está nuestra ubicación 😊');
+
+        if (app(EnvioDirecto::class)->conEnlace($caller, $texto, 'Ver en el mapa', $donde['mapa'])) {
+            return ['text' => '', 'conversation_id' => null, 'tools_used' => ['ubicacion']];
+        }
+
+        return $this->reply($phone, $texto."\n".$donde['mapa'], 'ubicacion');
     }
 
     /** "se me cayó el esmalte", "garantía", "me quedaron mal" */
