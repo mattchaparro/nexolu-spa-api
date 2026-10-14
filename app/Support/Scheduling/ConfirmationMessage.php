@@ -102,7 +102,7 @@ final class ConfirmationMessage
     }
 
     /** @return array<string, string> */
-    private static function values(Appointment $appointment): array
+    public static function values(Appointment $appointment): array
     {
         $valores = StageMessage::values($appointment);
         $tz = $appointment->business?->businessTimezone() ?? config('spa.defaults.timezone');

@@ -4,11 +4,13 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Resources\AppointmentResource;
 use App\Models\Appointment;
+use App\Models\Service;
 use App\Models\ServicePackage;
 use App\Services\ClientResolver;
 use App\Services\Messaging\AvisoCitaNueva;
 use App\Services\Messaging\ConfirmacionDelPanel;
 use App\Services\Messaging\MessageDispatcher;
+use App\Services\Messaging\RescheduleNotice;
 use App\Services\Scheduling\BookingService;
 use App\Services\Scheduling\CheckoutService;
 use App\Services\Scheduling\Exceptions\SlotUnavailableException;
@@ -371,7 +373,7 @@ class AppointmentController
             ? \App\Models\Resource::where('business_id', $business->id)->findOrFail($data['resource_id'])
             : null;
         $service = isset($data['service_id'])
-            ? \App\Models\Service::where('business_id', $business->id)->findOrFail($data['service_id'])
+            ? Service::where('business_id', $business->id)->findOrFail($data['service_id'])
             : null;
 
         $fueraDeTurno = (bool) ($data['outside_schedule'] ?? false);
@@ -379,6 +381,8 @@ class AppointmentController
         if ($fueraDeTurno && ! $request->user()->hasBusinessPermission('horarios.gestionar')) {
             return response()->json(['message' => 'Solo quien gestiona horarios puede poner una cita fuera del turno.'], 403);
         }
+
+        $before = RescheduleNotice::snapshot($appointment);
 
         try {
             $moved = $this->booking->reschedule(
@@ -393,6 +397,9 @@ class AppointmentController
         } catch (\DomainException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
+
+        // A la clienta también: antes solo se enteraba el equipo.
+        app(RescheduleNotice::class)->send($moved, $before);
 
         return response()->json(new AppointmentResource($moved->load('items.service', 'items.resource')));
     }

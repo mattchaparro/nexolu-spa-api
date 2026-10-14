@@ -71,6 +71,14 @@ class Message extends Model
 
     public const KIND_CANCELLATION = 'cancelacion';
 
+    /**
+     * «Tu cita se reagendó», cuando el salón la mueve.
+     *
+     * No cuelga de la cita (appointment_id nulo): se puede mover más de una
+     * vez y el índice único dejaría pasar solo el primer aviso.
+     */
+    public const KIND_RESCHEDULED = 'reagendada';
+
     public const KIND_STAFF = 'equipo';
 
     /**
