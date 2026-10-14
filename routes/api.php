@@ -49,6 +49,7 @@ use App\Http\Controllers\Api\V1\SurveyController;
 use App\Http\Controllers\Api\V1\WaitlistAdminController;
 use App\Http\Controllers\Api\V1\WaitlistController;
 use App\Http\Controllers\Api\V1\WalkInController;
+use App\Http\Controllers\Api\V1\WhatsappLinkController;
 use App\Http\Controllers\Api\V1\WhatsappSpendController;
 use Illuminate\Support\Facades\Route;
 
@@ -540,6 +541,14 @@ Route::prefix('v1')->group(function () {
         // Lo que Meta cobra por WhatsApp este mes: solo quien administra.
         Route::get('whatsapp/gasto', [WhatsappSpendController::class, 'show'])
             ->middleware('permission:negocio.configurar');
+
+        // Enlaces wa.me con mensaje propio (historias, biografía, anuncios).
+        Route::prefix('whatsapp/links')->middleware('permission:negocio.configurar')->group(function () {
+            Route::get('/', [WhatsappLinkController::class, 'index']);
+            Route::post('/', [WhatsappLinkController::class, 'store']);
+            Route::patch('/{link}', [WhatsappLinkController::class, 'update']);
+            Route::delete('/{link}', [WhatsappLinkController::class, 'destroy']);
+        });
 
         Route::post('whatsapp/connect-link', [ConnectChatController::class, 'link'])
             ->middleware('permission:clientes.ver');
