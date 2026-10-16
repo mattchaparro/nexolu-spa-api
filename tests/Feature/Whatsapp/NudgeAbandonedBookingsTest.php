@@ -194,6 +194,55 @@ class NudgeAbandonedBookingsTest extends TestCase
         return Http::recorded(fn ($r) => str_contains((string) ($r->data()['text'] ?? ''), '😊'))->count();
     }
 
+    public function test_quien_no_elige_el_dia_recibe_el_empujon(): void
+    {
+        // Tocó el servicio, el bot le preguntó «¿Para qué día?» y no tocó nada.
+        ServiciosPendientes::olvidar($this->phone());
+        UltimoPedido::guardar($this->phone(), ['servicios' => ['Semipermanente'], 'eligiendo_fecha' => true]);
+        $this->mensaje(Message::DIRECTION_IN, 'Semipermanente');
+        $this->mensaje(Message::DIRECTION_OUT, '¿Para qué día? 📅');
+
+        $this->artisan('bot:nudge-abandoned')->assertSuccessful();
+
+        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', '¿qué día te quedaría bien?'));
+    }
+
+    public function test_si_contesto_el_primero_y_se_queda_en_el_dia_recibe_otro(): void
+    {
+        // Primer empujón: se quedó en el catálogo.
+        $this->artisan('bot:nudge-abandoned');
+        $this->assertSame(1, $this->enviados());
+
+        // Contestó, eligió el servicio, el bot le preguntó el día y no tocó nada.
+        $this->travel(5)->minutes();
+        ServiciosPendientes::olvidar($this->phone());
+        UltimoPedido::guardar($this->phone(), ['servicios' => ['Semipermanente'], 'eligiendo_fecha' => true]);
+        $this->mensaje(Message::DIRECTION_IN, 'Semipermanente');
+        $this->conversacion->update(['last_inbound_at' => now()]);
+        $this->mensaje(Message::DIRECTION_OUT, '¿Para qué día? 📅');
+        $this->travel(20)->minutes();
+
+        $this->artisan('bot:nudge-abandoned');
+
+        $this->assertSame(2, $this->enviados());
+        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', '¿qué día te quedaría bien?'));
+    }
+
+    public function test_hay_un_tope_diario_de_empujones_por_numero(): void
+    {
+        foreach (range(1, 4) as $i) {
+            $this->artisan('bot:nudge-abandoned');
+            UltimoPedido::guardar($this->phone(), ['servicios' => ['Semipermanente'], 'eligiendo_fecha' => true]);
+            $this->travel(20)->minutes();
+            $this->mensaje(Message::DIRECTION_IN, 'Semipermanente');
+            $this->conversacion->update(['last_inbound_at' => now()]);
+            $this->mensaje(Message::DIRECTION_OUT, '¿Para qué día? 📅');
+            $this->travel(20)->minutes();
+        }
+
+        $this->assertSame(3, $this->enviados());
+    }
+
     public function test_si_se_despidio_no_se_le_pregunta(): void
     {
         /*

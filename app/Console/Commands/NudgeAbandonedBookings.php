@@ -26,7 +26,7 @@ use Illuminate\Support\Facades\Cache;
  * como siempre -- con lo que ya había elegido guardado -- y si no puede,
  * `hablar_con_persona` la pasa al equipo.
  *
- * Una vez por mensaje suyo y a lo sumo cada seis horas por número: la
+ * Una vez por mensaje suyo y a lo sumo tres veces al día por número: la
  * pregunta ayuda la primera vez; la tercera es acoso.
  */
 class NudgeAbandonedBookings extends Command
@@ -40,6 +40,9 @@ class NudgeAbandonedBookings extends Command
     public const IDLE_MINUTES = 15;
 
     private const GIVE_UP_MINUTES = 60;
+
+    /** Cuántos «¿te ayudo?» como máximo por número y por día. */
+    private const MAX_PER_DAY = 3;
 
     /** Horas en que se le puede escribir a alguien (hora del negocio). */
     private const FROM_HOUR = 7;
@@ -122,7 +125,17 @@ class NudgeAbandonedBookings extends Command
             if (! Cache::add($once, true, now()->addDay())) {
                 continue;
             }
-            if (! Cache::add('abandoned_nudge_phone:'.$phone, true, now()->addHours(6))) {
+
+            /*
+             * Tope por día, no una espera de seis horas. Con la espera, quien
+             * contestaba el primer «¿te ayudo?» (se había quedado en el
+             * catálogo), elegía el servicio y se quedaba en «¿Para qué día?»
+             * ya no recibía el segundo: la espera la tapaba. Cada aviso sigue
+             * siendo por un mensaje suyo distinto (la llave de arriba); esto
+             * solo evita que sean muchos en un día.
+             */
+            $today = 'abandoned_nudge_count:'.$phone.':'.CarbonImmutable::now($business->businessTimezone())->format('Ymd');
+            if ((int) Cache::get($today, 0) >= self::MAX_PER_DAY) {
                 continue;
             }
 
@@ -130,6 +143,7 @@ class NudgeAbandonedBookings extends Command
 
             if ($envio->texto($caller, $text)) {
                 $sent++;
+                Cache::put($today, (int) Cache::get($today, 0) + 1, now()->addDay());
             }
         }
 
