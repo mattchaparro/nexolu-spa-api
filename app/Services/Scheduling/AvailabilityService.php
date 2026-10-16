@@ -638,6 +638,11 @@ class AvailabilityService
             );
         }
 
+        // Un turno extra que se pisa o se toca con el horario (se queda hasta
+        // las 9 cuando salía a las 5, o trabaja un sábado completo) es UN solo
+        // turno: sin juntarlos, cada ventana generaría sus propias horas.
+        $working = TimeWindow::mergeAll($working);
+
         $cuts = [];
 
         foreach ($exceptions as $exception) {

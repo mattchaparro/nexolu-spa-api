@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\V1\Admin\LoyaltyProgramController;
 use App\Http\Controllers\Api\V1\Admin\PermissionController;
 use App\Http\Controllers\Api\V1\Admin\PublicPageController;
 use App\Http\Controllers\Api\V1\Admin\ResourceAdminController;
+use App\Http\Controllers\Api\V1\Admin\ScheduleExceptionController;
 use App\Http\Controllers\Api\V1\Admin\ServiceAdminController;
 use App\Http\Controllers\Api\V1\Admin\ServiceCategoryController;
 use App\Http\Controllers\Api\V1\Admin\ServicePackageController;
@@ -167,6 +168,13 @@ Route::prefix('v1')->group(function () {
 
             Route::put('/{resource}/schedules', [ResourceAdminController::class, 'saveSchedules'])
                 ->middleware('permission:horarios.gestionar');
+
+            // Cambios de un día: horas extra, permisos, vacaciones.
+            Route::middleware('permission:horarios.gestionar')->group(function () {
+                Route::get('/{resource}/exceptions', [ScheduleExceptionController::class, 'index']);
+                Route::post('/{resource}/exceptions', [ScheduleExceptionController::class, 'store']);
+                Route::delete('/{resource}/exceptions/{exception}', [ScheduleExceptionController::class, 'destroy']);
+            });
         });
 
         // Almuerzos y descansos. Mismo permiso que los horarios: es la misma
