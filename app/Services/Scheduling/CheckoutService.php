@@ -5,10 +5,11 @@ namespace App\Services\Scheduling;
 use App\Models\Appointment;
 use App\Models\AppointmentItem;
 use App\Models\PaymentMethod;
-use App\Models\Service;
 use App\Models\PayrollSettlementItem;
+use App\Models\Service;
 use App\Models\User;
 use App\Services\Loyalty\LoyaltyService;
+use App\Services\Payroll\PayrollCutoff;
 use App\Support\Money\DiscountAllocator;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
@@ -67,6 +68,22 @@ class CheckoutService
 
         if ($appointment->status === Appointment::STATUS_CANCELLED) {
             throw new \DomainException('No se puede cobrar una cita cancelada.');
+        }
+
+        /*
+         * Una quincena ya pagada no se reabre: el servicio que no se subió a
+         * tiempo ya no se puede cobrar (ver PayrollCutoff).
+         */
+        if (($cierre = app(PayrollCutoff::class)->closed($appointment)) !== null) {
+            $tz = $appointment->business?->businessTimezone() ?? config('spa.defaults.timezone');
+
+            throw new \DomainException(sprintf(
+                'Esta cita es del %s y %s ya recibió su pago el %s, así que ya no se puede cobrar. '
+                .'Si fue un error o no se hizo, cancélala desde la agenda.',
+                $appointment->starts_at->setTimezone($tz)->locale('es')->isoFormat('D [de] MMMM'),
+                $cierre['resource'],
+                CarbonImmutable::parse($cierre['paid_on'])->locale('es')->isoFormat('D [de] MMMM'),
+            ));
         }
 
         if ($discountAmount < 0) {

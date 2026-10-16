@@ -4,11 +4,12 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Models\Appointment;
 use App\Models\AppointmentItem;
-use App\Models\PayrollSettlement;
-use App\Support\Payroll\AdjustmentCatalog;
 use App\Models\PayrollAdjustment;
+use App\Models\PayrollSettlement;
 use App\Models\ServiceRating;
+use App\Services\Payroll\PayrollCutoff;
 use App\Services\Payroll\PayrollService;
+use App\Support\Payroll\AdjustmentCatalog;
 use App\Support\Ratings\Comentario;
 use App\Support\Ratings\Nota;
 use Carbon\CarbonImmutable;
@@ -56,6 +57,9 @@ class MyWorkController
             // Lo que atendio pero todavia no cobro: lo primero que tiene que
             // resolver antes de irse.
             'pending_checkout' => $this->pendingCheckout($resource->id, $now),
+            // Lo que no se subió a tiempo y ya no se puede cobrar: su quincena
+            // se pagó. Se muestra para que sepa qué pasó, no para cobrarlo.
+            'expired_checkout' => $this->pendingCheckout($resource->id, $now, expired: true),
             'agenda' => $this->agenda($resource->id, $now, $tz),
             'ratings' => $this->calificaciones($resource->id, $now, $tz),
             // Lo que ya le pagaron. En la app vieja era una pantalla suya
@@ -111,7 +115,7 @@ class MyWorkController
     private function hastaHoy($business, $resource, CarbonImmutable $now): ?array
     {
         try {
-            $p = app(PayrollService::class)->preview($business, $resource, $now, conDetalle: false);
+            $p = app(PayrollService::class)->preview($business, $resource, $now, conDetalle: true);
         } catch (ValidationException) {
             // Ya se le liquidó más allá de hoy: no lleva nada pendiente.
             return null;
@@ -127,10 +131,35 @@ class MyWorkController
             'since' => $p['period_start'],
             'services' => $p['services_count'],
             'charged' => $p['charged_total'],
+            'base' => $p['base_total'] ?? 0,
             'commission' => $p['commission_total'],
             'bonus' => $p['bonus_total'],
             'deduction' => $p['deduction_total'],
             'net' => $p['net_total'],
+            /*
+             * El detalle de esa cifra: servicio por servicio, con su porcentaje.
+             * «Llevo 600.000» no se entiende si no se ve de qué servicios sale;
+             * es la misma lista que ve quien paga (PayrollService::preview).
+             *
+             * De la clienta solo el primer nombre: la base de clientas es del
+             * negocio, y para reconocer el servicio alcanza.
+             */
+            'items' => collect($p['items'])->map(fn (array $i) => [
+                'date' => substr((string) $i['charged_at'], 0, 10),
+                'service_name' => $i['service_name'],
+                'client_name' => $i['client_name'] ? explode(' ', trim((string) $i['client_name']))[0] : null,
+                'charged' => $i['charged'],
+                'commission_rate' => $i['commission_rate'],
+                'commission_amount' => $i['commission_amount'],
+            ])->values()->all(),
+            // Lo que se le suma o se le descuenta en este pago (vales, premios).
+            'adjustments' => collect($p['adjustments'])->map(fn (array $a) => [
+                'date' => $a['date'],
+                'kind' => $a['kind'],
+                'label' => $a['category_label'],
+                'description' => $a['description'],
+                'amount' => $a['amount'],
+            ])->values()->all(),
         ];
     }
 
@@ -281,9 +310,17 @@ class MyWorkController
         ];
     }
 
-    /** @return list<array<string, mixed>> */
-    private function pendingCheckout(int $resourceId, CarbonImmutable $now): array
+    /**
+     * Lo atendido y sin cobrar. Con `expired` van las que ya no se pueden
+     * cobrar porque la quincena se pagó sin ellas (ver PayrollCutoff); sin
+     * él, solo las que todavía se pueden subir.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function pendingCheckout(int $resourceId, CarbonImmutable $now, bool $expired = false): array
     {
+        $cutoff = app(PayrollCutoff::class);
+
         return Appointment::query()
             /*
              * `completed` TAMBIEN cuenta, y es el caso que mas duele.
@@ -312,8 +349,10 @@ class MyWorkController
             ->whereHas('items', fn ($q) => $q->where('resource_id', $resourceId))
             ->with('items.service')
             ->orderBy('starts_at')
-            ->limit(20)
+            ->limit(80)
             ->get()
+            ->filter(fn (Appointment $a) => ($cutoff->closed($a) !== null) === $expired)
+            ->take(20)
             ->map(fn (Appointment $a) => [
                 'id' => $a->id,
                 'client_name' => $a->client_name,
