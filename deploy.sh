@@ -1,9 +1,14 @@
 #!/usr/bin/env bash
 #
-# Deploy de nexolu-spa-api EN el droplet legacy `nexolu`, donde ya viven
-# pos-saas y el panel nexolu-admin.
+# Deploy de nexolu-spa-api EN el droplet `nexolu-pos-prod`. Hasta el
+# 2026-10-15 vivia en el legacy `nexolu` (134.122.116.201); ahi ya NO se
+# despliega: la carpeta quedo renombrada para que un deploy viejo falle.
 #
-#   ssh root@134.122.116.201 'cd /opt/nexolu/nexolu-spa-api && bash deploy.sh'
+#   ssh root@174.138.42.118 'cd /opt/nexolu/nexolu-spa-api && bash deploy.sh'
+#
+# La base (nexolu_spa) es el MySQL en docker del mismo droplet, publicado en
+# la IP privada: DB_HOST=10.116.0.6. Con --network host el contenedor llega
+# igual que antes llegaba al MySQL nativo del legacy.
 #
 #   bash deploy.sh            pull + build + recrear + migrar
 #   bash deploy.sh recrear    SOLO recrear el contenedor, sin build ni pull
