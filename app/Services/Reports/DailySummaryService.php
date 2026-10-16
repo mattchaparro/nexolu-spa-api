@@ -4,9 +4,11 @@ namespace App\Services\Reports;
 
 use App\Models\Appointment;
 use App\Models\Business;
-use App\Models\ProductSale;
 use App\Models\PayrollSettlementItem;
+use App\Models\ProductSale;
 use App\Services\Cash\CashTotalsService;
+use App\Services\Payroll\PayrollCutoff;
+use App\Support\Scheduling\AppointmentStateMachine;
 use Carbon\CarbonImmutable;
 
 /**
@@ -18,6 +20,57 @@ use Carbon\CarbonImmutable;
  */
 class DailySummaryService
 {
+    /**
+     * Las citas sin cobrar, para revisarlas y limpiarlas.
+     *
+     * El resumen solo traía el CONTEO («3 citas sin cobrar») y no cuáles: no
+     * había cómo verlas ni borrarlas. Se mide por `checked_out_at`, no por el
+     * estado, igual que el conteo: la «completada» sin cobrar es justo la que
+     * se pierde.
+     *
+     * Un día, o `$all` para todos los días ya pasados (hasta 120): lo que se
+     * quedó sin subir semanas atrás sigue estorbando en la lista de la
+     * persona. `expired` marca las que ya no se pueden cobrar porque su
+     * quincena se pagó (ver PayrollCutoff): solo se pueden borrar.
+     *
+     * @param  list<int>|null  $sedes  null = todas.
+     * @return list<array<string, mixed>>
+     */
+    public function unbilled(Business $business, CarbonImmutable $date, bool $all = false, ?array $sedes = null): array
+    {
+        $tz = $business->businessTimezone();
+        $cutoff = app(PayrollCutoff::class);
+
+        return Appointment::query()
+            ->with(['items.service', 'items.resource'])
+            ->when($sedes !== null, fn ($q) => $q->whereIn('location_id', $sedes))
+            ->whereNotIn('status', [Appointment::STATUS_CANCELLED, Appointment::STATUS_NO_SHOW])
+            ->whereNull('checked_out_at')
+            ->when(
+                $all,
+                // Solo lo que ya pasó: una cita de mañana no está «sin cobrar».
+                fn ($q) => $q->where('starts_at', '<=', now()->utc())->where('starts_at', '>=', now()->subDays(120)->utc()),
+                fn ($q) => $q->whereBetween('starts_at', [$date->startOfDay()->utc(), $date->addDay()->startOfDay()->utc()]),
+            )
+            ->orderBy('starts_at')
+            ->limit(200)
+            ->get()
+            ->map(fn (Appointment $a) => [
+                'appointment_id' => $a->id,
+                'date' => $a->starts_at?->setTimezone($tz)->toDateString(),
+                'time' => $a->starts_at?->setTimezone($tz)->format('H:i'),
+                'client_name' => $a->client_name,
+                'services' => $a->items->map(fn ($i) => $i->service?->name)->filter()->unique()->implode(' + '),
+                'people' => $a->items->map(fn ($i) => $i->resource?->name)->filter()->unique()->implode(' y '),
+                'status' => $a->status,
+                'status_label' => AppointmentStateMachine::label($a->status),
+                'total' => (float) $a->items->sum(fn ($i) => (float) ($i->price ?? 0)),
+                'expired' => $cutoff->closed($a) !== null,
+            ])
+            ->values()
+            ->all();
+    }
+
     /**
      * @param  list<int>|null  $sedes  null = todas.
      * @return array<string, mixed>

@@ -6,9 +6,11 @@ use App\Http\Resources\AppointmentResource;
 use App\Models\Appointment;
 use App\Models\LoyaltyReward;
 use App\Models\PaymentMethod;
+use App\Models\User;
 use App\Services\Discounts\CampaignService;
 use App\Services\Loyalty\LoyaltyService;
 use App\Services\Messaging\MessageDispatcher;
+use App\Services\Payroll\TipRecorder;
 use App\Services\Scheduling\CheckoutService;
 use App\Support\Money\CommissionPolicy;
 use App\Support\Money\LoyaltyCalculator;
@@ -211,6 +213,10 @@ class CheckoutController
             'item_services.*' => ['integer'],
             // Un premio de la tarjeta de sellos que la clienta quiere usar hoy.
             'loyalty_reward_id' => ['nullable', 'integer'],
+            // La propina de quien atendió: {id de la persona: valor}. Es de ella
+            // entera, no entra en lo cobrado ni paga comisión (ver TipRecorder).
+            'tips' => ['nullable', 'array'],
+            'tips.*' => ['nullable', 'numeric', 'min:0', 'max:5000000'],
         ]);
 
         $method = PaymentMethod::where('business_id', $request->user()->business_id)
@@ -278,7 +284,34 @@ class CheckoutController
             return response()->json(['message' => $e->getMessage()], 422);
         }
 
+        $this->recordTips($cobrada, $data['tips'] ?? [], $request->user());
+
         return response()->json(new AppointmentResource($cobrada));
+    }
+
+    /**
+     * Las propinas que se anotaron al cobrar, a quien atendió cada línea.
+     *
+     * Solo a personas de ESTA cita: mandar el id de otra persona no le anota
+     * una propina a nadie. El cobro ya salió bien, así que una falla aquí se
+     * reporta pero no lo deshace.
+     *
+     * @param  array<int|string, mixed>  $tips
+     */
+    private function recordTips(Appointment $cobrada, array $tips, User $by): void
+    {
+        $personas = $cobrada->loadMissing('items.resource')->items
+            ->map(fn ($i) => $i->resource)->filter()->unique('id')->keyBy('id');
+
+        foreach ($tips as $resourceId => $amount) {
+            $persona = $personas->get((int) $resourceId);
+
+            if ($persona === null || (float) $amount <= 0) {
+                continue;
+            }
+
+            rescue(fn () => app(TipRecorder::class)->record($persona, (float) $amount, $by, $cobrada));
+        }
     }
 
     public function destroy(Request $request, Appointment $appointment): JsonResponse

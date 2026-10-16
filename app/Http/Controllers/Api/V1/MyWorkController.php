@@ -132,6 +132,8 @@ class MyWorkController
             'services' => $p['services_count'],
             'charged' => $p['charged_total'],
             'base' => $p['base_total'] ?? 0,
+            // Dentro de los premios; sin comisión, es de ella entera.
+            'tips' => $p['tip_total'] ?? 0,
             'commission' => $p['commission_total'],
             'bonus' => $p['bonus_total'],
             'deduction' => $p['deduction_total'],
@@ -154,6 +156,8 @@ class MyWorkController
             ])->values()->all(),
             // Lo que se le suma o se le descuenta en este pago (vales, premios).
             'adjustments' => collect($p['adjustments'])->map(fn (array $a) => [
+                'id' => $a['id'],
+                'is_tip' => $a['category'] === 'propina',
                 'date' => $a['date'],
                 'kind' => $a['kind'],
                 'label' => $a['category_label'],
@@ -283,6 +287,7 @@ class MyWorkController
                 'commission_total' => round((float) $s->commission_total, 2),
                 'base_total' => round((float) $s->base_total, 2),
                 'bonus_total' => round((float) $s->bonus_total, 2),
+                'tip_total' => round((float) $s->tip_total, 2),
                 'deduction_total' => round((float) $s->deduction_total, 2),
                 'net_total' => round((float) $s->net_total, 2),
                 'notes' => $s->notes,

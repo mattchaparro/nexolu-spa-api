@@ -104,6 +104,20 @@ class CheckoutService
         $cobradoEn ??= CarbonImmutable::now();
 
         return DB::transaction(function () use ($appointment, $paymentMethod, $by, $discountAmount, $discountReason, $itemPrices, $transition, $commissionDiscount, $cobradoEn, $itemServices) {
+            /*
+             * Se vuelve a mirar YA bloqueada la cita, no solo arriba.
+             *
+             * La revisión de arriba lee el modelo tal como llegó, y dos
+             * peticiones simultáneas (doble toque con mala señal, dos
+             * pestañas, un reintento) la pasan las dos: la segunda esperaba
+             * el bloqueo y luego cobraba otra vez con ese modelo viejo.
+             */
+            $actual = Appointment::withoutGlobalScopes()->whereKey($appointment->id)->lockForUpdate()->first();
+
+            if ($actual?->checked_out_at !== null) {
+                throw new \DomainException('Esta cita ya fue cobrada.');
+            }
+
             $items = $appointment->items()->with('resource')->lockForUpdate()->get();
 
             foreach ($items as $item) {

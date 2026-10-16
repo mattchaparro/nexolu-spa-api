@@ -235,6 +235,23 @@ class CashController
         return response()->json(app(DailySummaryService::class)->build($business, $date, $sedes));
     }
 
+    /** Las citas sin cobrar de un día (o de todos los días), para revisarlas. */
+    public function unbilled(Request $request): JsonResponse
+    {
+        $business = $request->user()->business;
+        $date = $this->dateFrom($request, $business->businessTimezone());
+
+        try {
+            $sedes = $this->scope($request)->filterFor($this->requestedLocation($request));
+        } catch (\DomainException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        return response()->json([
+            'items' => app(DailySummaryService::class)->unbilled($business, $date, $request->boolean('all'), $sedes),
+        ]);
+    }
+
     private function dateFrom(Request $request, string $tz): CarbonImmutable
     {
         $raw = $request->query('date');

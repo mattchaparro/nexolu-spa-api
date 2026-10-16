@@ -34,6 +34,7 @@ use App\Http\Controllers\Api\V1\ExpenseController;
 use App\Http\Controllers\Api\V1\InstagramStoryController;
 use App\Http\Controllers\Api\V1\LoyaltyCardController;
 use App\Http\Controllers\Api\V1\MessageController;
+use App\Http\Controllers\Api\V1\MyTipController;
 use App\Http\Controllers\Api\V1\MyWorkController;
 use App\Http\Controllers\Api\V1\NavBadgesController;
 use App\Http\Controllers\Api\V1\PanelAssistantController;
@@ -299,6 +300,10 @@ Route::prefix('v1')->group(function () {
         // lleva ganado y lo que le falta cobrar.
         Route::get('/my-work', [MyWorkController::class, 'summary']);
 
+        // La propina que le dejaron: la anota ella, es suya entera (sin comisión).
+        Route::post('/my-work/tips', [MyTipController::class, 'store']);
+        Route::delete('/my-work/tips/{adjustment}', [MyTipController::class, 'destroy']);
+
         /*
          * El asistente del panel: se le pregunta en palabras por ventas,
          * agenda y clientas, y propone bloqueos que se confirman en una
@@ -344,6 +349,10 @@ Route::prefix('v1')->group(function () {
 
         // El resumen del dia: lo que el dueno mira al cerrar la jornada.
         Route::get('/daily-summary', [CashController::class, 'dailySummary'])
+            ->middleware('permission:reportes.ver');
+
+        // Las citas sin cobrar de ese día (o de todos), para revisarlas y borrarlas.
+        Route::get('/daily-summary/unbilled', [CashController::class, 'unbilled'])
             ->middleware('permission:reportes.ver');
 
         /*

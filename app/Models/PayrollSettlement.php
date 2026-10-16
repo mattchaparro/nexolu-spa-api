@@ -22,7 +22,7 @@ class PayrollSettlement extends Model
         'business_id', 'resource_id', 'period_start', 'period_end',
         'mode', 'base_amount', 'base_period',
         'services_count', 'charged_total', 'commission_total', 'base_total',
-        'bonus_total', 'deduction_total', 'net_total',
+        'bonus_total', 'tip_total', 'deduction_total', 'net_total',
         'paid_at', 'payment_method_id', 'expense_id', 'created_by_user_id', 'notes',
     ];
 
@@ -37,6 +37,7 @@ class PayrollSettlement extends Model
             'commission_total' => 'decimal:2',
             'base_total' => 'decimal:2',
             'bonus_total' => 'decimal:2',
+            'tip_total' => 'decimal:2',
             'deduction_total' => 'decimal:2',
             'net_total' => 'decimal:2',
         ];

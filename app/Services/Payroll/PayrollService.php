@@ -129,6 +129,12 @@ class PayrollService
             'days' => $days,
             'services_count' => $items->count(),
             'charged_total' => round((float) $items->sum('charged'), 2),
+            /*
+             * Las propinas van DENTRO de los premios (`bonus_total`) y se
+             * muestran aparte: son de ella entera, sin comisión ni descuento,
+             * y no es lo mismo que un bono del negocio.
+             */
+            'tip_total' => round((float) $adjustments->where('category', 'propina')->sum('amount'), 2),
             'items' => $conDetalle ? $items->values()->all() : [],
 
             /*
@@ -202,6 +208,7 @@ class PayrollService
                 'commission_total' => $preview['commission_total'],
                 'base_total' => $preview['base_total'],
                 'bonus_total' => $preview['bonus_total'],
+                'tip_total' => $preview['tip_total'],
                 'deduction_total' => $preview['deduction_total'],
                 'net_total' => $preview['net_total'],
                 'paid_at' => CarbonImmutable::now(),
@@ -396,6 +403,7 @@ class PayrollService
                     'commission_total' => $preview['commission_total'],
                     'base_total' => $preview['base_total'],
                     'bonus_total' => $preview['bonus_total'],
+                    'tip_total' => $preview['tip_total'],
                     'deduction_total' => $preview['deduction_total'],
                     'net_total' => $preview['net_total'],
                 ];
