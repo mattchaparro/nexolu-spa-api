@@ -8,6 +8,7 @@ use App\Ai\Capabilities\CreateAppointmentCapability;
 use App\Ai\Capabilities\HandoffCapability;
 use App\Ai\Capabilities\MyAppointmentsCapability;
 use App\Ai\Capabilities\OfferOptionsCapability;
+use App\Ai\Capabilities\Panel\AddHoursCapability;
 use App\Ai\Capabilities\Panel\AgendaCapability;
 use App\Ai\Capabilities\Panel\BlockHoursCapability;
 use App\Ai\Capabilities\Panel\ChattyNonBookersCapability;
@@ -49,6 +50,7 @@ class Registry
         'agenda' => AgendaCapability::class,
         'clientas_sin_agendar' => ChattyNonBookersCapability::class,
         'bloquear_horario' => BlockHoursCapability::class,
+        'agregar_horas' => AddHoursCapability::class,
     ];
 
     public function resolve(string $name): ?Capability

@@ -4,14 +4,15 @@ namespace Tests\Feature\Ai;
 
 use App\Models\Appointment;
 use App\Models\Business;
-use App\Models\Client;
 use App\Models\Message;
 use App\Models\PaymentMethod;
 use App\Models\Resource;
 use App\Models\ResourceBreak;
+use App\Models\ScheduleException;
 use App\Models\Service;
 use App\Models\User;
 use App\Models\WhatsappConversation;
+use App\Services\Scheduling\AvailabilityService;
 use App\Services\Scheduling\BookingService;
 use App\Services\Scheduling\CheckoutService;
 use App\Support\PermissionCatalog;
@@ -177,6 +178,71 @@ class PanelAssistantTest extends TestCase
         $this->assertSame('2026-09-18', $bloqueo->effective_from->toDateString());
         $this->assertSame('2026-09-18', $bloqueo->effective_to->toDateString());
         $this->assertNull($bloqueo->weekday);
+    }
+
+    public function test_trabaja_hoy_hasta_las_nueve_suma_desde_donde_termina_su_turno(): void
+    {
+        // Maria sale a las 8 pm: «hoy trabaja hasta las 9».
+        $r = $this->invoke('agregar_horas', ['persona' => 'Maria', 'fecha' => 'hoy', 'hora_fin' => '21:00'])
+            ->assertOk()->json('data');
+
+        $this->assertTrue($r['agregado']);
+        $this->assertSame('8:00 pm a 9:00 pm', $r['horas']);
+
+        $cambio = ScheduleException::withoutGlobalScopes()->sole();
+        $this->assertSame(ScheduleException::KIND_EXTRA_HOURS, $cambio->kind);
+        $this->assertSame($this->maria->id, $cambio->resource_id);
+        $this->assertSame('20:00', $cambio->starts_at->setTimezone('America/Bogota')->format('H:i'));
+        $this->assertSame('21:00', $cambio->ends_at->setTimezone('America/Bogota')->format('H:i'));
+    }
+
+    public function test_un_dia_sin_turno_se_puede_trabajar_si_dicen_las_horas(): void
+    {
+        // El domingo no trabaja: «el domingo trabaja de 10 a 12».
+        $this->invoke('agregar_horas', [
+            'persona' => 'Maria', 'fecha' => '2026-09-20', 'hora_inicio' => '10:00', 'hora_fin' => '12:00',
+        ])->assertOk();
+
+        $horas = app(AvailabilityService::class)->slotsForService(
+            $this->business, $this->semi, CarbonImmutable::parse('2026-09-20', 'America/Bogota'),
+        );
+        $this->assertSame(['10:00', '11:00'], $this->startTimes($horas));
+    }
+
+    public function test_hasta_las_x_en_un_dia_sin_turno_pregunta_desde_cuando(): void
+    {
+        $r = $this->invoke('agregar_horas', ['persona' => 'Maria', 'fecha' => '2026-09-20', 'hora_fin' => '12:00'])
+            ->assertOk()->json('data');
+
+        $this->assertStringContainsString('no tiene turno ese día', $r['falta_informacion']);
+
+        $this->assertSame(0, ScheduleException::withoutGlobalScopes()->count());
+    }
+
+    public function test_si_ya_trabaja_hasta_esa_hora_no_agrega_nada(): void
+    {
+        $r = $this->invoke('agregar_horas', ['persona' => 'Maria', 'fecha' => 'hoy', 'hora_fin' => '19:00'])
+            ->assertOk()->json('data');
+
+        $this->assertStringContainsString('ya trabaja hasta las 8:00 pm', $r['falta_informacion']);
+
+        $this->assertSame(0, ScheduleException::withoutGlobalScopes()->count());
+    }
+
+    public function test_no_se_agregan_horas_a_un_dia_que_ya_paso(): void
+    {
+        $r = $this->invoke('agregar_horas', [
+            'persona' => 'Maria', 'fecha' => '2026-09-14', 'hora_inicio' => '10:00', 'hora_fin' => '12:00',
+        ])->assertOk()->json('data');
+
+        $this->assertSame('Ese día ya pasó.', $r['falta_informacion']);
+        $this->assertSame(0, ScheduleException::withoutGlobalScopes()->count());
+    }
+
+    public function test_agregar_horas_es_de_quien_administra_no_de_la_clienta(): void
+    {
+        $this->invoke('agregar_horas', ['persona' => 'Maria', 'fecha' => 'hoy', 'hora_fin' => '21:00'], 'whatsapp')
+            ->assertForbidden();
     }
 
     public function test_la_clienta_de_whatsapp_no_puede_pedir_reportes(): void
