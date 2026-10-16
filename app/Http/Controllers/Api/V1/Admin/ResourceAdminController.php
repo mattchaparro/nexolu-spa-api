@@ -248,6 +248,78 @@ class ResourceAdminController
         );
     }
 
+    /**
+     * El acceso al sistema de una persona: ver su correo, cambiarlo, ponerle
+     * una contraseña nueva -- o darle acceso a quien no lo tenía.
+     *
+     * Antes el correo y la contraseña solo se escribían al CREAR a la persona:
+     * después ni el administrador veía el correo ni podía cambiar la
+     * contraseña de una empleada que la olvidó, y la única salida era pedirle
+     * a soporte.
+     *
+     * La contraseña nunca viaja de vuelta: se guarda con hash y solo se puede
+     * reemplazar. Cambiarla cierra las sesiones abiertas de esa persona.
+     */
+    public function saveLogin(Request $request, Resource $resource): JsonResponse
+    {
+        $this->assertVisible($request, $resource);
+        abort_unless($resource->type === Resource::TYPE_STAFF, 422, 'Solo las personas del equipo tienen acceso.');
+
+        $business = $request->user()->business;
+        $account = $resource->user;
+
+        // Quien administra no puede tomar la cuenta de la dueña.
+        abort_if(
+            $account !== null && $account->is_owner && ! $request->user()->is_owner && $account->id !== $request->user()->id,
+            403,
+            'Solo la dueña puede cambiar el acceso de la dueña.',
+        );
+
+        $data = $request->validate([
+            'email' => [
+                'required', 'email', 'max:255',
+                Rule::unique('users', 'email')->whereNull('deleted_at')->ignore($account?->id),
+            ],
+            // Nueva cuenta: la contraseña es obligatoria. Con cuenta, vacía
+            // significa «no la cambies».
+            'password' => [$account === null ? 'required' : 'nullable', 'string', 'min:8'],
+            'role' => ['nullable', Rule::in(PermissionCatalog::roles())],
+        ]);
+
+        DB::transaction(function () use (&$account, $resource, $data, $business) {
+            if ($account === null) {
+                $account = User::create([
+                    'business_id' => $business->id,
+                    'name' => $resource->name,
+                    'email' => $data['email'],
+                    'phone' => $resource->phone,
+                    'password' => Hash::make($data['password']),
+                    'is_active' => (bool) $resource->is_active,
+                ]);
+                PermissionCatalog::applyRole($account, $data['role'] ?? PermissionCatalog::ROLE_STAFF);
+                $resource->update(['user_id' => $account->id]);
+
+                return;
+            }
+
+            $account->email = $data['email'];
+
+            if (! empty($data['password'])) {
+                $account->password = Hash::make($data['password']);
+            }
+
+            $account->save();
+        });
+
+        // Con otra contraseña, las sesiones que ya tenía abiertas dejan de
+        // servir. La de quien lo hace se conserva: no se saca a sí misma.
+        if (! empty($data['password']) && $account->id !== $request->user()->id) {
+            $account->tokens()->delete();
+        }
+
+        return response()->json(['login_email' => $account->email]);
+    }
+
     public function schedules(Request $request, Resource $resource): JsonResponse
     {
         $this->assertVisible($request, $resource);

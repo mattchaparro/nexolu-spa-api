@@ -33,6 +33,12 @@ class ResourceResource extends JsonResource
             // esa categoría (Marcela, pedicure día de por medio).
             'category_rest_days' => array_values($this->category_rest_days ?? []),
             'user_id' => $this->user_id,
+            // Con qué correo entra. Solo para quien administra al equipo: el
+            // resto de la gente ve la agenda, no los correos de las demás.
+            'login_email' => $this->when(
+                $request->user()?->hasBusinessPermission('recursos.gestionar') === true,
+                fn () => $this->user?->email,
+            ),
             'is_bookable_online' => (bool) $this->is_bookable_online,
             'is_active' => (bool) $this->is_active,
             // Su porcentaje general. Nulo = cada servicio decide.

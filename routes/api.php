@@ -162,6 +162,7 @@ Route::prefix('v1')->group(function () {
             Route::middleware('permission:recursos.gestionar')->group(function () {
                 Route::post('/', [ResourceAdminController::class, 'store']);
                 Route::post('/{resource}', [ResourceAdminController::class, 'update']);
+                Route::put('/{resource}/login', [ResourceAdminController::class, 'saveLogin']);
             });
 
             Route::put('/{resource}/schedules', [ResourceAdminController::class, 'saveSchedules'])

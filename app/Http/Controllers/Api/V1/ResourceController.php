@@ -38,6 +38,8 @@ class ResourceController
             ->when($sedes !== null, fn ($q) => $q->whereIn('location_id', $sedes))
             ->orderBy('sort_order')
             ->orderBy('name')
+            // Para el correo de acceso (solo lo ve quien administra al equipo).
+            ->with('user:id,email')
             ->get();
 
         return ResourceResource::collection($resources);
