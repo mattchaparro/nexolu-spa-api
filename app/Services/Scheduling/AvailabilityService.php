@@ -78,6 +78,7 @@ class AvailabilityService
 
             foreach ($this->freeWindowsFor($business, $resource, $date, $tz) as $window) {
                 $cursor = $this->ceilToGrid($window->start, $granularity);
+                $ultimoOfrecido = null;
 
                 while ($cursor->addMinutes($occupiedMinutes) <= $window->end) {
                     $serviceStart = $cursor->addMinutes($service->buffer_before_min);
@@ -91,7 +92,34 @@ class AvailabilityService
                         ];
                     }
 
+                    $ultimoOfrecido = $cursor;
                     $cursor = $cursor->addMinutes($paso);
+                }
+
+                /*
+                 * Y la última que cabe, pegada al FINAL de la franja.
+                 *
+                 * Avanzar de lo que dura el servicio deja la cola de la franja
+                 * sin ofrecer: Marcela libre de 2 a 9 pm con un servicio de
+                 * hora y media daba 2:00, 3:30, 5:00 y 6:30, y las 7:30 --que
+                 * cabe justo hasta las 9-- no salía nunca. Ni la de las 5 entre
+                 * las 4 y las 6:30. Pegada al final tampoco fragmenta el día:
+                 * termina donde termina la franja.
+                 */
+                $alFinal = $this->floorToGrid($window->end->subMinutes($occupiedMinutes), $granularity);
+                $serviceStart = $alFinal->addMinutes($service->buffer_before_min);
+
+                if (
+                    $alFinal >= $window->start
+                    && ($ultimoOfrecido === null || $alFinal > $ultimoOfrecido)
+                    && $serviceStart >= $earliest
+                ) {
+                    $slots[] = [
+                        'resource_id' => $resource->id,
+                        'resource_name' => $resource->name,
+                        'starts_at' => $serviceStart,
+                        'ends_at' => $serviceStart->addMinutes($duration),
+                    ];
                 }
             }
         }
@@ -881,6 +909,19 @@ class AvailabilityService
         // Nunca menos que la rejilla: un servicio sin duración dejaría el
         // cursor quieto y el bucle no terminaría nunca.
         return max((int) ceil($occupiedMinutes / $granularity) * $granularity, $granularity);
+    }
+
+    /** Redondea hacia abajo hasta el punto anterior de la rejilla del dia. */
+    private function floorToGrid(CarbonImmutable $moment, int $granularity): CarbonImmutable
+    {
+        if ($granularity < 1) {
+            return $moment;
+        }
+
+        $dayStart = $moment->startOfDay();
+        $minutesIntoDay = (int) $dayStart->diffInMinutes($moment);
+
+        return $dayStart->addMinutes($minutesIntoDay - ($minutesIntoDay % $granularity));
     }
 
     /** Redondea hacia arriba hasta el siguiente punto de la rejilla del dia. */

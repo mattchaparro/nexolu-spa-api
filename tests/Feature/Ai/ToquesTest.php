@@ -535,7 +535,14 @@ class ToquesTest extends TestCase
 
     public function test_tocar_otra_hora_vuelve_a_mandar_las_horas(): void
     {
-        $horas = $this->invoke('disponibilidad', ['servicio' => 'Semipermanente', 'fecha' => $this->manana()])
+        // Un servicio corto: más horas de las que caben en una lista.
+        $this->makeService(
+            $this->business, 30,
+            \App\Models\Resource::withoutGlobalScope('business')->whereIn('name', ['Maria', 'Lucia'])->get()->all(),
+            name: 'Retoque rapido',
+        );
+
+        $horas = $this->invoke('disponibilidad', ['servicio' => 'Retoque rapido', 'fecha' => $this->manana()])
             ->json('data.ofrecidas');
         $this->toques()->atender($this->conversacion, $horas[0]['hora']);
 

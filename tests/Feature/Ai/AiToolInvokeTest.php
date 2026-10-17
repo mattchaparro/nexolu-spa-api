@@ -375,8 +375,9 @@ class AiToolInvokeTest extends TestCase
             // servicio y con quién van debajo, sin competirle al dato.
             // Y repartidas, no cuatro cuartos de hora seguidos: quien no
             // puede a las diez tampoco puede a las diez y cuarto.
-            // Cuatro horas y, al final, la salida «Otro día».
-            return count($titulos) === 5
+            // Hasta ocho horas (las diez filas de WhatsApp menos las
+            // salidas) y, al final, «Otro día».
+            return count($titulos) >= 5 && count($titulos) <= 10
                 && end($titulos) === 'Otro día'
                 && $titulos[0] !== $titulos[1]
                 && preg_match('/^\d{1,2}(:\d{2})? (am|pm)$/', $titulos[0]) === 1
@@ -385,7 +386,9 @@ class AiToolInvokeTest extends TestCase
         });
 
         $this->assertStringContainsString('YA le llegaron', $r->json('data.instruccion'));
-        $this->assertCount(4, $r->json('data.ofrecidas'));
+        // Todas las que hay, hasta ocho: con cuatro, un día lleno parecía casi vacío.
+        $unicas = count(array_unique(array_column($r->json('data.horas'), 'hora_24')));
+        $this->assertCount(min(8, $unicas), $r->json('data.ofrecidas'));
     }
 
     public function test_si_no_hay_canal_el_modelo_las_escribe(): void

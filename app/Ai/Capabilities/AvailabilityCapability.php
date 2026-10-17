@@ -50,9 +50,13 @@ class AvailabilityCapability implements Capability
 {
     use Resolves;
 
-    // Cuantas se ofrecen. Mas que esto se lee como un formulario; menos,
-    // parece que no hay agenda.
-    private const MAX_OPCIONES = 4;
+    /*
+     * Cuántas horas caben en la lista: las diez filas de WhatsApp menos las
+     * dos salidas («Otro día», «Con otra persona»). Eran cuatro, y con un día
+     * lleno de horas libres la clienta veía cuatro y creía que eso era todo
+     * (Sara, 16-oct). Si hay más, se reparten a lo largo del día.
+     */
+    private const MAX_OPCIONES = 8;
 
     // Tope de Meta para las filas de una lista. Cuando sobran servicios,
     // la ultima se gasta en "No veo el mio".
@@ -424,9 +428,16 @@ class AvailabilityCapability implements Capability
             ];
         }
 
-        // Repartidas, no las primeras cuatro seguidas: ofrecer 10:00,
-        // 10:15, 10:30 y 10:45 es ofrecer la misma hora cuatro veces.
-        $ofrecidas = $this->repartidas($horas->all(), self::MAX_OPCIONES);
+        /*
+         * Una fila por HORA, no por persona: con «cualquiera», las 2:00 de
+         * Alejandra y las 2:00 de Marcela son la misma opción para la clienta
+         * (y dos filas iguales parecen un error). Se queda la primera.
+         */
+        $porHora = $horas->unique('hora_24')->values();
+
+        // Repartidas, no las primeras seguidas: si no caben todas, que se
+        // vea la mañana y la tarde, no solo las primeras horas.
+        $ofrecidas = $this->repartidas($porHora->all(), self::MAX_OPCIONES);
 
         /*
          * La misma consulta dos veces en pocos minutos NO vuelve a mandar
@@ -443,8 +454,8 @@ class AvailabilityCapability implements Capability
             && now()->diffInMinutes(Carbon::parse($previo['mostrado_at'])) < 10
             // Y las MISMAS horas: «Con otra persona» pide el mismo día y
             // servicio con otra profesional, y esas horas no las ha visto.
-            && array_keys($previo['todas'] ?? []) === $horas->take(12)
-                ->map(fn ($h) => mb_strtolower(trim($h['hora'])))->values()->all();
+            && array_keys($previo['todas'] ?? []) === $horas->take(30)
+                ->map(fn ($h) => mb_strtolower(trim($h['hora'])))->unique()->values()->all();
 
         if ($repetida) {
             return [
@@ -474,7 +485,7 @@ class AvailabilityCapability implements Capability
             // Y TODAS las que hay, para que "Otra hora" pueda mandar las
             // que no se mostraron sin volver a consultar la agenda.
             $todas = [];
-            foreach ($horas->take(12) as $h) {
+            foreach ($horas->take(30) as $h) {
                 $todas[mb_strtolower(trim($h['hora']))] = ['hora_24' => $h['hora_24'], 'hora' => $h['hora'], 'con' => $h['con'] ?? null];
             }
 
@@ -527,7 +538,7 @@ class AvailabilityCapability implements Capability
             'supuse' => $supuestos === [] ? null : $supuestos,
             // En la franja pedida no había: las horas son las del resto del día.
             'fuera_de_franja' => $fueraDeFranja ?: null,
-            'horas' => $horas->take(12)->all(),
+            'horas' => $horas->take(30)->all(),
             'instruccion' => $mostrado
                 ? 'Las horas YA le llegaron como botones y las está viendo. SOLO POR ESTA VEZ '
                     .'responde con una cadena vacía (no llames a `ofrecer_opciones` ni las '

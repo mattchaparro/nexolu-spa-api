@@ -68,7 +68,25 @@ class AvailabilityTest extends TestCase
         $slots = $this->availability->slotsForService($business, $service, $this->wednesday());
 
         // Las 10:30 no salen: terminaria 11:10 y la jornada cierra a las 11.
-        $this->assertSame(['09:00', '09:45'], $this->startTimes($slots));
+        // Las 10:15 sí: es la última que cabe, pegada al cierre (10:55).
+        $this->assertSame(['09:00', '09:45', '10:15'], $this->startTimes($slots));
+    }
+
+    public function test_se_ofrece_tambien_la_ultima_hora_que_cabe_al_final_de_la_franja(): void
+    {
+        /*
+         * Avanzar de lo que dura el servicio dejaba la cola sin ofrecer:
+         * libre de 2 a 9 pm con hora y media daba 2:00, 3:30, 5:00 y 6:30, y
+         * las 7:30 --que cabe justo hasta las 9-- no salía nunca (Sara,
+         * 16-oct).
+         */
+        $business = $this->makeBusiness(['slot_granularity_min' => 15]);
+        $resource = $this->makeResource($business, start: '14:00:00', end: '21:00:00');
+        $service = $this->makeService($business, 90, [$resource]);
+
+        $slots = $this->availability->slotsForService($business, $service, $this->wednesday());
+
+        $this->assertSame(['14:00', '15:30', '17:00', '18:30', '19:30'], $this->startTimes($slots));
     }
 
     public function test_un_servicio_no_cabe_en_una_ventana_mas_corta_que_su_duracion(): void

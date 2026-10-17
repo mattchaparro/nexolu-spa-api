@@ -112,7 +112,8 @@ class HorariosSolapadosTest extends TestCase
             ->all();
 
         // 09:00 a 17:00 corrido, de noventa en noventa.
-        $this->assertSame(['09:00', '10:30', '12:00', '13:30', '15:00'], $suyas);
+        // Y las 15:30, la última que cabe antes de las 17.
+        $this->assertSame(['09:00', '10:30', '12:00', '13:30', '15:00', '15:30'], $suyas);
     }
 
     public function test_el_almuerzo_se_resta_una_vez_y_no_tres(): void
@@ -136,6 +137,7 @@ class HorariosSolapadosTest extends TestCase
         // La mañana llega hasta donde cabe antes de la una, y la tarde
         // arranca a las dos: 14:00 y 15:30, no las 15:00 sueltas que salían
         // cuando cada ventana se recortaba por su lado.
-        $this->assertSame(['09:00', '10:30', '14:00', '15:30'], $horas);
+        // 11:30 es la última de la mañana que cabe antes del almuerzo.
+        $this->assertSame(['09:00', '10:30', '11:30', '14:00', '15:30'], $horas);
     }
 }
