@@ -44,6 +44,7 @@ use App\Http\Controllers\Api\V1\PublicBookingController;
 use App\Http\Controllers\Api\V1\RecurringExpenseController;
 use App\Http\Controllers\Api\V1\ResourceController;
 use App\Http\Controllers\Api\V1\SalesReportController;
+use App\Http\Controllers\Api\V1\SendAvailabilityController;
 use App\Http\Controllers\Api\V1\ServiceController;
 use App\Http\Controllers\Api\V1\SsoExchangeController;
 use App\Http\Controllers\Api\V1\StageController;
@@ -567,6 +568,10 @@ Route::prefix('v1')->group(function () {
             Route::patch('/{link}', [WhatsappLinkController::class, 'update']);
             Route::delete('/{link}', [WhatsappLinkController::class, 'destroy']);
         });
+
+        // Mandarle a una clienta las horas libres como botones: toca una y el bot agenda.
+        Route::post('whatsapp/send-availability', [SendAvailabilityController::class, 'store'])
+            ->middleware('permission:citas.crear');
 
         Route::post('whatsapp/connect-link', [ConnectChatController::class, 'link'])
             ->middleware('permission:clientes.ver');
