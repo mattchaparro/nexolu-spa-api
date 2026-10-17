@@ -36,6 +36,8 @@ class PayrollController
         $data = $request->validate([
             'until' => ['nullable', 'date_format:Y-m-d'],
             'location_id' => ['nullable', 'integer'],
+            // Ver también a quienes ya no trabajan y tienen saldo.
+            'include_inactive' => ['nullable', 'boolean'],
         ]);
 
         $business = $request->user()->business;
@@ -47,9 +49,24 @@ class PayrollController
             return response()->json(['message' => $e->getMessage()], 422);
         }
 
-        $pendientes = $this->payroll->pending($business, $until, $sedes);
+        $todas = $this->payroll->pending($business, $until, $sedes);
+
+        /*
+         * La nómina es de quien TRABAJA. Quienes ya no están pero quedaron con
+         * saldo (comisiones de antes de usar el sistema, por ejemplo) no
+         * estorban la lista: se cuentan aparte y se abren solo si se piden, así
+         * esa plata no queda invisible pero tampoco llena la pantalla.
+         */
+        $inactivas = array_values(array_filter($todas, fn (array $r) => ! $r['is_active']));
+        $pendientes = $request->boolean('include_inactive')
+            ? $todas
+            : array_values(array_filter($todas, fn (array $r) => $r['is_active']));
 
         return response()->json([
+            'inactive' => [
+                'count' => count($inactivas),
+                'total' => round(array_sum(array_column($inactivas, 'net_total')), 2),
+            ],
             'until' => $until->toDateString(),
             /*
              * El total y cuantas tienen saldo, para poder mostrarlo en una
@@ -111,9 +128,12 @@ class PayrollController
                 Rule::exists('payment_methods', 'id')->where('business_id', $request->user()->business_id),
             ],
             'notes' => ['nullable', 'string', 'max:500'],
+            // Ya se pagó por fuera del sistema: se cierra sin mover la caja.
+            'already_paid' => ['nullable', 'boolean'],
         ]);
 
         $business = $request->user()->business;
+        $yaPagado = (bool) ($data['already_paid'] ?? false);
 
         /*
          * Si sale plata, con qué. Sin medio, el gasto de nómina se asumía
@@ -121,7 +141,7 @@ class PayrollController
          * hubiera pagado por transferencia. Un neto en cero o negativo
          * (pidió más anticipos de lo que produjo) no mueve plata: ahí no.
          */
-        if (empty($data['payment_method_id'])) {
+        if (empty($data['payment_method_id']) && ! $yaPagado) {
             try {
                 $neto = (float) $this->payroll->preview(
                     $business,
@@ -143,8 +163,9 @@ class PayrollController
             $resource,
             $this->until($data['until'] ?? null, $business->businessTimezone()),
             $request->user(),
-            $data['payment_method_id'] ?? null,
-            $data['notes'] ?? null,
+            $yaPagado ? null : ($data['payment_method_id'] ?? null),
+            $data['notes'] ?? ($yaPagado ? 'Ya se había pagado fuera del sistema.' : null),
+            registrarGasto: ! $yaPagado,
         );
 
         return response()->json($this->show($settlement), 201);

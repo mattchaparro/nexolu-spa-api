@@ -183,6 +183,12 @@ class PayrollService
     /**
      * Registra el pago. Congela las lineas, reclama los ajustes pendientes y
      * deja el gasto correspondiente en la caja del negocio.
+     *
+     * Con `$registrarGasto = false` se CIERRA lo pendiente sin mover la caja:
+     * es para lo que ya se pagó por fuera del sistema (la quincena de alguien
+     * que ya no trabaja, pagada antes de usar esta aplicación). Queda una
+     * liquidación con su historia, pero ningún gasto: registrar uno
+     * descuadraría la caja de hoy con una plata que ya salió hace meses.
      */
     public function settle(
         Business $business,
@@ -191,10 +197,11 @@ class PayrollService
         User $actor,
         ?int $paymentMethodId = null,
         ?string $notes = null,
+        bool $registrarGasto = true,
     ): PayrollSettlement {
         $preview = $this->preview($business, $resource, $until);
 
-        return DB::transaction(function () use ($business, $resource, $preview, $actor, $paymentMethodId, $notes) {
+        return DB::transaction(function () use ($business, $resource, $preview, $actor, $paymentMethodId, $notes, $registrarGasto) {
             $settlement = PayrollSettlement::create([
                 'business_id' => $business->id,
                 'resource_id' => $resource->id,
@@ -239,7 +246,9 @@ class PayrollService
 
             $this->carryOverDebt($business, $resource, $settlement, $actor);
 
-            $expense = $this->recordExpense($business, $resource, $settlement, $actor, $paymentMethodId);
+            $expense = $registrarGasto
+                ? $this->recordExpense($business, $resource, $settlement, $actor, $paymentMethodId)
+                : null;
             $settlement->update(['expense_id' => $expense?->id]);
 
             return $settlement->fresh(['items', 'adjustments', 'resource']);

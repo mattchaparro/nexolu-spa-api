@@ -2,10 +2,12 @@
 
 namespace Tests\Feature\Payroll;
 
+use App\Models\Appointment;
 use App\Models\Business;
 use App\Models\Expense;
 use App\Models\PaymentMethod;
 use App\Models\PayrollAdjustment;
+use App\Models\PayrollSettlement;
 use App\Models\Resource;
 use App\Models\ResourceSchedule;
 use App\Models\Service;
@@ -15,6 +17,7 @@ use App\Support\Payroll\PayrollMode;
 use App\Support\PermissionCatalog;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Laravel\Sanctum\Sanctum;
 use Tests\Feature\Scheduling\SchedulingScenario;
@@ -107,7 +110,7 @@ class PayrollTest extends TestCase
         // El checkout se sella con la hora real; para las pruebas se corre a
         // la fecha del servicio, que es lo que pasaria en produccion cuando se
         // cobra el mismo dia.
-        \App\Models\Appointment::withoutGlobalScope('business')
+        Appointment::withoutGlobalScope('business')
             ->whereKey($cita->json('id'))
             ->update(['checked_out_at' => $cuando->utc()]);
     }
@@ -549,14 +552,65 @@ class PayrollTest extends TestCase
         $this->postJson("/api/v1/payroll/resources/{$this->maria->id}/settle", [])->assertStatus(422);
     }
 
-    public function test_quien_se_fue_con_comision_sin_pagar_sigue_en_pendientes(): void
+    public function test_quien_ya_no_trabaja_no_estorba_la_lista_pero_su_saldo_no_se_pierde(): void
     {
         $this->cobrar(3);
         $this->maria->update(['is_active' => false]);
 
-        $pendientes = collect($this->getJson('/api/v1/payroll/pending')->assertOk()->json('resources'));
+        $r = $this->getJson('/api/v1/payroll/pending')->assertOk();
+
+        // La nómina es de quien trabaja: no sale en la lista...
+        $this->assertFalse(collect($r->json('resources'))->contains('resource_id', $this->maria->id));
+        // ...pero se cuenta aparte, para que esa plata no quede invisible.
+        $this->assertSame(1, $r->json('inactive.count'));
+        $this->assertGreaterThan(0, $r->json('inactive.total'));
+        // El total pendiente de arriba es solo de quien trabaja.
+        $this->assertEquals(0, $r->json('total'));
+    }
+
+    public function test_se_puede_pedir_ver_tambien_a_quienes_ya_no_trabajan(): void
+    {
+        $this->cobrar(3);
+        $this->maria->update(['is_active' => false]);
+
+        $pendientes = collect($this->getJson('/api/v1/payroll/pending?include_inactive=1')->assertOk()->json('resources'));
 
         $this->assertTrue($pendientes->contains('resource_id', $this->maria->id));
+    }
+
+    public function test_cerrar_lo_ya_pagado_por_fuera_no_mueve_la_caja(): void
+    {
+        $this->cobrar(3);
+        $this->maria->update(['is_active' => false]);
+
+        $respuesta = $this->postJson("/api/v1/payroll/resources/{$this->maria->id}/settle", [
+            'already_paid' => true,
+        ])->assertCreated();
+
+        // Sin medio de pago y sin gasto: la plata salió hace meses.
+        $this->assertSame(0, Expense::withoutGlobalScope('business')->withTrashed()->count());
+        $this->assertNull(PayrollSettlement::withoutGlobalScope('business')->sole()->expense_id);
+        $this->assertStringContainsString('fuera del sistema', (string) $respuesta->json('notes'));
+
+        // Y deja de estar pendiente.
+        $r = $this->getJson('/api/v1/payroll/pending?include_inactive=1')->assertOk();
+        $this->assertFalse(collect($r->json('resources'))->contains('resource_id', $this->maria->id));
+        $this->assertSame(0, $r->json('inactive.count'));
+    }
+
+    public function test_cerrar_lo_ya_pagado_conserva_su_historia_y_se_puede_deshacer(): void
+    {
+        $this->cobrar(3);
+
+        $id = $this->postJson("/api/v1/payroll/resources/{$this->maria->id}/settle", ['already_paid' => true])
+            ->assertCreated()->json('id');
+
+        $this->assertSame(1, PayrollSettlement::withoutGlobalScope('business')->count());
+
+        $this->deleteJson("/api/v1/payroll/settlements/{$id}")->assertOk();
+
+        $preview = $this->getJson("/api/v1/payroll/resources/{$this->maria->id}/preview")->assertOk();
+        $this->assertGreaterThan(0, $preview->json('commission_total'));
     }
 
     public function test_deshacer_devuelve_los_anticipos_a_pendientes(): void
@@ -638,7 +692,7 @@ class PayrollTest extends TestCase
         // Por DB directo: `BelongsToBusiness` reasigna el business_id al del
         // usuario autenticado al crear, asi que un Resource::create() aca
         // terminaria dentro del negocio de Ana y no probaria nada.
-        $ajenaId = \Illuminate\Support\Facades\DB::table('resources')->insertGetId([
+        $ajenaId = DB::table('resources')->insertGetId([
             'business_id' => $otro->id, 'type' => Resource::TYPE_STAFF,
             'name' => 'Ajena', 'is_active' => true, 'sort_order' => 0,
             'payroll_mode' => PayrollMode::COMMISSION, 'base_amount' => 0,
