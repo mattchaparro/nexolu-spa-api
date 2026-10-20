@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Ai;
 
+use App\Ai\AiCaller;
 use App\Ai\Capabilities\AvailabilityCapability;
 use App\Ai\GuidedEntry;
 use App\Ai\Toques;
@@ -809,21 +810,54 @@ class ToquesTest extends TestCase
         $this->assertSame(1, Appointment::withoutGlobalScopes()->count());
     }
 
-    public function test_la_misma_consulta_no_vuelve_a_mandar_la_misma_lista(): void
+    public function test_la_misma_consulta_dice_que_son_todas_una_vez_y_no_se_repite_mas(): void
     {
         /*
          * Cuando la clienta tocaba una hora, el modelo volvía a llamar a la
-         * agenda con los mismos datos y ella recibía las mismas cuatro horas
-         * otra vez, tres veces seguidas.
+         * agenda con los mismos datos y ella recibía las mismas horas otra
+         * vez, tres veces seguidas. Pero quedarse callado fue peor: una
+         * clienta pidió «¿no tienes otro espacio hoy?» y nadie le contestó en
+         * ocho horas (19-oct). La segunda vez se le dice que son todas; la
+         * tercera ya no se manda otra lista.
          */
         $cuantasListas = fn () => Http::recorded()->filter(fn ($par) => isset($par[0]->data()['whatsapp_options']))->count();
 
         $this->invoke('disponibilidad', ['servicio' => 'Semipermanente', 'fecha' => $this->manana()])->assertOk();
         $listas = $cuantasListas();
 
-        $respuesta = $this->invoke('disponibilidad', ['servicio' => 'Semipermanente', 'fecha' => $this->manana()])->assertOk();
+        $segunda = $this->invoke('disponibilidad', ['servicio' => 'Semipermanente', 'fecha' => $this->manana()])->assertOk();
 
-        $this->assertTrue($respuesta->json('data.ya_las_vio'));
-        $this->assertSame($listas, $cuantasListas());
+        $this->assertTrue($segunda->json('data.ya_las_vio'));
+        $this->assertSame($listas + 1, $cuantasListas());
+        Http::assertSent(fn ($r) => str_contains($r->data()['text'] ?? '', 'son todas las horas que me quedan'));
+
+        $tercera = $this->invoke('disponibilidad', ['servicio' => 'Semipermanente', 'fecha' => $this->manana()])->assertOk();
+
+        $this->assertTrue($tercera->json('data.ya_las_vio'));
+        $this->assertSame($listas + 1, $cuantasListas());
+    }
+
+    public function test_tocar_cualquiera_otra_vez_no_deja_a_la_clienta_sin_respuesta(): void
+    {
+        // El camino de los botones (sin modelo): nunca puede quedar en silencio.
+        $this->invoke('disponibilidad', ['servicio' => 'Semipermanente', 'fecha' => $this->manana()])->assertOk();
+        $this->invoke('disponibilidad', ['servicio' => 'Semipermanente', 'fecha' => $this->manana()])->assertOk();
+
+        $resultado = app(AvailabilityCapability::class)->execute(
+            AiCaller::customer($this->business, (string) ChannelPhone::normalize(self::PHONE), null, 'whatsapp'),
+            ['servicio' => 'Semipermanente', 'fecha' => $this->manana()],
+        );
+
+        $respuesta = (fn () => $this->respuestaDe($resultado, 'disponibilidad'))->call($this->toques());
+
+        $this->assertStringContainsString('esas son todas las horas que me quedan', $respuesta['text']);
+    }
+
+    public function test_despues_de_ver_las_horas_no_le_vuelve_a_preguntar_con_quien(): void
+    {
+        // «¿No tienes más temprano?» volvía a preguntar «¿con alguien en particular?».
+        $this->invoke('disponibilidad', ['servicio' => 'Semipermanente', 'fecha' => $this->manana()])->assertOk();
+
+        $this->assertTrue(UltimoPedido::ver((string) ChannelPhone::normalize(self::PHONE))['empleado_preguntado'] ?? false);
     }
 }

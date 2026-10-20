@@ -942,6 +942,23 @@ final class Toques
     private function respuestaDe(array $resultado, string $herramienta): ?array
     {
         /*
+         * Pidió otra vez las mismas horas y ya se le había dicho que eran
+         * todas: se le contesta en texto, NUNCA en silencio. Callar aquí dejó
+         * a una clienta esperando de las 11 am a las 7 pm (19-oct).
+         */
+        if (! empty($resultado['ya_las_vio']) && empty($resultado['reenviado'])) {
+            return [
+                'text' => sprintf(
+                    'Para *%s* el *%s* esas son todas las horas que me quedan 😕 ¿Te busco otro día?',
+                    implode(' y ', (array) ($resultado['servicios'] ?? [])),
+                    $resultado['dia'] ?? 'ese día',
+                ),
+                'conversation_id' => null,
+                'tools_used' => [$herramienta],
+            ];
+        }
+
+        /*
          * `eligiendo_fecha` también es una respuesta ya enviada.
          *
          * Faltaba, y costó una conversación: al tocar un servicio sin día,

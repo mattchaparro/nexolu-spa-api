@@ -458,17 +458,47 @@ class AvailabilityCapability implements Capability
                 ->map(fn ($h) => mb_strtolower(trim($h['hora'])))->unique()->values()->all();
 
         if ($repetida) {
+            /*
+             * Pero tampoco se queda CALLADO.
+             *
+             * Si vuelve a pedir lo mismo es porque no le sirvió lo que vio
+             * («¿no tienes otro espacio hoy? más temprano»). Antes esto no
+             * mandaba nada y, por el camino de los botones, nadie le contestaba:
+             * una clienta tocó «Cualquiera» a las 11:13 y la respuesta llegó a
+             * las 7:33 pm, de una persona (19-oct). Ahora se le dice que esas
+             * son TODAS las horas de ese día, con las mismas horas para tocar y
+             * la salida a otro día.
+             */
+            // Una vez: la tercera vez seguida no se le vuelve a mandar la
+            // misma lista (era el problema original), se le dice en texto.
+            $reenviado = ! $caller->isStaff()
+                && empty($previo['reenviada'])
+                && $this->mostrar($caller, $nombreServicios, $fecha, $ofrecidas, ! empty($arguments['empleado']), $fueraDeFranja, sonTodas: true);
+
+            if ($reenviado && $phoneCtx !== null) {
+                UltimoPedido::guardar($phoneCtx, [
+                    ...UltimoPedido::ver($phoneCtx),
+                    'mostrado_at' => now()->toIso8601String(),
+                    'reenviada' => true,
+                ]);
+            }
+
             return [
                 'servicios' => $nombreServicios,
                 'fecha' => $fecha->format('Y-m-d'),
                 'dia' => $fecha->locale('es')->isoFormat('dddd D [de] MMMM'),
                 'ofrecidas' => $ofrecidas,
                 'ya_las_vio' => true,
-                'instruccion' => 'Estas horas YA se las mandaste hace un momento y las está viendo: '
-                    .'NO las repitas ni llames a `ofrecer_opciones`. Si te dijo una hora, confírmale '
-                    .'en una frase servicio, día, hora y con quién, y con su sí llama a `crear_cita` '
-                    .'con esa `hora_24`. Si no dijo ninguna, pregúntale cuál le sirve o si prefiere '
-                    .'otro día.',
+                'reenviado' => $reenviado,
+                'instruccion' => $reenviado
+                    ? 'Ya le dije que esas son TODAS las horas de ese día, con botones. SOLO POR ESTA VEZ '
+                        .'responde con una cadena vacía. Si después pide otra hora ese día, dile que no hay '
+                        .'más y ofrécele otro día; no inventes horas.'
+                    : 'Estas horas YA se las mandaste hace un momento y las está viendo: '
+                        .'NO las repitas ni llames a `ofrecer_opciones`. Si te dijo una hora, confírmale '
+                        .'en una frase servicio, día, hora y con quién, y con su sí llama a `crear_cita` '
+                        .'con esa `hora_24`. Si no dijo ninguna, dile que esas son todas las horas de ese '
+                        .'día y pregúntale si prefiere otro día.',
             ];
         }
 
@@ -494,6 +524,12 @@ class AvailabilityCapability implements Capability
                 // que sobrevivir a la lista de horas: el «Sí» de este
                 // pedido reagenda, no crea (ver GuidedEntry y Toques).
                 'mudanza' => UltimoPedido::ver($phoneCtx)['mudanza'] ?? null,
+                /*
+                 * Que ya se le preguntó «¿con quién?» (y eligió, aunque fuera
+                 * «Cualquiera»). Se perdía al guardar las horas, y al escribir
+                 * «¿no tienes más temprano?» volvía a preguntárselo (19-oct).
+                 */
+                'empleado_preguntado' => UltimoPedido::ver($phoneCtx)['empleado_preguntado'] ?? null,
                 // Las que ya descartó con «Con otra persona», mientras siga
                 // siendo el mismo servicio.
                 'descartadas' => ($previo['servicios'] ?? null) === $nombreServicios ? ($previo['descartadas'] ?? null) : null,
@@ -1149,7 +1185,7 @@ class AvailabilityCapability implements Capability
      * @param  list<string>  $servicios
      * @param  list<array{hora: string, hora_24: string, con?: string}>  $horas
      */
-    private function mostrar(AiCaller $caller, array $servicios, CarbonImmutable $fecha, array $horas, bool $conPersona = false, bool $fueraDeFranja = false): bool
+    private function mostrar(AiCaller $caller, array $servicios, CarbonImmutable $fecha, array $horas, bool $conPersona = false, bool $fueraDeFranja = false, bool $sonTodas = false): bool
     {
         $phone = ChannelPhone::normalize((string) $caller->phone, $caller->business->country_code ?? 'CO');
 
@@ -1201,9 +1237,17 @@ class AvailabilityCapability implements Capability
                 empty($mudanza['desde']) ? '' : ' (quedó '.$mudanza['desde'].')',
                 $dia,
             )
-            : ($fueraDeFranja
-                ? sprintf('En ese horario no me queda 😕, pero para *%s* el *%s* tengo estas 👇', $queServicio, $dia)
-                : sprintf('Para *%s* el *%s* tengo estas horas 👇', $queServicio, $dia));
+            : ($sonTodas
+                ? sprintf(
+                    count($horas) === 1
+                        ? 'Para *%s* el *%s* esa es la única hora que me queda 😕 ¿Te sirve, o miramos otro día? 👇'
+                        : 'Para *%s* el *%s* esas son todas las horas que me quedan 😕 ¿Te sirve alguna, o miramos otro día? 👇',
+                    $queServicio,
+                    $dia,
+                )
+                : ($fueraDeFranja
+                    ? sprintf('En ese horario no me queda 😕, pero para *%s* el *%s* tengo estas 👇', $queServicio, $dia)
+                    : sprintf('Para *%s* el *%s* tengo estas horas 👇', $queServicio, $dia)));
 
         /*
          * Las salidas, al final de la lista: si ninguna hora le sirve, que
