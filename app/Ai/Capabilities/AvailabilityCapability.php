@@ -369,6 +369,33 @@ class AvailabilityCapability implements Capability
             $slots = $this->availability->slotsForChain($business, $servicios, $fecha, null, $persona?->id, $sede?->id);
         }
 
+        /*
+         * La que eligió no tiene horas ese día, pero otra del equipo sí: se le
+         * muestran ésas, diciéndole por qué. Antes era «con Alejandra no me
+         * quedan horas» a secas -- Alejandra no tenía turno el martes, Marcela
+         * estaba libre toda la tarde, y la clienta (que quería «tipo 2 pm») no
+         * supo que había espacio (20-oct).
+         */
+        $sinLaElegida = null;
+
+        if ($slots === [] && $persona !== null && ! $juntas && count($servicios) === 1) {
+            $descartadas = array_map(fn ($d) => mb_strtolower(trim((string) $d)), (array) (UltimoPedido::ver((string) $phoneCtx)['descartadas'] ?? []));
+            $deOtras = array_values(array_filter(
+                $this->availability->slotsForService($business, $servicios[0], $fecha, null, null, $sede?->id),
+                fn (array $s) => $s['resource_id'] !== $persona->id
+                    && ! in_array(mb_strtolower($s['resource_name']), $descartadas, true),
+            ));
+
+            if ($deOtras !== []) {
+                $sinLaElegida = [
+                    'nombre' => $persona->name,
+                    'trabaja' => $this->availability->workingWindowsFor($business, $persona, $fecha, $tz) !== [],
+                ];
+                $slots = $deOtras;
+                unset($arguments['empleado']);
+            }
+        }
+
         $todoElDia = $slots;
         $slots = $this->deLaFranja($slots, $arguments['franja'] ?? null, $tz);
 
@@ -502,7 +529,7 @@ class AvailabilityCapability implements Capability
             ];
         }
 
-        $mostrado = $this->mostrar($caller, $nombreServicios, $fecha, $ofrecidas, ! empty($arguments['empleado']), $fueraDeFranja);
+        $mostrado = $this->mostrar($caller, $nombreServicios, $fecha, $ofrecidas, ! empty($arguments['empleado']), $fueraDeFranja, sinLaElegida: $sinLaElegida);
 
         // Lo que se acaba de entender queda guardado: la siguiente llamada
         // -- "6 pm" tocado, sin mas -- ya sabe de que servicio y de que dia.
@@ -1185,7 +1212,10 @@ class AvailabilityCapability implements Capability
      * @param  list<string>  $servicios
      * @param  list<array{hora: string, hora_24: string, con?: string}>  $horas
      */
-    private function mostrar(AiCaller $caller, array $servicios, CarbonImmutable $fecha, array $horas, bool $conPersona = false, bool $fueraDeFranja = false, bool $sonTodas = false): bool
+    /**
+     * @param  array{nombre: string, trabaja: bool}|null  $sinLaElegida  la que pidió no tiene horas ese día
+     */
+    private function mostrar(AiCaller $caller, array $servicios, CarbonImmutable $fecha, array $horas, bool $conPersona = false, bool $fueraDeFranja = false, bool $sonTodas = false, ?array $sinLaElegida = null): bool
     {
         $phone = ChannelPhone::normalize((string) $caller->phone, $caller->business->country_code ?? 'CO');
 
@@ -1237,7 +1267,18 @@ class AvailabilityCapability implements Capability
                 empty($mudanza['desde']) ? '' : ' (quedó '.$mudanza['desde'].')',
                 $dia,
             )
-            : ($sonTodas
+            : ($sinLaElegida !== null
+                ? sprintf(
+                    $sinLaElegida['trabaja']
+                        ? 'Con *%s* el *%s* ya no me quedan horas para *%s* 😕 pero %s tengo estas 👇'
+                        : '*%s* no trabaja el *%s* 😕 Para *%s* %s tengo estas horas 👇',
+                    $this->primerNombre($sinLaElegida['nombre']),
+                    $dia,
+                    $queServicio,
+                    $this->conQuienes($horas),
+                )
+                : null)
+            ?? ($sonTodas
                 ? sprintf(
                     count($horas) === 1
                         ? 'Para *%s* el *%s* esa es la única hora que me queda 😕 ¿Te sirve, o miramos otro día? 👇'
@@ -1289,6 +1330,26 @@ class AvailabilityCapability implements Capability
             ]), $horas, array_keys($horas)), ...$salidas],
             'Ver horas',
         );
+    }
+
+    private function primerNombre(string $nombre): string
+    {
+        return explode(' ', trim($nombre))[0] ?: $nombre;
+    }
+
+    /**
+     * «con *Marcela*» si todas las horas son de una sola persona; si no, «con
+     * el resto del equipo».
+     *
+     * @param  list<array{con?: string}>  $horas
+     */
+    private function conQuienes(array $horas): string
+    {
+        $nombres = array_values(array_unique(array_filter(array_map(fn ($h) => $h['con'] ?? null, $horas))));
+
+        return count($nombres) === 1
+            ? 'con *'.$this->primerNombre($nombres[0]).'*'
+            : 'con el resto del equipo';
     }
 
     /**

@@ -232,6 +232,21 @@ final class Toques
                     return $this->losProximosDias($conversacion, $phone, $pedido);
                 }
 
+                /*
+                 * Tocó el NOMBRE de otra persona (de la lista de «¿con
+                 * quién?» que seguía en pantalla): se buscan las horas con
+                 * ella. Antes se ignoraba y volvía a decir «con Alejandra no
+                 * me quedan horas», con Alejandra (19-oct).
+                 */
+                $otra = $this->personaTocada($caller, $plano);
+
+                if ($otra !== null) {
+                    unset($pedido['eligiendo_fecha'], $pedido['sin_horas'], $pedido['horas'], $pedido['fechas']);
+                    UltimoPedido::guardar($phone, [...$pedido, 'empleado' => $otra, 'empleado_preguntado' => true]);
+
+                    return $this->respuestaDe($this->disponibilidad->execute($caller, ['empleado' => $otra]), 'otra_persona');
+                }
+
                 // Salidas del "no me quedan horas" (AvailabilityCapability::sinHoras).
                 if (! empty($pedido['sin_horas']) && $plano === $this->plano(AvailabilityCapability::OTRA_PERSONA)) {
                     return $this->conOtraPersona($caller, $phone, $pedido);
@@ -883,6 +898,34 @@ final class Toques
 
         // La confirmacion del cambio ya la mando la herramienta de mover.
         return ['text' => '', 'conversation_id' => null, 'tools_used' => ['reagendar_cita']];
+    }
+
+    /**
+     * El nombre de alguien del equipo que la clienta tocó, o null.
+     *
+     * Se compara con el nombre completo y con el primer nombre («Marcela» o
+     * «Marcela Camacho»), solo entre personas activas del negocio.
+     */
+    private function personaTocada(AiCaller $caller, string $plano): ?string
+    {
+        if (mb_strlen($plano) < 3) {
+            return null;
+        }
+
+        foreach (\App\Models\Resource::withoutGlobalScopes()
+            ->where('business_id', $caller->business->id)
+            ->where('type', \App\Models\Resource::TYPE_STAFF)
+            ->where('is_active', true)
+            ->get(['id', 'name']) as $persona) {
+            $completo = $this->plano($persona->name);
+            $primero = explode(' ', $completo)[0];
+
+            if ($plano === $completo || $plano === $primero) {
+                return $persona->name;
+            }
+        }
+
+        return null;
     }
 
     /**

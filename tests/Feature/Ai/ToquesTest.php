@@ -11,8 +11,11 @@ use App\Models\Appointment;
 use App\Models\Business;
 use App\Models\Client;
 use App\Models\Message;
+use App\Models\ScheduleException;
+use App\Models\Service;
 use App\Models\ServiceCategory;
 use App\Models\WhatsappConversation;
+use App\Services\Scheduling\BookingService;
 use App\Support\ChannelPhone;
 use App\Support\PermissionCatalog;
 use Carbon\CarbonImmutable;
@@ -859,5 +862,87 @@ class ToquesTest extends TestCase
         $this->invoke('disponibilidad', ['servicio' => 'Semipermanente', 'fecha' => $this->manana()])->assertOk();
 
         $this->assertTrue(UltimoPedido::ver((string) ChannelPhone::normalize(self::PHONE))['empleado_preguntado'] ?? false);
+    }
+
+    /** Quita a alguien todo el día de mañana (no trabaja). */
+    private function noTrabajaManana(string $nombre): void
+    {
+        $persona = \App\Models\Resource::withoutGlobalScope('business')->where('name', $nombre)->sole();
+        $dia = CarbonImmutable::parse($this->manana(), 'America/Bogota');
+
+        ScheduleException::withoutGlobalScopes()->create([
+            'business_id' => $this->business->id,
+            'resource_id' => $persona->id,
+            'kind' => ScheduleException::KIND_BLOCK,
+            'starts_at' => $dia->startOfDay()->utc(),
+            'ends_at' => $dia->addDay()->startOfDay()->utc(),
+        ]);
+    }
+
+    public function test_si_la_elegida_no_trabaja_ese_dia_le_muestra_las_horas_de_otra(): void
+    {
+        /*
+         * 20-oct: «Alejandra, hoy». Alejandra no tenía turno el martes y el
+         * bot dijo «no me quedan horas» -- Marcela estaba libre toda la tarde.
+         */
+        $this->noTrabajaManana('Maria');
+
+        $r = $this->invoke('disponibilidad', ['servicio' => 'Semipermanente', 'fecha' => $this->manana(), 'empleado' => 'Maria'])
+            ->assertOk();
+
+        $this->assertNotEmpty($r->json('data.ofrecidas'));
+        $this->assertSame(['Lucia'], array_values(array_unique(array_column($r->json('data.ofrecidas'), 'con'))));
+        Http::assertSent(fn ($req) => str_contains($req->data()['text'] ?? '', '*Maria* no trabaja')
+            && str_contains($req->data()['text'] ?? '', 'con *Lucia*'));
+        // Lo que toque se agenda con quien sí está.
+        $this->assertNull(UltimoPedido::ver((string) ChannelPhone::normalize(self::PHONE))['empleado'] ?? null);
+    }
+
+    public function test_si_la_elegida_ya_no_tiene_espacio_le_muestra_las_de_otra_y_lo_dice(): void
+    {
+        $maria = \App\Models\Resource::withoutGlobalScope('business')->where('name', 'Maria')->sole();
+        $semi = Service::withoutGlobalScope('business')->where('name', 'Semipermanente')->sole();
+        foreach (['09:00', '10:00', '11:00', '12:00'] as $hora) {
+            app(BookingService::class)->book(
+                $this->business,
+                [['service_id' => $semi->id, 'resource_id' => $maria->id,
+                    'starts_at' => CarbonImmutable::parse($this->manana().' '.$hora, 'America/Bogota')]],
+                null, 'Otra', null, Appointment::SOURCE_ADMIN, null, false,
+            );
+        }
+
+        $this->invoke('disponibilidad', ['servicio' => 'Semipermanente', 'fecha' => $this->manana(), 'empleado' => 'Maria'])
+            ->assertOk();
+
+        Http::assertSent(fn ($req) => str_contains($req->data()['text'] ?? '', 'Con *Maria*')
+            && str_contains($req->data()['text'] ?? '', 'ya no me quedan horas')
+            && str_contains($req->data()['text'] ?? '', 'con *Lucia*'));
+    }
+
+    public function test_si_nadie_tiene_horas_sigue_diciendo_que_no_hay(): void
+    {
+        $this->noTrabajaManana('Maria');
+        $this->noTrabajaManana('Lucia');
+
+        $this->invoke('disponibilidad', ['servicio' => 'Semipermanente', 'fecha' => $this->manana(), 'empleado' => 'Maria'])
+            ->assertOk();
+
+        Http::assertSent(fn ($req) => str_contains($req->data()['text'] ?? '', 'no me quedan horas'));
+    }
+
+    public function test_tocar_el_nombre_de_otra_persona_busca_con_ella(): void
+    {
+        /*
+         * 19-oct: en «con Alejandra no me quedan horas» tocó «Marcela
+         * Camacho» y el bot repitió el mismo mensaje con Alejandra.
+         */
+        $this->noTrabajaManana('Maria');
+        $this->noTrabajaManana('Lucia');
+        $this->invoke('disponibilidad', ['servicio' => 'Semipermanente', 'fecha' => $this->manana(), 'empleado' => 'Maria']);
+
+        $this->toques()->atender($this->conversacion, 'Lucia');
+
+        $this->assertSame('Lucia', UltimoPedido::ver((string) ChannelPhone::normalize(self::PHONE))['empleado'] ?? null);
+        Http::assertSent(fn ($req) => str_contains($req->data()['text'] ?? '', 'con Lucia no me quedan horas'));
     }
 }
